@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from supabase.client import ClientOptions
 
 from supabase import Client, create_client
-
+from ouro.air import MakeAirPost
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,6 +27,11 @@ load_dotenv()
 class Ouro:
     def __init__(self):
         self.client = None
+        self.public_client = None
+        self.user = None
+
+        # Class Instances
+        self.MakeAirPost = MakeAirPost
 
     def login(self, api_key: str):
         url: str = os.environ.get("SUPABASE_URL")
@@ -49,14 +54,23 @@ class Ouro:
                 persist_session=False,
             ),
         )
+        self.public_client: Client = create_client(
+            url,
+            key,
+            options=ClientOptions(
+                auto_refresh_token=False,
+                persist_session=False,
+            ),
+        )
 
         if not token:
             raise Exception("No user found for this API key")
 
         self.client.postgrest.auth(token)
+        self.public_client.postgrest.auth(token)
 
-        user = self.client.auth.get_user(token).user
-        print(f"Successfully logged in as {user.email}.")
+        self.user = self.client.auth.get_user(token).user
+        print(f"Successfully logged in as {self.user.email}.")
 
     def load_dataset(self, table_name: str, schema: str = "datasets"):
         start = time.time()
