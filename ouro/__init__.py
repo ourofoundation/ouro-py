@@ -40,6 +40,7 @@ class Ouro:
         if not api_key:
             raise Exception("No API key found")
 
+        # Send a request to Ouro Backend to get an access token
         req = requests.post(
             "http://localhost:3000/api/admin/get-token-from-pat",
             json={"pat": api_key},
@@ -50,7 +51,7 @@ class Ouro:
             key,
             options=ClientOptions(
                 schema="datasets",
-                auto_refresh_token=False,
+                auto_refresh_token=True,
                 persist_session=False,
             ),
         )
@@ -58,7 +59,7 @@ class Ouro:
             url,
             key,
             options=ClientOptions(
-                auto_refresh_token=False,
+                auto_refresh_token=True,
                 persist_session=False,
             ),
         )
@@ -71,6 +72,16 @@ class Ouro:
 
         self.user = self.client.auth.get_user(token).user
         print(f"Successfully logged in as {self.user.email}.")
+
+    def get_dataset(self, name: str):
+        res = (
+            self.public_client.table("datasets")
+            .select("*")
+            .eq("name", name)
+            .single()
+            .execute()
+        )
+        return res.data
 
     def load_dataset(self, table_name: str, schema: str = "datasets"):
         start = time.time()
