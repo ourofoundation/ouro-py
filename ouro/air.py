@@ -3,7 +3,10 @@ import pandas as pd
 
 
 class MakeAirPost:
-    """Create a new Air post. Formats the data to be viewed with the AirViewer."""
+    """Create a new Air post. Formats the data to be viewed with the AirViewer.
+
+    Inspired by https://github.com/didix21/mdutils
+    """
 
     def __init__(self):
         self.data = {
@@ -114,6 +117,29 @@ class MakeAirPost:
         element = {
             "type": "image",
             "attrs": {"src": src, "alt": alt},
+        }
+        self.data["content"].append(element)
+
+    def new_inline_asset(
+        self,
+        id: str,
+        element: str,
+        filters: dict = None,
+        view_mode: str = "default",
+    ):
+        element = {
+            "type": "paragraph",
+            "content": [
+                {
+                    "type": "assetComponent",
+                    "attrs": {
+                        "id": id,
+                        "element": element,
+                        "filters": filters,
+                        "viewMode": view_mode,
+                    },
+                }
+            ],
         }
         self.data["content"].append(element)
 
