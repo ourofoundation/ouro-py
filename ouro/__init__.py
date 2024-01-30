@@ -42,10 +42,11 @@ class Ouro:
 
         # Send a request to Ouro Backend to get an access token
         req = requests.post(
-            "http://localhost:3000/api/admin/get-token-from-pat",
+            "http://localhost:8003/users/get-token",
             json={"pat": api_key},
         )
-        token = req.json()["token"]
+        json = req.json()
+        token = json["token"]
         self.client: Client = create_client(
             url,
             key,
