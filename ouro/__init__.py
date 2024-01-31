@@ -8,6 +8,7 @@ from supabase.client import ClientOptions
 
 from supabase import Client, create_client
 from ouro.air import MakeAirPost
+from ouro.earth import Earth
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -29,6 +30,8 @@ class Ouro:
         self.client = None
         self.public_client = None
         self.user = None
+
+        self.earth = None
 
         # Class Instances
         self.MakeAirPost = MakeAirPost
@@ -73,6 +76,9 @@ class Ouro:
 
         self.user = self.client.auth.get_user(token).user
         print(f"Successfully logged in as {self.user.email}.")
+
+        # Instanciate classes
+        self.earth = Earth(self.client, self.public_client)
 
     def get_dataset(self, name: str):
         res = (

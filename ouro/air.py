@@ -123,7 +123,7 @@ class MakeAirPost:
     def new_inline_asset(
         self,
         id: str,
-        element: str,
+        asset_type: str,
         filters: dict = None,
         view_mode: str = "default",
     ):
@@ -134,7 +134,7 @@ class MakeAirPost:
                     "type": "assetComponent",
                     "attrs": {
                         "id": id,
-                        "element": element,
+                        "assetType": asset_type,
                         "filters": filters,
                         "viewMode": view_mode,
                     },
