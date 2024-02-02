@@ -1,6 +1,6 @@
 import logging
 import os
-import time
+
 
 import requests
 from dotenv import load_dotenv
@@ -79,42 +79,3 @@ class Ouro:
 
         # Instanciate classes
         self.earth = Earth(self.client, self.public_client)
-
-    def get_dataset(self, name: str):
-        res = (
-            self.public_client.table("datasets")
-            .select("*")
-            .eq("name", name)
-            .single()
-            .execute()
-        )
-        return res.data
-
-    def load_dataset(self, table_name: str, schema: str = "datasets"):
-        start = time.time()
-
-        row_count = self.client.table(table_name).select("*", count="exact").execute()
-        row_count = row_count.count
-
-        logger.info(f"Loading {row_count} rows from {schema}.{table_name}...")
-        # Batch load the data if it's too big
-        if row_count > 1_000_000:
-            data = []
-            for i in range(0, row_count, 1_000_000):
-                logger.debug(f"Loading rows {i} to {i+1_000_000}")
-                res = (
-                    self.client.table(table_name)
-                    .select("*")
-                    .range(i, i + 1_000_000)
-                    .execute()
-                )
-                data.extend(res.data)
-        else:
-            res = self.client.table(table_name).select("*").limit(1_000_000).execute()
-            data = res.data
-
-        end = time.time()
-        logger.info(f"Finished loading data in {round(end - start, 2)} seconds.")
-
-        self.data = data
-        return data

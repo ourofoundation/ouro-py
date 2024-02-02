@@ -1,4 +1,15 @@
 from supabase import Client
+import time
+import logging
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+console_handler = logging.StreamHandler()
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+formatter = logging.Formatter(log_format)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 
 class Earth:
@@ -45,3 +56,32 @@ class Earth:
             ).execute()
         ).data
         return schema
+
+    def load_dataset(self, table_name: str, schema: str = "datasets"):
+        start = time.time()
+
+        row_count = self.client.table(table_name).select("*", count="exact").execute()
+        row_count = row_count.count
+
+        logger.info(f"Loading {row_count} rows from {schema}.{table_name}...")
+        # Batch load the data if it's too big
+        if row_count > 1_000_000:
+            data = []
+            for i in range(0, row_count, 1_000_000):
+                logger.debug(f"Loading rows {i} to {i+1_000_000}")
+                res = (
+                    self.client.table(table_name)
+                    .select("*")
+                    .range(i, i + 1_000_000)
+                    .execute()
+                )
+                data.extend(res.data)
+        else:
+            res = self.client.table(table_name).select("*").limit(1_000_000).execute()
+            data = res.data
+
+        end = time.time()
+        logger.info(f"Finished loading data in {round(end - start, 2)} seconds.")
+
+        self.data = data
+        return data
