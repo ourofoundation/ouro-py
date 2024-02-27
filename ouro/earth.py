@@ -13,9 +13,8 @@ logger.addHandler(console_handler)
 
 
 class Earth:
-    def __init__(self, client: Client, public_client: Client):
-        self.client = client
-        self.public_client = public_client
+    def __init__(self, config):
+        self.config = config
 
     def get_dataset(self, dataset_id: str):
         dataset = (

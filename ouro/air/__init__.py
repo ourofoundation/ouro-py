@@ -1,15 +1,32 @@
+
+
+
+from supabase import Client
+import time
+import logging
 import json
+import os
+import requests
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+console_handler = logging.StreamHandler()
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+formatter = logging.Formatter(log_format)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
-class MakeAirPost:
+
+class Post:
     """Create a new Air post. Formats the data to be viewed with the AirViewer.
 
     Inspired by https://github.com/didix21/mdutils
     """
 
-    def __init__(self):
-        self.data = {
+    def __init__(self, data: dict = {}, content: dict = {}):
+        self.data = data        
+        self.content = {
             "type": "doc",
             "content": [],
         }
@@ -20,21 +37,21 @@ class MakeAirPost:
             "attrs": {"level": level},
             "content": [{"text": title, "type": "text"}],
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_paragraph(self, text: str):
         element = {
             "type": "paragraph",
             "content": [{"text": text, "type": "text"}],
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_line(self):
         element = {
             "type": "paragraph",
             "content": [{"text": "", "type": "text"}],
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_code_block(self, code: str, language: str = None):
         element = {
@@ -42,7 +59,7 @@ class MakeAirPost:
             "attrs": {"language": language},
             "content": [{"text": code, "type": "text"}],
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_table(self, data: pd.DataFrame):
         element = {
@@ -111,14 +128,14 @@ class MakeAirPost:
         # Add the header row and rows to the table
         element["content"] = [header_row, *rows]
 
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_inline_image(self, src: str, alt: str):
         element = {
             "type": "image",
             "attrs": {"src": src, "alt": alt},
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
     def new_inline_asset(
         self,
@@ -141,9 +158,24 @@ class MakeAirPost:
                 }
             ],
         }
-        self.data["content"].append(element)
+        self.content["content"].append(element)
 
-    def create_post(self):
-        # with open("sample.json", "w") as outfile:
-        #     outfile.write(json.dumps(self.data, indent=2))
-        return self.data
+
+class Air:
+    def __init__(self, config):
+        self.config = config
+
+    def create_post(self, post: Post):
+        request = requests.post(f"{os.environ.get('OURO_BACKEND_URL')}/elements/air/create",
+            headers={
+                "Authorization": f"{self.config.token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "content": {"json": post.content, "text": ""},
+                "post": post.data
+            },
+        )
+        request.raise_for_status()
+
+        return request.json()
