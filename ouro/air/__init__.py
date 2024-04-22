@@ -172,7 +172,7 @@ class Air:
                 "Content-Type": "application/json",
             },
             json={
-                "content": {"json": post.content, "text": ""},
+                "contents": {"json": post.contents, "text": ""},
                 "post": post.data
             },
         )
