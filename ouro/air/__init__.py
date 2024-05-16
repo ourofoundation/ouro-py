@@ -145,9 +145,9 @@ class Post:
         view_mode: str = "default",
     ):
         element = {
-            "type": "paragraph",
-            "content": [
-                {
+            # "type": "paragraph",
+            # "content": [
+            #     {
                     "type": "assetComponent",
                     "attrs": {
                         "id": id,
@@ -155,8 +155,8 @@ class Post:
                         "filters": filters,
                         "viewMode": view_mode,
                     },
-                }
-            ],
+            #     }
+            # ],
         }
         self.content["content"].append(element)
 
@@ -164,6 +164,7 @@ class Post:
 class Air:
     def __init__(self, config):
         self.config = config
+        self.Post = Post
 
     def create_post(self, post: Post):
         request = requests.post(f"{os.environ.get('OURO_BACKEND_URL')}/elements/air/create",
@@ -172,7 +173,7 @@ class Air:
                 "Content-Type": "application/json",
             },
             json={
-                "contents": {"json": post.contents, "text": ""},
+                "content": {"json": post.content, "text": ""},
                 "post": post.data
             },
         )
