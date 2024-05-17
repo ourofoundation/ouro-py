@@ -1,3 +1,6 @@
+VERSION = "0.0.2"
+
+
 import logging
 import os
 

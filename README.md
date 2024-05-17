@@ -6,7 +6,7 @@ Python client for [Ouro](https://ouro.foundation)
 
 ## Usage
 
-Generate an API key from your account settings by going to [ouro.foundation/app/settings/api-key](https://ouro.foundation/app/settings/api-key).
+Generate an API key from your account settings by going to [ouro.foundation/app/settings/api-keys](https://ouro.foundation/app/settings/api-keys).
 
 Set your Ouro environment variables in a dotenv file, or using the shell:
 
@@ -38,8 +38,9 @@ data = pd.DataFrame([
 ])
 
 dataset = ouro.earth.create_dataset({
-    "name": "unique_dataset_name",
-    "visibility": "private",
+        "name": "unique_dataset_name",
+        "description": "dataset_description",
+        "visibility": "private",
     },
     data
 )
@@ -60,7 +61,7 @@ cd ouro-py
 
 ### Create and Activate a Virtual Environment
 
-We recommend activating your virtual environment. For example, we like `poetry` and `conda`! Click [here](https://docs.python.org/3/library/venv.html) for more about Python virtual environments and working with [conda](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment) and [poetry](https://python-poetry.org/docs/basic-usage/).
+We recommend activating your virtual environment. Click [here](https://docs.python.org/3/library/venv.html) for more about Python virtual environments and working with [conda](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment) and [poetry](https://python-poetry.org/docs/basic-usage/).
 
 Using venv (Python 3 built-in):
 
@@ -82,7 +83,7 @@ Install the package (for > Python 3.7):
 
 ```bash
 # with pip
-pip install ouro
+pip install ouro-py
 ```
 
 ### Local installation
@@ -93,8 +94,8 @@ You can also install locally after cloning this repo. Install Development mode w
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?label=license)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/ourofoundation/ouro-py/actions/workflows/ci.yml/badge.svg)](https://github.com/ourofoundation/ouro-py/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/pypi/pyversions/ouro)](https://pypi.org/project/ouro)
-[![Version](https://img.shields.io/pypi/v/ouro?color=%2334D058)](https://pypi.org/project/ouro)
+[![Python](https://img.shields.io/pypi/pyversions/ouro-py)](https://pypi.org/project/ouro-py)
+[![Version](https://img.shields.io/pypi/v/ouro-py?color=%2334D058)](https://pypi.org/project/ouro-py)
 [![Codecov](https://codecov.io/gh/ourofoundation/ouro-py/branch/develop/graph/badge.svg)](https://codecov.io/gh/ourofoundation/ouro-py)
 [![Last commit](https://img.shields.io/github/last-commit/ourofoundation/ouro-py.svg?style=flat)](https://github.com/ourofoundation/ouro-py/commits)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ourofoundation/ouro-py)](https://github.com/ourofoundation/ouro-py/commits)

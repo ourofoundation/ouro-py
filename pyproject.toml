@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ouro-py"
+dynamic = ["version"]
+description = "Python wrapper for the Ouro API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.7"
+authors = [{ name = "Matt Moderwell", email = "matt@ouro.foundation" }]
+keywords = ["ouro"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "httpx",
+    "numpy",
+    "pandas",
+    "postgrest",
+    "python-dotenv",
+    "supabase",
+]
+
+[project.urls]
+Homepage = "https://github.com/ourofoundation/ouro-py"
+PyPI = "https://pypi.org/project/ouro-py"
+
+[tool.hatch.version]
+path = "ouro/__init__.py"
+
+
+[tool.hatch.build]
+packages = ["/ouro"]
+
+[tool.hatch.build.targets.wheel]
+include = ["/ouro"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/ouro"]
