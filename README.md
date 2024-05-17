@@ -46,6 +46,16 @@ dataset = ouro.earth.create_dataset({
 )
 ```
 
+### Read a dataset
+
+```python
+id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6" # penguins dataset
+dataset = ouro.earth.read_dataset(id)
+
+# Read dataset's data as a Pandas DataFrame
+df = ouro.earth.read_dataset_data(id)
+```
+
 ## Contributing
 
 Contributing to the Python library is a great way to get involved with the Ouro community. Reach out to us on our [Github Discussions](https://github.com/orgs/ourofoundation/discussions) page if you want to get involved.

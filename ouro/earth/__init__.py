@@ -57,19 +57,12 @@ class Earth:
         logger.info(response)
 
         if response["error"]:
-            logger.error(response["error"])
             raise Exception(response["error"])
 
         # If we've created the dataset, we can now insert the data
         # if response["data"] and not response["error"]:
         created = response["data"]
         table_name = created["metadata"]["table_name"]
-
-        # Format the DataFrame to be inserted
-        # Manually format any dates to be ISO 8601
-
-        # insert_data = data.to_json(orient="records")
-        # insert_data = pd.read_json(insert_data)
 
         for column in df.columns:
             if df[column].dtype == "datetime64[ns]":
@@ -80,7 +73,6 @@ class Earth:
         df = df.map(lambda x: None if pd.isna(x) or x == "" else x)
 
         insert_data = df.to_dict(orient="records")
-
         # Ensure that we're not inserting any NaN values by converting them to None
         insert_data = [
             {k: v if not pd.isna(v) else None for k, v in row.items()}
@@ -90,6 +82,35 @@ class Earth:
         insert = self.config.client.table(table_name).insert(insert_data).execute()
         if len(insert.data) > 0:
             logger.info(f"Inserted {len(insert.data)} rows into {table_name}")
+
+        return response["data"]
+
+    def read_dataset(self, id: str):
+        request = httpx.get(
+            f"{os.environ.get('OURO_BACKEND_URL')}/elements/earth/assets/{id}",
+            headers={
+                "Authorization": f"{self.config.token}",
+            },
+        )
+        request.raise_for_status()
+        response = request.json()
+
+        if response["error"]:
+            raise Exception(response["error"])
+        return response["data"]
+
+    def read_dataset_data(self, id: str) -> pd.DataFrame:
+        request = httpx.get(
+            f"{os.environ.get('OURO_BACKEND_URL')}/elements/earth/assets/{id}/data",
+            headers={
+                "Authorization": f"{self.config.token}",
+            },
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+        return pd.DataFrame(response["data"])
 
     def get_dataset(self, dataset_id: str):
         dataset = (
