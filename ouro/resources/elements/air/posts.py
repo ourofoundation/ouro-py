@@ -36,7 +36,7 @@ class Posts(SyncAPIResource):
         post = {k: v for k, v in post.items() if v is not None}
 
         request = self.client.post(
-            "/elements/air/create",
+            "/elements/air/posts/create",
             json={
                 "post": post,
                 "content": content.to_dict(),
