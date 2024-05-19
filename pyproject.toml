@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ouro-py"
 dynamic = ["version"]
-description = "Python wrapper for the Ouro API"
+description = "The official Python library for the Ouro API"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.7"
@@ -23,24 +23,28 @@ dependencies = [
     "postgrest",
     "python-dotenv",
     "supabase",
+    "anyio",
+    "pydantic",
+    "distro",
 ]
 
 [project.urls]
 Homepage = "https://github.com/ourofoundation/ouro-py"
+Repository = "https://github.com/ourofoundation/ouro-py"
 PyPI = "https://pypi.org/project/ouro-py"
 
 [tool.hatch.version]
-path = "ouro/__init__.py"
+path = "ouro/__version__.py"
 
 
 [tool.hatch.build]
-packages = ["/ouro"]
+include = ["ouro/*"]
 
 [tool.hatch.build.targets.wheel]
-include = ["/ouro"]
+packages = ["ouro/*"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/ouro"]
+packages = ["ouro/*"]
 
 
 [tool.hatch.envs.development.env-vars]

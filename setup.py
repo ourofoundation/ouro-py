@@ -11,19 +11,18 @@ setup(
         "pandas",
         "numpy",
         "httpx",
+        "anyio",
+        "pydantic",
+        "distro",
     ],
     python_requires=">=3.7",
     author="Matt Moderwell",
     author_email="matt@ouro.foundation",
-    description="Python wrapper for the Ouro API",
+    description="The official Python library for the Ouro API",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/ourofoundation/ouro-py",
-    classifiers=[
-        # Classifiers help users find your project based on certain keywords
-        # Example: 'Development Status :: 4 - Beta'
-        # Full list at https://pypi.org/classifiers/
-    ],
-    keywords="ouro",  # Replace with keywords relevant to your package
-    license="MIT",  # Replace with your chosen license
+    classifiers=[],
+    keywords="ouro",
+    license="MIT",
 )

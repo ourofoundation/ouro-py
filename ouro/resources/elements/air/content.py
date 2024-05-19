@@ -1,57 +1,65 @@
+from copy import deepcopy
 
-
-
-from supabase import Client
-import time
-import logging
-import json
-import os
-import requests
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-console_handler = logging.StreamHandler()
-log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-formatter = logging.Formatter(log_format)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+__all__ = ["Editor", "Content"]
 
 
-class Post:
-    """Create a new Air post. Formats the data to be viewed with the AirViewer.
+DEFAULT_CONTENT_JSON = {
+    "type": "doc",
+    "content": [],
+}
+
+
+class Content:
+    """A Post's content."""
+
+    json: dict
+    text: str
+
+    def __init__(self, json: dict = None, text: str = ""):
+        self.json = deepcopy(json) if json else deepcopy(DEFAULT_CONTENT_JSON)
+        self.text = text
+
+    def to_dict(self):
+        return {"json": self.json, "text": self.text}
+
+
+class Editor(Content):
+    """Class for creating and editing a Post's content.
 
     Inspired by https://github.com/didix21/mdutils
     """
 
-    def __init__(self, data: dict = {}, content: dict = {}):
-        self.data = data        
-        self.content = {
-            "type": "doc",
-            "content": [],
-        }
+    # def __init__(self):
+    #     super().__init__()
 
-    def new_header(self, level: int, title: str):
+    def new_header(self, level: int, text: str):
+        assert 1 <= level <= 3, "Header level must be between 1 and 3"
+
         element = {
             "type": "heading",
             "attrs": {"level": level},
-            "content": [{"text": title, "type": "text"}],
+            "content": [{"text": text, "type": "text"}],
         }
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += f"{'#' * level} {text}\n"
 
     def new_paragraph(self, text: str):
         element = {
             "type": "paragraph",
             "content": [{"text": text, "type": "text"}],
         }
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += f"{text}\n"
 
     def new_line(self):
         element = {
             "type": "paragraph",
             "content": [{"text": "", "type": "text"}],
         }
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += "\n"
 
     def new_code_block(self, code: str, language: str = None):
         element = {
@@ -59,7 +67,8 @@ class Post:
             "attrs": {"language": language},
             "content": [{"text": code, "type": "text"}],
         }
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += f"```{language}\n{code}\n```"
 
     def new_table(self, data: pd.DataFrame):
         element = {
@@ -128,14 +137,16 @@ class Post:
         # Add the header row and rows to the table
         element["content"] = [header_row, *rows]
 
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += f"{data.to_markdown()}\n"
 
     def new_inline_image(self, src: str, alt: str):
         element = {
             "type": "image",
             "attrs": {"src": src, "alt": alt},
         }
-        self.content["content"].append(element)
+        self.json["content"].append(element)
+        self.text += f"![{alt}]({src})"
 
     def new_inline_asset(
         self,
@@ -148,35 +159,15 @@ class Post:
             # "type": "paragraph",
             # "content": [
             #     {
-                    "type": "assetComponent",
-                    "attrs": {
-                        "id": id,
-                        "assetType": asset_type,
-                        "filters": filters,
-                        "viewMode": view_mode,
-                    },
+            "type": "assetComponent",
+            "attrs": {
+                "id": id,
+                "assetType": asset_type,
+                "filters": filters,
+                "viewMode": view_mode,
+            },
             #     }
             # ],
         }
-        self.content["content"].append(element)
-
-
-class Air:
-    def __init__(self, config):
-        self.config = config
-        self.Post = Post
-
-    def create_post(self, post: Post):
-        request = requests.post(f"{os.environ.get('OURO_BACKEND_URL')}/elements/air/create",
-            headers={
-                "Authorization": f"{self.config.token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "content": {"json": post.content, "text": ""},
-                "post": post.data
-            },
-        )
-        request.raise_for_status()
-
-        return request.json()
+        self.json["content"].append(element)
+        self.text += f"{{asset:{id}}}"

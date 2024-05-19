@@ -1,89 +1,86 @@
-VERSION = "0.0.3"
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 
+from __future__ import annotations
 
-import logging
-import os
-
-
-import requests
+import os as _os
+from typing_extensions import override
 from dotenv import load_dotenv
-from supabase.client import ClientOptions
 
-from supabase import Client, create_client
-from ouro.air import Air
-from ouro.earth import Earth
+from . import types
+from ._types import NOT_GIVEN, NoneType, Transport, ProxiesTypes
+from ._client import Ouro
+from ._logs import setup_logging
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-console_handler = logging.StreamHandler()
-log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-formatter = logging.Formatter(log_format)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+# from ._models import BaseModel
+from .__version__ import __title__, __version__
 
-postgres_logger = logging.getLogger("httpx")
-postgres_logger.setLevel(logging.WARNING)
+# from ._response import APIResponse as APIResponse, AsyncAPIResponse as AsyncAPIResponse
+from ._constants import DEFAULT_TIMEOUT, DEFAULT_MAX_RETRIES, DEFAULT_CONNECTION_LIMITS
+from ._exceptions import (
+    APIError,
+    OpenAIError,
+    ConflictError,
+    NotFoundError,
+    APIStatusError,
+    RateLimitError,
+    APITimeoutError,
+    BadRequestError,
+    APIConnectionError,
+    AuthenticationError,
+    InternalServerError,
+    PermissionDeniedError,
+    UnprocessableEntityError,
+    APIResponseValidationError,
+)
 
+# from ._base_client import DefaultHttpxClient, DefaultAsyncHttpxClient
+# from ._utils._logs import setup_logging as _setup_logging
+
+__all__ = [
+    # "types",
+    "__version__",
+    "__title__",
+    # "NoneType",
+    # "Transport",
+    # "ProxiesTypes",
+    # "NotGiven",
+    # "NOT_GIVEN",
+    # "OpenAIError",
+    # "APIError",
+    # "APIStatusError",
+    # "APITimeoutError",
+    # "APIConnectionError",
+    # "APIResponseValidationError",
+    # "BadRequestError",
+    # "AuthenticationError",
+    # "PermissionDeniedError",
+    # "NotFoundError",
+    # "ConflictError",
+    # "UnprocessableEntityError",
+    # "RateLimitError",
+    # "InternalServerError",
+    # "Timeout",
+    # "RequestOptions",
+    # "Client",
+    "Ouro",
+    # "DEFAULT_TIMEOUT",
+    # "DEFAULT_MAX_RETRIES",
+    # "DEFAULT_CONNECTION_LIMITS",
+]
 
 load_dotenv()
 
+setup_logging()
 
-class Ouro:
-    def __init__(self):
-        self.client = None
-        self.public_client = None
-        self.user = None
-        self.token = None
-
-        self.earth = None
-        self.water = None
-        self.air = None
-        self.fire = None
-
-        # Class Instances
-        # self.MakeAirPost = MakeAirPost
-
-    def login(self, api_key: str):
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_ANON_KEY")
-
-        if not api_key:
-            raise Exception("No API key found")
-
-        # Send a request to Ouro Backend to get an access token
-        req = requests.post(
-            f"{os.environ.get('OURO_BACKEND_URL')}/users/get-token",
-            json={"pat": api_key},
-        )
-        json = req.json()
-        self.token = json["token"]
-        self.client: Client = create_client(
-            url,
-            key,
-            options=ClientOptions(
-                schema="datasets",
-                auto_refresh_token=True,
-                persist_session=False,
-            ),
-        )
-        self.public_client: Client = create_client(
-            url,
-            key,
-            options=ClientOptions(
-                auto_refresh_token=True,
-                persist_session=False,
-            ),
-        )
-
-        if not self.token:
-            raise Exception("No user found for this API key")
-
-        self.client.postgrest.auth(self.token)
-        self.public_client.postgrest.auth(self.token)
-
-        self.user = self.client.auth.get_user(self.token).user
-        print(f"Successfully logged in as {self.user.email}.")
-
-        # Instanciate classes
-        self.earth = Earth(config=self)
-        self.air = Air(config=self)
+# Update the __module__ attribute for exported symbols so that
+# error messages point to this module instead of the module
+# it was originally defined in, e.g.
+# ouro._exceptions.NotFoundError -> ouro.NotFoundError
+__locals = locals()
+for __name in __all__:
+    if not __name.startswith("__"):
+        try:
+            __locals[__name].__module__ = "ouro"
+        except (TypeError, AttributeError):
+            # Some of our exported symbols are builtins which we can't set attributes for.
+            pass

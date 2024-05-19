@@ -1,8 +1,20 @@
 # `ouro-py`
 
-Python client for [Ouro](https://ouro.foundation)
+[![Version](https://img.shields.io/pypi/v/ouro-py?color=%2334D058)](https://pypi.org/project/ouro-py)
 
-- Documentation: [ouro.foundation/docs](https://ouro.foundation/docs)
+The Ouro Python library provides convenient access to the Ouro REST API from any Python 3.7+
+application. Visit [Ouro](https://ouro.foundation) to learn more about the Ouro platform.
+
+## Documentation
+
+The REST API documentation can be found on [ouro.foundation/docs](https://ouro.foundation/docs).
+
+## Installation
+
+```sh
+# install from PyPI
+pip install ouro-py
+```
 
 ## Usage
 
@@ -34,10 +46,9 @@ data = pd.DataFrame([
     {"name": "Bob", "age": 30},
     {"name": "Alice", "age": 27},
     {"name": "Matt", "age": 26},
-
 ])
 
-dataset = ouro.earth.create_dataset({
+dataset = ouro.earth.datasets.create({
         "name": "unique_dataset_name",
         "description": "dataset_description",
         "visibility": "private",
@@ -50,10 +61,23 @@ dataset = ouro.earth.create_dataset({
 
 ```python
 id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6" # penguins dataset
-dataset = ouro.earth.read_dataset(id)
+dataset = ouro.earth.datasets.retrieve(id)
 
 # Read dataset's data as a Pandas DataFrame
-df = ouro.earth.read_dataset_data(id)
+df = ouro.earth.datasets.data.retrieve(id)
+```
+
+### Update a dataset
+
+```python
+id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6" # penguins dataset
+data = pd.DataFrame([
+    {"name": "Bob", "age": 30},
+    {"name": "Alice", "age": 27},
+    {"name": "Matt", "age": 26},
+])
+
+dataset = ouro.earth.datasets.update(id, data)
 ```
 
 ## Contributing
@@ -105,7 +129,7 @@ You can also install locally after cloning this repo. Install Development mode w
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?label=license)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/ourofoundation/ouro-py/actions/workflows/ci.yml/badge.svg)](https://github.com/ourofoundation/ouro-py/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/pypi/pyversions/ouro-py)](https://pypi.org/project/ouro-py)
-[![Version](https://img.shields.io/pypi/v/ouro-py?color=%2334D058)](https://pypi.org/project/ouro-py)
+
 [![Codecov](https://codecov.io/gh/ourofoundation/ouro-py/branch/develop/graph/badge.svg)](https://codecov.io/gh/ourofoundation/ouro-py)
 [![Last commit](https://img.shields.io/github/last-commit/ourofoundation/ouro-py.svg?style=flat)](https://github.com/ourofoundation/ouro-py/commits)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ourofoundation/ouro-py)](https://github.com/ourofoundation/ouro-py/commits)
