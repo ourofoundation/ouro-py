@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "Asset",
@@ -34,7 +34,9 @@ class Asset(BaseModel):
 
 class PostContent(BaseModel):
     text: str
-    json: dict
+    data: dict = Field(
+        alias="json",
+    )
 
 
 class Post(Asset):
