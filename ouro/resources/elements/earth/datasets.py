@@ -31,7 +31,11 @@ class Datasets(SyncAPIResource):
             df.reset_index(inplace=True)
 
         create_table_sql = pd.io.sql.get_schema(
-            df, name=table_name, schema="datasets", keys=index_name
+            df,
+            name=table_name,
+            schema="datasets",
+            # TODO: Add support for primary keys
+            # keys=index_name
         )
 
         create_table_sql = create_table_sql.replace(
@@ -199,9 +203,7 @@ class Datasets(SyncAPIResource):
             table_name = self.retrieve(id)["metadata"]["table_name"]
             insert_data = self._serialize_dataframe(data)
 
-            insert = (
-                self.database.client.table(table_name).insert(insert_data).execute()
-            )
+            insert = self.database.table(table_name).insert(insert_data).execute()
             if len(insert.data) > 0:
                 log.info(f"Inserted {len(insert.data)} rows into {table_name}")
 
