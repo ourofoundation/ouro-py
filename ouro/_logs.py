@@ -1,5 +1,7 @@
-import os
 import logging
+import os
+
+from ouro.config import Config
 
 logger: logging.Logger = logging.getLogger("ouro")
 httpx_logger: logging.Logger = logging.getLogger("httpx")
@@ -14,12 +16,12 @@ def _basic_config() -> None:
 
 
 def setup_logging() -> None:
-    env = os.environ.get("OURO_LOG") or "info"
-    if env == "debug":
+    debug = Config.DEBUG
+    if debug:
         _basic_config()
         logger.setLevel(logging.DEBUG)
         httpx_logger.setLevel(logging.DEBUG)
-    elif env == "info":
+    else:
         _basic_config()
         logger.setLevel(logging.INFO)
         httpx_logger.setLevel(logging.INFO)

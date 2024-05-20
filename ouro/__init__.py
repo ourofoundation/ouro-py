@@ -2,36 +2,38 @@
 
 from __future__ import annotations
 
-import os as _os
-from typing_extensions import override
+import os
+
 from dotenv import load_dotenv
+from ouro.config import Config
+from typing_extensions import override
 
 from . import types
-from ._types import NOT_GIVEN, NoneType, Transport, ProxiesTypes
-from ._client import Ouro
-from ._logs import setup_logging
 
 # from ._models import BaseModel
 from .__version__ import __title__, __version__
+from ._client import Ouro
 
 # from ._response import APIResponse as APIResponse, AsyncAPIResponse as AsyncAPIResponse
-from ._constants import DEFAULT_TIMEOUT, DEFAULT_MAX_RETRIES, DEFAULT_CONNECTION_LIMITS
+from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT
 from ._exceptions import (
-    APIError,
-    OpenAIError,
-    ConflictError,
-    NotFoundError,
-    APIStatusError,
-    RateLimitError,
-    APITimeoutError,
-    BadRequestError,
     APIConnectionError,
-    AuthenticationError,
-    InternalServerError,
-    PermissionDeniedError,
-    UnprocessableEntityError,
+    APIError,
     APIResponseValidationError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    ConflictError,
+    InternalServerError,
+    NotFoundError,
+    OpenAIError,
+    PermissionDeniedError,
+    RateLimitError,
+    UnprocessableEntityError,
 )
+from ._logs import setup_logging
+from ._types import NOT_GIVEN, NoneType, ProxiesTypes, Transport
 
 # from ._base_client import DefaultHttpxClient, DefaultAsyncHttpxClient
 # from ._utils._logs import setup_logging as _setup_logging
@@ -67,8 +69,6 @@ __all__ = [
     # "DEFAULT_MAX_RETRIES",
     # "DEFAULT_CONNECTION_LIMITS",
 ]
-
-load_dotenv()
 
 setup_logging()
 

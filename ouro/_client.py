@@ -1,29 +1,22 @@
 from __future__ import annotations
+
 import logging
 import os
 from typing import Any, Union
-from typing_extensions import override
 
-from supabase.client import ClientOptions
-import supabase
 import httpx
 import ouro.resources as resources
-from .__version__ import __version__
-from ._exceptions import OpenAIError, APIStatusError
-from ._utils import (
-    # is_given,
-    is_mapping,
-)
-from ._constants import (
-    # DEFAULT_TIMEOUT,
-    # MAX_RETRY_DELAY,
-    DEFAULT_MAX_RETRIES,
-    # INITIAL_RETRY_DELAY,
-    # RAW_RESPONSE_HEADER,
-    # OVERRIDE_CAST_TO_HEADER,
-    # DEFAULT_CONNECTION_LIMITS,
-)
+import supabase
+from ouro.config import Config
+from supabase.client import ClientOptions
+from typing_extensions import override
 
+from .__version__ import __version__
+from ._constants import (  # DEFAULT_TIMEOUT,; MAX_RETRY_DELAY,; INITIAL_RETRY_DELAY,; RAW_RESPONSE_HEADER,; OVERRIDE_CAST_TO_HEADER,; DEFAULT_CONNECTION_LIMITS,
+    DEFAULT_MAX_RETRIES,
+)
+from ._exceptions import APIStatusError, OpenAIError
+from ._utils import is_mapping  # is_given,
 
 __all__ = ["Ouro"]
 
@@ -77,6 +70,7 @@ class Ouro:
     # Connection options
     database_url: str | httpx.URL | None
     database_anon_key: str | None
+    base_url: str | httpx.URL | None
 
     def __init__(
         self,
@@ -117,24 +111,19 @@ class Ouro:
             project = os.environ.get("OURO_PROJECT_ID")
         self.project = project
 
-        if base_url is None:
-            base_url = os.environ.get("OURO_BASE_URL")
-        if base_url is None:
-            # base_url = f"https://api.ouro.foundation"
-            base_url = f"http://localhost:8003"
-
-        # Set config for Supabase client
-        self.database_url = os.environ.get("SUPABASE_URL")
-        self.database_anon_key = os.environ.get("SUPABASE_ANON_KEY")
+        # Set config for Supabase client and Ouro client
+        self.base_url = Config.OURO_BACKEND_URL
+        self.database_url = Config.SUPABASE_URL
+        self.database_anon_key = Config.SUPABASE_ANON_KEY
 
         # Make a private property for the access token
         self.access_token = None
 
         # Create the httpx client
         self.client = httpx.Client(
-            auth=OuroAuth(api_key, refresh_url=base_url + "/users/get-token"),
+            auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
             # version=__version__,
-            base_url=base_url,
+            base_url=self.base_url,
             # max_retries=max_retries,
             timeout=timeout,
             # http_client=http_client,
@@ -208,8 +197,8 @@ class Ouro:
         return APIStatusError(err_msg, response=response, body=data)
 
     def login(self):
-        url: str = os.environ.get("SUPABASE_URL")
-        key: str = os.environ.get("SUPABASE_ANON_KEY")
+        url: str = self.database_url
+        key: str = self.database_anon_key
 
         api_key = self.api_key
 

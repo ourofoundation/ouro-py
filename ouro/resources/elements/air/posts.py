@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 
 from ouro._resource import SyncAPIResource
+from ouro.models import Post
 
 from .content import Content
 
@@ -20,7 +21,7 @@ class Posts(SyncAPIResource):
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
-    ):
+    ) -> Post:
         """
         Create a new Post
         """
@@ -46,7 +47,8 @@ class Posts(SyncAPIResource):
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
-        return response["data"]
+
+        return Post(**response["data"])
 
     def retrieve(self, id: str):
         """
@@ -60,14 +62,7 @@ class Posts(SyncAPIResource):
         if response["error"]:
             raise Exception(response["error"])
 
-        # TODO: just use a pydantic model
-        # Instantiate Content objects from the response
-        # json = response["data"]["contents"]["json"]
-        # text = response["data"]["contents"]["text"]
-        # response["data"]["contents"] = Content(json=json, text=text)
-        # response["data"]["preview"] = Content(**response["data"]["preview"])
-
-        return response["data"]
+        return Post(**response["data"])
 
     def update(
         self,
@@ -78,7 +73,7 @@ class Posts(SyncAPIResource):
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
-    ):
+    ) -> Post:
         """
         Update a Post by its id
         """
@@ -104,4 +99,4 @@ class Posts(SyncAPIResource):
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
-        return response["data"]
+        return Post(**response["data"])
