@@ -24,6 +24,18 @@ class Content:
     def to_dict(self):
         return {"json": self.json, "text": self.text}
 
+    def from_dict(self, data: dict):
+        pass
+
+    def from_text(self, text: str):
+        pass
+
+    def from_markdown(self, markdown: str):
+        pass
+
+    def from_html(self, html: str):
+        pass
+
 
 class Editor(Content):
     """Class for creating and editing a Post's content.

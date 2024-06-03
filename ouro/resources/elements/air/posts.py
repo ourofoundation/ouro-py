@@ -21,6 +21,7 @@ class Posts(SyncAPIResource):
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        **kwargs,
     ) -> Post:
         """
         Create a new Post
@@ -32,6 +33,7 @@ class Posts(SyncAPIResource):
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
+            **kwargs,
         }
         # Filter out None values
         post = {k: v for k, v in post.items() if v is not None}
@@ -73,6 +75,7 @@ class Posts(SyncAPIResource):
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        **kwargs,
     ) -> Post:
         """
         Update a Post by its id
@@ -84,6 +87,7 @@ class Posts(SyncAPIResource):
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
+            **kwargs,
         }
         # Filter out None values
         post = {k: v for k, v in post.items() if v is not None}
