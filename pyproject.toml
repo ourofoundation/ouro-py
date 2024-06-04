@@ -41,7 +41,7 @@ path = "ouro/__version__.py"
 include = ["ouro/*"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["ouro/*"]
+include = ["ouro/*"]
 
 [tool.hatch.build.targets.sdist]
-packages = ["ouro/*"]
+include = ["ouro/*"]
