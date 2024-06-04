@@ -1,18 +1,11 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
-import os
-
-from dotenv import load_dotenv
 from ouro.config import Config
 from typing_extensions import override
 
-from . import types
-
 # from ._models import BaseModel
-from .__version__ import __title__, __version__
-from ._client import Ouro
+from ouro.__version__ import __title__, __version__
+from ouro._client import Ouro
 
 # from ._response import APIResponse as APIResponse, AsyncAPIResponse as AsyncAPIResponse
 from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT

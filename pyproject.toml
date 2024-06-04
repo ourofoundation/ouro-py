@@ -38,10 +38,10 @@ path = "ouro/__version__.py"
 
 
 [tool.hatch.build]
-include = ["ouro/*"]
+include = ["/ouro"]
 
 [tool.hatch.build.targets.wheel]
-include = ["ouro/*"]
+include = ["/ouro"]
 
 [tool.hatch.build.targets.sdist]
-include = ["ouro/*"]
+include = ["/ouro"]
