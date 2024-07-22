@@ -18,7 +18,7 @@ pip install ouro-py
 
 ## Usage
 
-Generate an API key from your account settings by going to [ouro.foundation/app/settings/api-keys](https://ouro.foundation/app/settings/api-keys).
+Generate an API key from your account settings by going to [ouro.foundation/settings/api-keys](https://ouro.foundation/settings/api-keys).
 
 Set your Ouro environment variables in a dotenv file, or using the shell:
 

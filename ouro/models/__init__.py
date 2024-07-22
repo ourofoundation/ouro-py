@@ -1,13 +1,19 @@
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from ouro.resources.elements.air.conversations import ConversationMessages
+
+    from ouro import Ouro
 
 __all__ = [
     "Asset",
     "PostContent",
     "Post",
+    "Conversation",
 ]
 
 
@@ -44,3 +50,26 @@ class Post(Asset):
     # preview: Optional[PostContent]
     comments: Optional[int] = Field(default=0)
     views: Optional[int] = Field(default=0)
+
+
+class Conversation(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    members: List[UUID]
+    summary: Optional[str] = None
+    metadata: Optional[dict] = {}
+    _messages: Optional["ConversationMessages"] = None
+    _ouro: Optional["Ouro"] = None
+
+    def __init__(self, _ouro=None, **data):
+        super().__init__(**data)
+        self._ouro = _ouro
+
+    @property
+    def messages(self):
+        if self._messages is None:
+            from ouro.resources.elements.air.conversations import ConversationMessages
+
+            self._messages = ConversationMessages(self)
+        return self._messages

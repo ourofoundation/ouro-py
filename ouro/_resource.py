@@ -16,6 +16,8 @@ class SyncAPIResource:
         self.database = ouro.database
         self.supabase = ouro.supabase
 
+        self.ouro = ouro
+
         # self._get = ouro.client.get
         # self._post = ouro.client.post
         # self._patch = ouro.client.patch

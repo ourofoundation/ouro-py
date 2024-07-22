@@ -21,14 +21,30 @@ class Content:
         self.json = deepcopy(json) if json else deepcopy(DEFAULT_CONTENT_JSON)
         self.text = text
 
+        # If we only have text, get the JSON representation
+        if not json and text:
+            self.from_text(text)
+
     def to_dict(self):
         return {"json": self.json, "text": self.text}
 
     def from_dict(self, data: dict):
         pass
 
+    # TODO; this should do parsing of markdown and html
     def from_text(self, text: str):
-        pass
+        self.text = text
+        self.json = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"text": line, "type": "text"}],
+                }
+                for line in text.split("\n")
+            ],
+        }
+        return {"json": self.json, "text": self.text}
 
     def from_markdown(self, markdown: str):
         pass
