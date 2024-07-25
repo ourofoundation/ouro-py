@@ -60,7 +60,7 @@ class Datasets(SyncAPIResource):
         body = {k: v for k, v in body.items() if v is not None}
 
         request = self.client.post(
-            "/elements/earth/datasets/create/from-schema",
+            "/datasets/create/from-schema",
             json={"dataset": body},
         )
         request.raise_for_status()
@@ -96,7 +96,7 @@ class Datasets(SyncAPIResource):
         Retrieve a Dataset by its id
         """
         request = self.client.get(
-            f"/elements/earth/datasets/{id}",
+            f"/datasets/{id}",
         )
         request.raise_for_status()
         response = request.json()
@@ -109,7 +109,7 @@ class Datasets(SyncAPIResource):
         Query a Dataset's data by its id
         """
         request = self.client.get(
-            f"/elements/earth/datasets/{id}/data",
+            f"/datasets/{id}/data",
         )
         request.raise_for_status()
         response = request.json()
@@ -155,7 +155,7 @@ class Datasets(SyncAPIResource):
         Retrieve a Dataset's schema
         """
         request = self.client.get(
-            f"/elements/earth/datasets/{id}/schema",
+            f"/datasets/{id}/schema",
         )
         request.raise_for_status()
         response = request.json()
@@ -190,7 +190,7 @@ class Datasets(SyncAPIResource):
         body = {k: v for k, v in body.items() if v is not None}
 
         request = self.client.put(
-            f"/elements/earth/datasets/{id}",
+            f"/datasets/{id}",
             json={"dataset": body},
         )
         request.raise_for_status()

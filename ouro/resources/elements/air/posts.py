@@ -39,7 +39,7 @@ class Posts(SyncAPIResource):
         post = {k: v for k, v in post.items() if v is not None}
 
         request = self.client.post(
-            "/elements/air/posts/create",
+            "/posts/create",
             json={
                 "post": post,
                 "content": content.to_dict(),
@@ -57,7 +57,7 @@ class Posts(SyncAPIResource):
         Retrieve a Post by its id
         """
         request = self.client.get(
-            f"/elements/air/posts/{id}",
+            f"/posts/{id}",
         )
         request.raise_for_status()
         response = request.json()
@@ -93,7 +93,7 @@ class Posts(SyncAPIResource):
         post = {k: v for k, v in post.items() if v is not None}
 
         request = self.client.put(
-            f"/elements/air/posts/{id}",
+            f"/posts/{id}",
             json={
                 "post": post,
                 "content": content.to_dict() if content is not None else None,

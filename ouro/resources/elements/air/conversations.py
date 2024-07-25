@@ -25,7 +25,7 @@ class Messages(SyncAPIResource):
 
         message = {k: v for k, v in message.items() if v is not None}
         request = self.client.post(
-            f"/elements/air/conversations/{conversation_id}/messages/create",
+            f"/conversations/{conversation_id}/messages/create",
             json={"message": message},
         )
         request.raise_for_status()
@@ -35,7 +35,7 @@ class Messages(SyncAPIResource):
         return response["data"]
 
     # def retrieve(self, id: str):
-    #     request = self.client.get(f"/elements/air/messages/{id}")
+    #     request = self.client.get(f"/messages/{id}")
     #     request.raise_for_status()
     #     response = request.json()
     #     if response["error"]:
@@ -46,7 +46,7 @@ class Messages(SyncAPIResource):
     #     message = {**kwargs}
     #     message = {k: v for k, v in message.items() if v is not None}
     #     request = self.client.put(
-    #         f"/elements/air/messages/{id}",
+    #         f"/messages/{id}",
     #         json={"message": message, "content": content.to_dict() if content else None},
     #     )
     #     request.raise_for_status()
@@ -56,7 +56,7 @@ class Messages(SyncAPIResource):
     #     return response["data"]
 
     # def delete(self, id: str):
-    #     request = self.client.delete(f"/elements/air/messages/{id}")
+    #     request = self.client.delete(f"/messages/{id}")
     #     request.raise_for_status()
     #     response = request.json()
     #     if response["error"]:
@@ -65,7 +65,7 @@ class Messages(SyncAPIResource):
 
     def list(self, conversation_id: str, **kwargs):
         request = self.client.get(
-            f"/elements/air/conversations/{conversation_id}/messages", params=kwargs
+            f"/conversations/{conversation_id}/messages", params=kwargs
         )
         request.raise_for_status()
         response = request.json()
@@ -115,7 +115,7 @@ class Conversations(SyncAPIResource):
         conversation = {k: v for k, v in conversation.items() if v is not None}
 
         request = self.client.post(
-            "/elements/air/conversations/create",
+            "/conversations/create",
             json={
                 **conversation,
             },
@@ -132,7 +132,7 @@ class Conversations(SyncAPIResource):
         Retrieve a Conversation by its id
         """
         request = self.client.get(
-            f"/elements/air/conversations/{id}",
+            f"/conversations/{id}",
         )
         request.raise_for_status()
         response = request.json()
@@ -161,7 +161,7 @@ class Conversations(SyncAPIResource):
     #     conversation = {k: v for k, v in conversation.items() if v is not None}
 
     #     request = self.client.put(
-    #         f"/elements/air/conversations/{id}",
+    #         f"/conversations/{id}",
     #         json=conversation,
     #     )
     #     request.raise_for_status()
@@ -175,7 +175,7 @@ class Conversations(SyncAPIResource):
     #     Delete a Conversation by its id
     #     """
     #     request = self.client.delete(
-    #         f"/elements/air/conversations/{id}",
+    #         f"/conversations/{id}",
     #     )
     #     request.raise_for_status()
     #     response = request.json()
