@@ -4,7 +4,7 @@ from typing import List, Optional
 from ouro._resource import SyncAPIResource
 from ouro.models import Post
 
-from .content import Content
+from .content import Content, Editor
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -13,6 +13,17 @@ __all__ = ["Posts"]
 
 
 class Posts(SyncAPIResource):
+    def __init__(self, client):
+        super().__init__(client)
+
+    @staticmethod
+    def Editor(**kwargs) -> Editor:
+        return Editor(**kwargs)
+
+    @staticmethod
+    def Content(**kwargs) -> Content:
+        return Content(**kwargs)
+
     def create(
         self,
         content: Content,

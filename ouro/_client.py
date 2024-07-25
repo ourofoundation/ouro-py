@@ -5,9 +5,9 @@ import os
 from typing import Any, Union
 
 import httpx
-import ouro.resources as resources
 import supabase
 from ouro.config import Config
+from ouro.resources import Conversations, Datasets, Posts
 from supabase.client import ClientOptions
 from typing_extensions import override
 
@@ -15,7 +15,7 @@ from .__version__ import __version__
 from ._constants import (  # DEFAULT_TIMEOUT,; MAX_RETRY_DELAY,; INITIAL_RETRY_DELAY,; RAW_RESPONSE_HEADER,; OVERRIDE_CAST_TO_HEADER,; DEFAULT_CONNECTION_LIMITS,
     DEFAULT_MAX_RETRIES,
 )
-from ._exceptions import APIStatusError, OpenAIError
+from ._exceptions import APIStatusError, OuroError
 from ._utils import is_mapping  # is_given,
 
 __all__ = ["Ouro"]
@@ -52,9 +52,13 @@ class OuroAuth(httpx.Auth):
 
 class Ouro:
     # Resources
-    elements: resources.Elements
+    posts: Posts
+    datasets: Datasets
+    conversations: Conversations
+    Editor: EditorFactory
+    Content: ContentFactory
 
-    # client options
+    # Client options
     api_key: str
     organization: str | None
     project: str | None
@@ -98,7 +102,7 @@ class Ouro:
         if api_key is None:
             api_key = os.environ.get("OURO_API_KEY")
         if api_key is None:
-            raise OpenAIError(
+            raise OuroError(
                 "The api_key client option must be set either by passing api_key to the client or by setting the OURO_API_KEY environment variable"
             )
         self.api_key = api_key
@@ -134,7 +138,12 @@ class Ouro:
         # Run the login flow
         self.login()
 
-        self.elements = resources.Elements(self)
+        # Initialize resources
+        # self.users = Users(self)
+        self.datasets = Datasets(self)
+        # self.files = Files(self)
+        self.posts = Posts(self)
+        self.conversations = Conversations(self)
 
     # @property
     # @override

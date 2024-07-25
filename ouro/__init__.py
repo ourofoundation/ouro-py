@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from ouro.config import Config
-from typing_extensions import override
-
 # from ._models import BaseModel
 from ouro.__version__ import __title__, __version__
 from ouro._client import Ouro
+from ouro.config import Config
+from typing_extensions import override
 
 # from ._response import APIResponse as APIResponse, AsyncAPIResponse as AsyncAPIResponse
 from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT
@@ -20,7 +19,7 @@ from ._exceptions import (
     ConflictError,
     InternalServerError,
     NotFoundError,
-    OpenAIError,
+    OuroError,
     PermissionDeniedError,
     RateLimitError,
     UnprocessableEntityError,
@@ -40,7 +39,7 @@ __all__ = [
     # "ProxiesTypes",
     # "NotGiven",
     # "NOT_GIVEN",
-    # "OpenAIError",
+    # "OuroError",
     # "APIError",
     # "APIStatusError",
     # "APITimeoutError",

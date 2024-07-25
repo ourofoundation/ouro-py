@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, Optional, cast
-from typing_extensions import Literal
 
 import httpx
+from typing_extensions import Literal
 
 from ._utils import is_dict
 
@@ -19,11 +19,11 @@ __all__ = [
 ]
 
 
-class OpenAIError(Exception):
+class OuroError(Exception):
     pass
 
 
-class APIError(OpenAIError):
+class APIError(OuroError):
     message: str
     request: httpx.Request
 
