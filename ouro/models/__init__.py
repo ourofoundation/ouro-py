@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
-    from ouro.resources.elements.air.conversations import ConversationMessages
+    from ouro.resources.conversations import ConversationMessages
 
     from ouro import Ouro
 
@@ -69,7 +69,7 @@ class Conversation(BaseModel):
     @property
     def messages(self):
         if self._messages is None:
-            from ouro.resources.elements.air.conversations import ConversationMessages
+            from ouro.resources.conversations import ConversationMessages
 
             self._messages = ConversationMessages(self)
         return self._messages

@@ -68,7 +68,7 @@ dataset = ouro.datasets.retrieve(id)
 # Option 1: Load dataset's data as json using the table name
 data = ouro.datasets.load("penguins")
 
-# Option 2: Load dataset's data using tbe Postgrest client
+# Option 2: Load dataset's data using the PostgREST client
 data = ouro.database.table("penguins").select("*").limit(1).execute()
 
 # Option 3: Read dataset's data as a Pandas DataFrame
