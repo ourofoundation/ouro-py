@@ -16,10 +16,11 @@ class Messages(SyncAPIResource):
     def create(self, conversation_id: str, **kwargs):
         json = kwargs.get("json")
         text = kwargs.get("text")
-
+        user_id = kwargs.get("user_id")
         message = {
             "json": json,
             "text": text,
+            "user_id": user_id,
             **kwargs,
         }
 

@@ -1,4 +1,4 @@
 supabase
 python-dotenv
 postgrest
-httpx
+httpx==0.16.1

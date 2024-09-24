@@ -7,7 +7,7 @@ from typing import Any, Union
 import httpx
 import supabase
 from ouro.config import Config
-from ouro.resources import Conversations, Datasets, Posts
+from ouro.resources import Conversations, Datasets, Files, Posts
 from supabase.client import ClientOptions
 from typing_extensions import override
 
@@ -52,11 +52,10 @@ class OuroAuth(httpx.Auth):
 
 class Ouro:
     # Resources
-    posts: Posts
     datasets: Datasets
+    files: Files
+    posts: Posts
     conversations: Conversations
-    Editor: EditorFactory
-    Content: ContentFactory
 
     # Client options
     api_key: str
@@ -122,17 +121,12 @@ class Ouro:
 
         # Make a private property for the access token
         self.access_token = None
-
+        self.refresh_token = None
         # Create the httpx client
         self.client = httpx.Client(
             auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
-            # version=__version__,
             base_url=self.base_url,
-            # max_retries=max_retries,
             timeout=timeout,
-            # http_client=http_client,
-            # headers=default_headers,
-            # custom_query=default_query,
         )
 
         # Run the login flow
@@ -141,7 +135,7 @@ class Ouro:
         # Initialize resources
         # self.users = Users(self)
         self.datasets = Datasets(self)
-        # self.files = Files(self)
+        self.files = Files(self)
         self.posts = Posts(self)
         self.conversations = Conversations(self)
 
@@ -217,7 +211,8 @@ class Ouro:
             json={"pat": api_key},
         )
         json = req.json()
-        self.access_token = json["token"]
+        self.access_token = json["access_token"]
+        self.refresh_token = json["refresh_token"]
 
         if not self.access_token:
             raise Exception("No user found for this API key")
@@ -241,6 +236,9 @@ class Ouro:
         )
         self.database.postgrest.auth(self.access_token)
         self.supabase.postgrest.auth(self.access_token)
+        # Set the session on the supabase client
+        self.supabase.auth.set_session(self.access_token, self.refresh_token)
+        self.database.auth.set_session(self.access_token, self.refresh_token)
         self.user = self.supabase.auth.get_user(self.access_token).user
 
         log.info(f"Successfully logged in as {self.user.email}.")

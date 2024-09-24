@@ -52,13 +52,17 @@ class Post(Asset):
     views: Optional[int] = Field(default=0)
 
 
-class Conversation(BaseModel):
+class ConversationMetadata(BaseModel):
+    members: List[UUID]
+    summary: Optional[str] = None
+
+
+class Conversation(Asset):
     id: UUID
     name: str
     description: Optional[str] = None
-    members: List[UUID]
     summary: Optional[str] = None
-    metadata: Optional[dict] = {}
+    metadata: ConversationMetadata
     _messages: Optional["ConversationMessages"] = None
     _ouro: Optional["Ouro"] = None
 

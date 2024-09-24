@@ -3,11 +3,10 @@
 from .content import Content, Editor
 from .conversations import Conversations
 from .datasets import Datasets
-
-# from .files import Files
+from .files import Files
 from .posts import Posts
 
-__all__ = ["Content", "Editor", "Conversations", "Datasets", "Posts"]
+__all__ = ["Content", "Editor", "Conversations", "Datasets", "Posts", "Files"]
 
 
 def EditorFactory(self, **kwargs) -> Editor:
@@ -21,7 +20,7 @@ def ContentFactory(self, **kwargs) -> Content:
 def __init__(self, ouro):
     # Earth
     self.datasets = Datasets(ouro)
-    # self.files = Files(ouro)
+    self.files = Files(ouro)
 
     # Air
     self.posts = Posts(ouro)
