@@ -5,8 +5,9 @@ from .conversations import Conversations
 from .datasets import Datasets
 from .files import Files
 from .posts import Posts
+from .users import Users
 
-__all__ = ["Content", "Editor", "Conversations", "Datasets", "Posts", "Files"]
+__all__ = ["Content", "Editor", "Conversations", "Datasets", "Posts", "Files", "Users"]
 
 
 def EditorFactory(self, **kwargs) -> Editor:
@@ -28,3 +29,5 @@ def __init__(self, ouro):
 
     self.Editor = self.EditorFactory
     self.Content = self.ContentFactory
+
+    self.users = Users(ouro)

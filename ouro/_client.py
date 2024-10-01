@@ -7,7 +7,7 @@ from typing import Any, Union
 import httpx
 import supabase
 from ouro.config import Config
-from ouro.resources import Conversations, Datasets, Files, Posts
+from ouro.resources import Conversations, Datasets, Files, Posts, Users
 from supabase.client import ClientOptions
 from typing_extensions import override
 
@@ -56,6 +56,7 @@ class Ouro:
     files: Files
     posts: Posts
     conversations: Conversations
+    users: Users
 
     # Client options
     api_key: str
@@ -138,24 +139,7 @@ class Ouro:
         self.files = Files(self)
         self.posts = Posts(self)
         self.conversations = Conversations(self)
-
-    # @property
-    # @override
-    # def auth_headers(self) -> dict[str, str]:
-    #     api_key = self.api_key
-    #     return {"Authorization": f"Bearer {api_key}"}
-
-    # @property
-    # @override
-    # def default_headers(self) -> dict[str, str | Omit]:
-    #     return {
-    #         **super().default_headers,
-    #         "Ouro-Organization": (
-    #             self.organization if self.organization is not None else Omit()
-    #         ),
-    #         "Ouro-Project": self.project if self.project is not None else Omit(),
-    #         **self._custom_headers,
-    #     }
+        self.users = Users(self)
 
     @override
     def _make_status_error(
