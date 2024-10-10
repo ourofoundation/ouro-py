@@ -6,6 +6,7 @@ import uuid
 from typing import List, Optional
 
 from ouro._resource import SyncAPIResource
+from ouro.models import File
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -22,7 +23,10 @@ class Files(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[str] = None,
-    ):
+    ) -> File:
+        """
+        Create a File
+        """
 
         # Refresh supabase client
         self.ouro.supabase.auth.refresh_session()
@@ -96,4 +100,31 @@ class Files(SyncAPIResource):
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
 
-        return response["data"]
+        return File(**response["data"])
+
+    def retrieve(self, id: str) -> File:
+        """
+        Retrieve a File by its ID
+        """
+        request = self.client.get(
+            f"/datasets/{id}",
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+
+        # Get the file data
+        data_request = self.client.get(
+            f"/datasets/{id}/data",
+        )
+        data_request.raise_for_status()
+        data_response = data_request.json()
+        if data_response["error"]:
+            raise Exception(data_response["error"])
+
+        # Combine the file asset and file data
+        combined = response["data"]
+        combined["data"] = data_response["data"]
+
+        return File(**combined)

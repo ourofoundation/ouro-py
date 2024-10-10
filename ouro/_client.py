@@ -116,7 +116,7 @@ class Ouro:
         self.project = project
 
         # Set config for Supabase client and Ouro client
-        self.base_url = Config.OURO_BACKEND_URL
+        self.base_url = base_url or Config.OURO_BACKEND_URL
         self.database_url = Config.SUPABASE_URL
         self.database_anon_key = Config.SUPABASE_ANON_KEY
 

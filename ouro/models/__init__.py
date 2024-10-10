@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +14,8 @@ __all__ = [
     "PostContent",
     "Post",
     "Conversation",
+    "File",
+    "FileData",
 ]
 
 
@@ -77,3 +79,23 @@ class Conversation(Asset):
 
             self._messages = ConversationMessages(self)
         return self._messages
+
+
+class FileData(BaseModel):
+    signedUrl: Optional[str] = None
+    publicUrl: Optional[str] = None
+
+
+class FileMetadata(BaseModel):
+    id: UUID
+    name: str
+    path: str
+    size: int
+    type: str
+    bucket: Literal["public-files", "files"]
+    fullPath: str
+
+
+class File(Asset):
+    metadata: FileMetadata
+    data: Optional[FileData] = None
