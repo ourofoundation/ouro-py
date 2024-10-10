@@ -1,8 +1,10 @@
+import asyncio
 import logging
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from ouro._resource import SyncAPIResource
 from ouro.models import Conversation
+from ouro.realtime.websocket import OuroWebSocket
 
 from .content import Content
 
@@ -78,22 +80,22 @@ class Messages(SyncAPIResource):
 class ConversationMessages:
     def __init__(self, conversation: "Conversation"):
         self.conversation = conversation
-        self.ouro = conversation._ouro
+        self._ouro = conversation._ouro
 
     def create(self, **kwargs):
-        return Messages(self.ouro).create(self.conversation.id, **kwargs)
+        return Messages(self._ouro).create(self.conversation.id, **kwargs)
 
     def retrieve(self, message_id: str):
-        return Messages(self.ouro).retrieve(message_id)
+        return Messages(self._ouro).retrieve(message_id)
 
     def update(self, message_id: str, content: Optional[Content] = None, **kwargs):
-        return Messages(self.ouro).update(message_id, content, **kwargs)
+        return Messages(self._ouro).update(message_id, content, **kwargs)
 
     def delete(self, message_id: str):
-        return Messages(self.ouro).delete(message_id)
+        return Messages(self._ouro).delete(message_id)
 
     def list(self, **kwargs):
-        return Messages(self.ouro).list(self.conversation.id, **kwargs)
+        return Messages(self._ouro).list(self.conversation.id, **kwargs)
 
 
 class Conversations(SyncAPIResource):
@@ -101,86 +103,51 @@ class Conversations(SyncAPIResource):
     #     super().__init__(*args, **kwargs)
     #     self.messages = Messages(*args, **kwargs)
 
-    def create(
-        self,
-        **kwargs,
-    ) -> Conversation:
+    def retrieve(self, conversation_id: str):
         """
-        Create a new Conversation
+        Retrieve a conversation by id.
         """
 
-        conversation = {
-            **kwargs,
-        }
-        # Filter out None values
-        conversation = {k: v for k, v in conversation.items() if v is not None}
-
-        request = self.client.post(
-            "/conversations/create",
-            json={
-                **conversation,
-            },
-        )
+        request = self.client.get(f"/conversations/{conversation_id}")
         request.raise_for_status()
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
+        conversation = response["data"]
+        return Conversation(**conversation, _ouro=self.ouro)
 
-        return Conversation(**response["data"], _ouro=self.ouro)
-
-    def retrieve(self, id: str) -> Conversation:
+    def list(self, **kwargs):
         """
-        Retrieve a Conversation by its id
+        List all conversations.
         """
-        request = self.client.get(
-            f"/conversations/{id}",
-        )
+        request = self.client.get("/conversations", params=kwargs)
         request.raise_for_status()
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
+        return [
+            Conversation(**conversation, _ouro=self.ouro)
+            for conversation in response["data"]
+        ]
 
-        return Conversation(**response["data"], _ouro=self.ouro)
+    async def subscribe(self):
+        """
+        Subscribe to conversation changes. New messages will be sent to the websocket connection.
+        """
+        # Check to make sure the websocket connection is active
+        if not self.websocket.is_connected:
+            await self.websocket.connect(self.ouro.websocket_url)
+        request = self.client.get("/conversations/subscribe")
+        request.raise_for_status()
+        response = request.json()
+        if response.get("error"):
+            raise Exception(response["error"])
+        log.info("Subscribed to conversations")
+        return response["data"]
 
-    # def update(
-    #     self,
-    #     id: str,
-    #     name: Optional[str] = None,
-    #     description: Optional[str] = None,
-    #     visibility: Optional[str] = None,
-    #     **kwargs,
-    # ) -> Conversation:
-    #     """
-    #     Update a Conversation by its id
-    #     """
-    #     conversation = {
-    #         "name": name,
-    #         "description": description,
-    #         "visibility": visibility,
-    #         **kwargs,
-    #     }
-    #     conversation = {k: v for k, v in conversation.items() if v is not None}
-
-    #     request = self.client.put(
-    #         f"/conversations/{id}",
-    #         json=conversation,
-    #     )
-    #     request.raise_for_status()
-    #     response = request.json()
-    #     if response["error"]:
-    #         raise Exception(response["error"])
-    #     return Conversation(**response["data"])
-
-    # def delete(self, id: str):
-    #     """
-    #     Delete a Conversation by its id
-    #     """
-    #     request = self.client.delete(
-    #         f"/conversations/{id}",
-    #     )
-    #     request.raise_for_status()
-    #     response = request.json()
-    #     if response["error"]:
-    #         raise Exception(response["error"])
-
-    #     return response["data"]
+    async def unsubscribe(self):
+        """
+        Unsubscribe from conversation changes.
+        """
+        if self.websocket.is_connected:
+            await self.websocket.disconnect()

@@ -68,9 +68,9 @@ class Conversation(Asset):
     _messages: Optional["ConversationMessages"] = None
     _ouro: Optional["Ouro"] = None
 
-    def __init__(self, _ouro=None, **data):
-        super().__init__(**data)
-        self._ouro = _ouro
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._ouro = kwargs.get("_ouro")
 
     @property
     def messages(self):

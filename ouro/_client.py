@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Union
+from typing import Any, Callable, Union
 
 import httpx
 import supabase
 from ouro.config import Config
+from ouro.realtime.websocket import OuroWebSocket
 from ouro.resources import Conversations, Datasets, Files, Posts, Users
 from supabase.client import ClientOptions
 from typing_extensions import override
@@ -21,7 +22,7 @@ from ._utils import is_mapping  # is_given,
 __all__ = ["Ouro"]
 
 
-log: logging.Logger = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger("ouro")
 
 
 class OuroAuth(httpx.Auth):
@@ -35,18 +36,22 @@ class OuroAuth(httpx.Auth):
     def auth_flow(self, request):
         # If we don't have an access token, we need to get one
         if not self.access_token:
-            refresh_response = yield self.build_refresh_request()
-            self.update_tokens(refresh_response)
+            refresh_request = yield self.build_refresh_request()
+            refresh_request.raise_for_status()
+            response = refresh_request.json()
+            if response["error"]:
+                raise Exception(response["error"])
+            self.update_tokens(response)
 
         request.headers["Authorization"] = self.access_token
+
         yield request
 
     def build_refresh_request(self):
         # Return an `httpx.Request` for refreshing tokens.
         return httpx.Request("POST", self.refresh_url, json={"pat": self.api_key})
 
-    def update_tokens(self, response):
-        data = response.json()
+    def update_tokens(self, data):
         self.access_token = data["token"]
 
 
@@ -67,6 +72,7 @@ class Ouro:
     client: httpx.Client
     database: supabase.Client  # datasets schema
     supabase: supabase.Client  # public schema
+    websocket: OuroWebSocket
 
     # Auth config
     access_token: str | None
@@ -130,6 +136,9 @@ class Ouro:
             timeout=timeout,
         )
 
+        # Initialize WebSocket
+        self.websocket = OuroWebSocket(self)
+
         # Run the login flow
         self.login()
 
@@ -189,15 +198,20 @@ class Ouro:
 
         api_key = self.api_key
 
-        # Send a request to Ouro Backend to get an access token
-        req = self.client.post(
-            "/users/get-token",
-            json={"pat": api_key},
-        )
-        json = req.json()
-        self.access_token = json["access_token"]
-        self.refresh_token = json["refresh_token"]
+        if not self.access_token:
+            # Send a request to Ouro Backend to get an access token
+            request = self.client.post(
+                "/users/get-token",
+                json={"pat": api_key},
+            )
+            request.raise_for_status()
+            response = request.json()
+            if response["error"]:
+                raise Exception(response["error"])
+            self.access_token = response["access_token"]
+            self.refresh_token = response["refresh_token"]
 
+        # If we still don't have an access token, raise an error
         if not self.access_token:
             raise Exception("No user found for this API key")
 
@@ -225,4 +239,8 @@ class Ouro:
         self.database.auth.set_session(self.access_token, self.refresh_token)
         self.user = self.supabase.auth.get_user(self.access_token).user
 
-        log.info(f"Successfully logged in as {self.user.email}.")
+        log.info(f"Logged in as {self.user.email}")
+
+    @property
+    def websocket_url(self):
+        return f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
