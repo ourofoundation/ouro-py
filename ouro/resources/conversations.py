@@ -130,6 +130,20 @@ class Conversations(SyncAPIResource):
             for conversation in response["data"]
         ]
 
+    def update(self, conversation_id: str, **kwargs):
+        """
+        Update a conversation.
+        """
+        request = self.client.put(
+            f"/conversations/{conversation_id}", json={"conversation": kwargs}
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+
+        return Conversation(**response["data"], _ouro=self.ouro)
+
     async def subscribe(self):
         """
         Subscribe to conversation changes. New messages will be sent to the websocket connection.
