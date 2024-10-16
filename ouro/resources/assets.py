@@ -33,5 +33,4 @@ class Assets(SyncAPIResource):
         response = request.json()
         if response.get("error", None):
             raise Exception(response["error"])
-        # return [User(**user) for user in response["data"]]
         return response.get("data", [])

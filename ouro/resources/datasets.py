@@ -1,9 +1,13 @@
+import json
 import logging
-import time
-from typing import List, Optional
+import time as timer
+from datetime import date, datetime, time
+from typing import Any, List, Optional
 
+import numpy as np
 import pandas as pd
 from ouro._resource import SyncAPIResource
+from ouro.models import Dataset
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -73,11 +77,11 @@ class Datasets(SyncAPIResource):
 
         # Good response, but no data to insert right now
         if data is None:
-            return response["data"]
+            return Dataset(**response["data"])
 
         # Good response, we can now insert the data
-        created = response["data"]
-        table_name = created["metadata"]["table_name"]
+        created = Dataset(**response["data"])
+        table_name = created.metadata["table_name"]
 
         insert_data = self._serialize_dataframe(df)
         # Insert the data into the table
@@ -87,9 +91,9 @@ class Datasets(SyncAPIResource):
             log.info(f"Inserted {len(insert.data)} rows into {table_name}")
 
         # Update the dataset with a data preview
-        update = self.update(created["id"], preview=insert_data[0:7])
+        update = self.update(created.id, preview=insert_data[0:7])
 
-        return response["data"]
+        return created
 
     def retrieve(self, id: str):
         """
@@ -102,7 +106,7 @@ class Datasets(SyncAPIResource):
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
-        return response["data"]
+        return Dataset(**response["data"])
 
     def query(self, id: str) -> pd.DataFrame:
         """
@@ -115,14 +119,32 @@ class Datasets(SyncAPIResource):
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
-        return pd.DataFrame(response["data"])
 
-    def load(self, table_name: str):
+        # Load the data as a DataFrame
+        df = pd.DataFrame(response["data"])
+        # Get the dataset's schema
+        schema = self.schema(id)
+        # Parse datatypes according to the schema
+        for definition in schema:
+            column_name = definition["column_name"]
+            if (
+                "timestamp" in definition["data_type"]
+                or "date" in definition["data_type"]
+            ):
+                # Convert to pd.Timestamp
+                df[column_name] = pd.to_datetime(df[column_name])
+                # TODO: make this configurable
+                # Remove any timezone information
+                df[column_name] = df[column_name].dt.tz_localize(None)
+                df[column_name] = df[column_name].dt.date
+        return df
+
+    def load(self, table_name: str) -> pd.DataFrame:
         """
         Load a Dataset's data by its table name. Good for large datasets.
         Method checks the row count and loads the data in batches if it's too big.
         """
-        start = time.time()
+        start = timer.time()
 
         row_count = self.database.table(table_name).select("*", count="exact").execute()
         row_count = row_count.count
@@ -144,11 +166,10 @@ class Datasets(SyncAPIResource):
             res = self.database.table(table_name).select("*").limit(1_000_000).execute()
             data = res.data
 
-        end = time.time()
+        end = timer.time()
         log.info(f"Finished loading data in {round(end - start, 2)} seconds.")
 
-        self.data = data
-        return data
+        return pd.DataFrame(data)
 
     def schema(self, id: str):
         """
@@ -200,35 +221,38 @@ class Datasets(SyncAPIResource):
 
         # Make the data update if it's provided
         if data is not None:
-            table_name = self.retrieve(id)["metadata"]["table_name"]
+            table_name = self.retrieve(id).metadata["table_name"]
             insert_data = self._serialize_dataframe(data)
 
             insert = self.database.table(table_name).insert(insert_data).execute()
             if len(insert.data) > 0:
                 log.info(f"Inserted {len(insert.data)} rows into {table_name}")
 
-        return response["data"]
+        return Dataset(**response["data"])
 
     def _serialize_dataframe(self, data: pd.DataFrame) -> List[dict]:
         """
         Make a DataFrame serializable by converting NaN values to None,
         formatting datetime columns to strings, and converting empty strings to None.
         """
+
+        def serialize_value(val: Any):
+            if pd.isna(val) or val == "":
+                return None
+            elif isinstance(val, (date, datetime, time)):
+                return val.isoformat()
+            elif isinstance(val, (np.integer, np.floating)):
+                return val.item()
+            elif isinstance(val, (list, dict)):
+                return json.dumps(val)
+            return str(val)
+
         clean = data.copy()
 
-        # Fill NaN values with None
-        clean = clean.where(pd.notnull(clean), None)
-        clean = clean.map(lambda x: None if pd.isna(x) or x == "" else x)
+        # Apply the serialization function to all elements
+        clean = clean.map(serialize_value)
 
-        # Convert datetime columns to strings
-        for column in clean.columns:
-            if clean[column].dtype == "datetime64[ns]":
-                clean[column] = clean[column].dt.strftime("%Y-%m-%d")
-
+        # Convert to list of dicts
         clean = clean.to_dict(orient="records")
-        # Ensure that we're not inserting any NaN values by converting them to None
-        clean = [
-            {k: v if not pd.isna(v) else None for k, v in row.items()} for row in clean
-        ]
 
         return clean

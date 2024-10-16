@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +16,7 @@ __all__ = [
     "Conversation",
     "File",
     "FileData",
+    "Dataset",
 ]
 
 
@@ -99,3 +100,13 @@ class FileMetadata(BaseModel):
 class File(Asset):
     metadata: FileMetadata
     data: Optional[FileData] = None
+
+
+class DatasetMetadata(BaseModel):
+    table_name: str
+    columns: List[str]
+
+
+class Dataset(Asset):
+    # metadata: Union[DatasetMetadata, Optional[FileMetadata]]
+    preview: Optional[List[dict]] = None

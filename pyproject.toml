@@ -26,6 +26,7 @@ dependencies = [
     "anyio",
     "pydantic",
     "distro",
+    "python-socketio[asyncio_client]",
 ]
 
 [project.urls]
