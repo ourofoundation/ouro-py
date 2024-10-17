@@ -76,6 +76,9 @@ class Ouro:
 
     # Auth config
     access_token: str | None
+    refresh_token: str | None
+    database_access_token: str | None
+    database_refresh_token: str | None
 
     # Connection options
     database_url: str | httpx.URL | None
@@ -129,6 +132,8 @@ class Ouro:
         # Make a private property for the access token
         self.access_token = None
         self.refresh_token = None
+        self.database_access_token = None
+        self.database_refresh_token = None
         # Create the httpx client
         self.client = httpx.Client(
             auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
@@ -196,13 +201,11 @@ class Ouro:
         url: str = self.database_url
         key: str = self.database_anon_key
 
-        api_key = self.api_key
-
         if not self.access_token:
             # Send a request to Ouro Backend to get an access token
             request = self.client.post(
                 "/users/get-token",
-                json={"pat": api_key},
+                json={"pat": self.api_key},
             )
             request.raise_for_status()
             response = request.json()
@@ -215,13 +218,26 @@ class Ouro:
         if not self.access_token:
             raise Exception("No user found for this API key")
 
+        if not self.database_access_token:
+            request = self.client.post(
+                "/users/get-token",
+                json={"pat": self.api_key},
+            )
+            request.raise_for_status()
+            response = request.json()
+            if response["error"]:
+                raise Exception(response["error"])
+            self.database_access_token = response["access_token"]
+            self.database_refresh_token = response["refresh_token"]
+
+        # Create the supabase clients
         self.database: supabase.Client = supabase.create_client(
             url,
             key,
             options=ClientOptions(
                 schema="datasets",
                 auto_refresh_token=True,
-                persist_session=False,
+                # persist_session=False,
             ),
         )
         self.supabase: supabase.Client = supabase.create_client(
@@ -229,14 +245,16 @@ class Ouro:
             key,
             options=ClientOptions(
                 auto_refresh_token=True,
-                persist_session=False,
+                # persist_session=False,
             ),
         )
-        self.database.postgrest.auth(self.access_token)
+        self.database.postgrest.auth(self.database_access_token)
         self.supabase.postgrest.auth(self.access_token)
         # Set the session on the supabase client
         self.supabase.auth.set_session(self.access_token, self.refresh_token)
-        self.database.auth.set_session(self.access_token, self.refresh_token)
+        self.database.auth.set_session(
+            self.database_access_token, self.database_refresh_token
+        )
         self.user = self.supabase.auth.get_user(self.access_token).user
 
         log.info(f"Logged in as {self.user.email}")
