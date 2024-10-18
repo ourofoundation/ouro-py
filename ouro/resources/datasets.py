@@ -112,6 +112,10 @@ class Datasets(SyncAPIResource):
         """
         Query a Dataset's data by its id
         """
+
+        if not id:
+            raise ValueError("Dataset id is required")
+
         request = self.client.get(
             f"/datasets/{id}/data",
         )

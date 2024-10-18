@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 from typing import Any, Callable, Union
 
 import httpx
@@ -77,8 +79,6 @@ class Ouro:
     # Auth config
     access_token: str | None
     refresh_token: str | None
-    database_access_token: str | None
-    database_refresh_token: str | None
 
     # Connection options
     database_url: str | httpx.URL | None
@@ -129,23 +129,33 @@ class Ouro:
         self.database_url = Config.SUPABASE_URL
         self.database_anon_key = Config.SUPABASE_ANON_KEY
 
+        # self.last_token_refresh = 0
+        self.token_refresh_interval = 3600  # 1 hour in seconds
+        self.token_refresh_thread = None
+        self.stop_refresh_thread = threading.Event()
+
         # Make a private property for the access token
         self.access_token = None
         self.refresh_token = None
-        self.database_access_token = None
-        self.database_refresh_token = None
-        # Create the httpx client
-        self.client = httpx.Client(
-            auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
-            base_url=self.base_url,
-            timeout=timeout,
-        )
 
         # Initialize WebSocket
         self.websocket = OuroWebSocket(self)
 
-        # Run the login flow
-        self.login()
+        # Initialize httpx client
+        self.client = httpx.Client(
+            # auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
+            base_url=self.base_url,
+            timeout=timeout,
+        )
+
+        # Exchange API key for access token, set them in clients
+        self.refresh_tokens()
+
+        # Initialize Supabase clients now that we have tokens
+        self.initialize_supabase_clients()
+
+        # Start a thread to refresh tokens
+        self.start_token_refresh_thread()
 
         # Initialize resources
         # self.users = Users(self)
@@ -154,6 +164,10 @@ class Ouro:
         self.posts = Posts(self)
         self.conversations = Conversations(self)
         self.users = Users(self)
+
+    @property
+    def websocket_url(self):
+        return f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
 
     @override
     def _make_status_error(
@@ -197,68 +211,83 @@ class Ouro:
             )
         return APIStatusError(err_msg, response=response, body=data)
 
-    def login(self):
-        url: str = self.database_url
-        key: str = self.database_anon_key
-
-        if not self.access_token:
-            # Send a request to Ouro Backend to get an access token
-            request = self.client.post(
-                "/users/get-token",
-                json={"pat": self.api_key},
-            )
-            request.raise_for_status()
-            response = request.json()
-            if response["error"]:
-                raise Exception(response["error"])
-            self.access_token = response["access_token"]
-            self.refresh_token = response["refresh_token"]
-
-        # If we still don't have an access token, raise an error
-        if not self.access_token:
-            raise Exception("No user found for this API key")
-
-        if not self.database_access_token:
-            request = self.client.post(
-                "/users/get-token",
-                json={"pat": self.api_key},
-            )
-            request.raise_for_status()
-            response = request.json()
-            if response["error"]:
-                raise Exception(response["error"])
-            self.database_access_token = response["access_token"]
-            self.database_refresh_token = response["refresh_token"]
-
-        # Create the supabase clients
-        self.database: supabase.Client = supabase.create_client(
-            url,
-            key,
+    def initialize_supabase_clients(self):
+        self.database = supabase.create_client(
+            self.database_url,
+            self.database_anon_key,
             options=ClientOptions(
                 schema="datasets",
                 auto_refresh_token=True,
-                # persist_session=False,
+                persist_session=True,
             ),
         )
-        self.supabase: supabase.Client = supabase.create_client(
-            url,
-            key,
+        self.supabase = supabase.create_client(
+            self.database_url,
+            self.database_anon_key,
             options=ClientOptions(
                 auto_refresh_token=True,
-                # persist_session=False,
+                persist_session=True,
             ),
         )
-        self.database.postgrest.auth(self.database_access_token)
+
+        self.database.postgrest.auth(self.access_token)
         self.supabase.postgrest.auth(self.access_token)
-        # Set the session on the supabase client
+        self.database.auth.set_session(self.access_token, self.refresh_token)
         self.supabase.auth.set_session(self.access_token, self.refresh_token)
-        self.database.auth.set_session(
-            self.database_access_token, self.database_refresh_token
-        )
+
         self.user = self.supabase.auth.get_user(self.access_token).user
+        log.info(f"Successfully authenticated as {self.user.email}")
 
-        log.info(f"Logged in as {self.user.email}")
+    def refresh_tokens(self):
+        log.info("Ouro client refreshing...")
+        # Refresh Ouro tokens
+        response = self.client.post("/users/get-token", json={"pat": self.api_key})
+        response.raise_for_status()
+        data = response.json()
+        if data.get("error"):
+            raise Exception(data["error"])
+        if not data.get("access_token"):
+            raise Exception("No user found for this API key")
 
-    @property
-    def websocket_url(self):
-        return f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
+        self.access_token = data["access_token"]
+        self.refresh_token = data["refresh_token"]
+
+        # Update Supabase client sessions
+        if hasattr(self, "database"):
+            self.database.postgrest.auth(self.access_token)
+            self.database.auth.set_session(self.access_token, self.refresh_token)
+        if hasattr(self, "supabase"):
+            self.supabase.postgrest.auth(self.access_token)
+            self.supabase.auth.set_session(self.access_token, self.refresh_token)
+
+        # Update httpx client
+        self.client.headers["Authorization"] = f"{self.access_token}"
+
+    def token_refresh_loop(self):
+        while not self.stop_refresh_thread.is_set():
+            time.sleep(self.token_refresh_interval)
+            if not self.stop_refresh_thread.is_set():
+                try:
+                    self.refresh_tokens()
+                except Exception as e:
+                    log.error(f"Failed to refresh tokens: {e}")
+
+    def start_token_refresh_thread(self):
+        if (
+            self.token_refresh_thread is None
+            or not self.token_refresh_thread.is_alive()
+        ):
+            self.token_refresh_thread = threading.Thread(target=self.token_refresh_loop)
+            self.token_refresh_thread.daemon = True
+            self.token_refresh_thread.start()
+
+    def stop_token_refresh_thread(self):
+        if self.token_refresh_thread and self.token_refresh_thread.is_alive():
+            self.stop_refresh_thread.set()
+            self.token_refresh_thread.join(
+                timeout=10
+            )  # Wait up to 10 seconds for the thread to stop
+            self.token_refresh_thread = None
+
+    def __del__(self):
+        self.stop_token_refresh_thread()
