@@ -211,7 +211,7 @@ class Ouro:
             options=ClientOptions(
                 schema="datasets",
                 auto_refresh_token=True,
-                persist_session=True,
+                persist_session=False,
             ),
         )
         self.supabase = supabase.create_client(
@@ -219,7 +219,7 @@ class Ouro:
             self.database_anon_key,
             options=ClientOptions(
                 auto_refresh_token=True,
-                persist_session=True,
+                persist_session=False,
             ),
         )
 
@@ -246,12 +246,13 @@ class Ouro:
 
         # Update httpx and supabase clients with new session
         self._update_clients()
-        # Refresh websocket connection
-        self.websocket.refresh_connection()
 
     def _update_clients(self):
         # Update client headers
         self.client.headers["Authorization"] = f"{self.access_token}"
+
+        # Refresh websocket connection
+        self.websocket.refresh_connection()
 
         # Update supabase clients
         if hasattr(self, "supabase"):

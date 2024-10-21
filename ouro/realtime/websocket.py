@@ -19,7 +19,7 @@ class OuroWebSocket:
         try:
             # If already connected, don't try to connect again
             if self.is_connected:
-                log.info("Attempted connection, websocket already connected")
+                log.warning("Attempted connection, websocket already connected")
                 return
             self.sio.connect(
                 self.ouro.websocket_url, auth={"access_token": self.ouro.access_token}
