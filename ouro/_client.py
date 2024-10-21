@@ -150,7 +150,7 @@ class Ouro:
         # self.users = Users(self)
 
         # Start token refresh thread
-        self.token_refresh_interval = 10  # 1 hour in seconds
+        self.token_refresh_interval = 3600  # 1 hour in seconds
         self.stop_refresh_thread = threading.Event()
         self.token_refresh_thread = threading.Thread(
             target=self._token_refresh_loop, daemon=True

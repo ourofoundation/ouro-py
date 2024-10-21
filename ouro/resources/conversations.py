@@ -150,7 +150,7 @@ class Conversations(SyncAPIResource):
         """
         # Check to make sure the websocket connection is active
         if not self.websocket.is_connected:
-            self.websocket.connect(self.ouro.websocket_url)
+            self.websocket.connect()
         request = self.client.get("/conversations/subscribe")
         request.raise_for_status()
         response = request.json()
