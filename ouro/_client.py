@@ -127,7 +127,7 @@ class Ouro:
 
         # Set config for Supabase client and Ouro client
         self.base_url = base_url or Config.OURO_BACKEND_URL
-        self.websocket_url = f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
+        self.websocket_url = f"{'wss' if self.base_url.startswith('https://') else 'ws'}://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
         self.database_url = Config.SUPABASE_URL
         self.database_anon_key = Config.SUPABASE_ANON_KEY
 
