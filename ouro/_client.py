@@ -127,6 +127,7 @@ class Ouro:
 
         # Set config for Supabase client and Ouro client
         self.base_url = base_url or Config.OURO_BACKEND_URL
+        self.websocket_url = f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
         self.database_url = Config.SUPABASE_URL
         self.database_anon_key = Config.SUPABASE_ANON_KEY
 
@@ -156,10 +157,6 @@ class Ouro:
             target=self._token_refresh_loop, daemon=True
         )
         self.token_refresh_thread.start()
-
-    @property
-    def websocket_url(self):
-        return f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
 
     def _run_event_loop(self):
         asyncio.set_event_loop(self.loop)
