@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -129,45 +130,40 @@ class Ouro:
         self.database_url = Config.SUPABASE_URL
         self.database_anon_key = Config.SUPABASE_ANON_KEY
 
-        # self.last_token_refresh = 0
-        self.token_refresh_interval = 3600  # 1 hour in seconds
-        self.token_refresh_thread = None
-        self.stop_refresh_thread = threading.Event()
-
-        # Make a private property for the access token
-        self.access_token = None
-        self.refresh_token = None
-
         # Initialize WebSocket
         self.websocket = OuroWebSocket(self)
 
         # Initialize httpx client
         self.client = httpx.Client(
-            # auth=OuroAuth(api_key, refresh_url=self.base_url + "/users/get-token"),
             base_url=self.base_url,
-            timeout=timeout,
+            # timeout=self.timeout,
         )
-
-        # Exchange API key for access token, set them in clients
+        # Perform initial token exchange
         self.refresh_tokens()
-
-        # Initialize Supabase clients now that we have tokens
         self.initialize_supabase_clients()
 
-        # Start a thread to refresh tokens
-        self.start_token_refresh_thread()
-
         # Initialize resources
-        # self.users = Users(self)
+        self.conversations = Conversations(self)
         self.datasets = Datasets(self)
         self.files = Files(self)
         self.posts = Posts(self)
-        self.conversations = Conversations(self)
-        self.users = Users(self)
+        # self.users = Users(self)
+
+        # Start token refresh thread
+        self.token_refresh_interval = 10  # 1 hour in seconds
+        self.stop_refresh_thread = threading.Event()
+        self.token_refresh_thread = threading.Thread(
+            target=self._token_refresh_loop, daemon=True
+        )
+        self.token_refresh_thread.start()
 
     @property
     def websocket_url(self):
         return f"ws://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
+
+    def _run_event_loop(self):
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
 
     @override
     def _make_status_error(
@@ -239,8 +235,6 @@ class Ouro:
         log.info(f"Successfully authenticated as {self.user.email}")
 
     def refresh_tokens(self):
-        log.info("Ouro client refreshing...")
-        # Refresh Ouro tokens
         response = self.client.post("/users/get-token", json={"pat": self.api_key})
         response.raise_for_status()
         data = response.json()
@@ -251,19 +245,26 @@ class Ouro:
 
         self.access_token = data["access_token"]
         self.refresh_token = data["refresh_token"]
+        log.info("Refreshed tokens")
 
-        # Update Supabase client sessions
-        if hasattr(self, "database"):
-            self.database.postgrest.auth(self.access_token)
-            self.database.auth.set_session(self.access_token, self.refresh_token)
+        # Update httpx and supabase clients with new session
+        self._update_clients()
+        # Refresh websocket connection
+        self.websocket.refresh_connection()
+
+    def _update_clients(self):
+        # Update client headers
+        self.client.headers["Authorization"] = f"{self.access_token}"
+
+        # Update supabase clients
         if hasattr(self, "supabase"):
             self.supabase.postgrest.auth(self.access_token)
             self.supabase.auth.set_session(self.access_token, self.refresh_token)
+        if hasattr(self, "database"):
+            self.database.postgrest.auth(self.access_token)
+            self.database.auth.set_session(self.access_token, self.refresh_token)
 
-        # Update httpx client
-        self.client.headers["Authorization"] = f"{self.access_token}"
-
-    def token_refresh_loop(self):
+    def _token_refresh_loop(self):
         while not self.stop_refresh_thread.is_set():
             time.sleep(self.token_refresh_interval)
             if not self.stop_refresh_thread.is_set():
@@ -272,22 +273,8 @@ class Ouro:
                 except Exception as e:
                     log.error(f"Failed to refresh tokens: {e}")
 
-    def start_token_refresh_thread(self):
-        if (
-            self.token_refresh_thread is None
-            or not self.token_refresh_thread.is_alive()
-        ):
-            self.token_refresh_thread = threading.Thread(target=self.token_refresh_loop)
-            self.token_refresh_thread.daemon = True
-            self.token_refresh_thread.start()
-
-    def stop_token_refresh_thread(self):
-        if self.token_refresh_thread and self.token_refresh_thread.is_alive():
-            self.stop_refresh_thread.set()
-            self.token_refresh_thread.join(
-                timeout=10
-            )  # Wait up to 10 seconds for the thread to stop
-            self.token_refresh_thread = None
-
     def __del__(self):
-        self.stop_token_refresh_thread()
+        self.stop_refresh_thread.set()
+        if hasattr(self, "token_refresh_thread"):
+            self.token_refresh_thread.join(timeout=10)
+        self.client.close()

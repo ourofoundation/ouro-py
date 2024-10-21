@@ -144,13 +144,13 @@ class Conversations(SyncAPIResource):
 
         return Conversation(**response["data"], _ouro=self.ouro)
 
-    async def subscribe(self):
+    def subscribe(self):
         """
         Subscribe to conversation changes. New messages will be sent to the websocket connection.
         """
         # Check to make sure the websocket connection is active
         if not self.websocket.is_connected:
-            await self.websocket.connect(self.ouro.websocket_url)
+            self.websocket.connect(self.ouro.websocket_url)
         request = self.client.get("/conversations/subscribe")
         request.raise_for_status()
         response = request.json()
@@ -159,9 +159,9 @@ class Conversations(SyncAPIResource):
         log.info("Subscribed to conversations")
         return response["data"]
 
-    async def unsubscribe(self):
+    def unsubscribe(self):
         """
         Unsubscribe from conversation changes.
         """
         if self.websocket.is_connected:
-            await self.websocket.disconnect()
+            self.websocket.disconnect()
