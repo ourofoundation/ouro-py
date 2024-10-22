@@ -1,5 +1,6 @@
 # This file is used to import all the resources in the ouro package
 
+from .assets import Assets
 from .content import Content, Editor
 from .conversations import Conversations
 from .datasets import Datasets
@@ -7,7 +8,16 @@ from .files import Files
 from .posts import Posts
 from .users import Users
 
-__all__ = ["Content", "Editor", "Conversations", "Datasets", "Posts", "Files", "Users"]
+__all__ = [
+    "Content",
+    "Editor",
+    "Conversations",
+    "Datasets",
+    "Posts",
+    "Files",
+    "Users",
+    "Assets",
+]
 
 
 def EditorFactory(self, **kwargs) -> Editor:
@@ -31,3 +41,5 @@ def __init__(self, ouro):
     self.Content = self.ContentFactory
 
     self.users = Users(ouro)
+
+    self.assets = Assets(ouro)

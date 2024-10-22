@@ -23,7 +23,7 @@ class Assets(SyncAPIResource):
         """
 
         request = self.client.get(
-            f"/users/search",
+            f"/search/assets",
             params={
                 "query": query,
                 **kwargs,

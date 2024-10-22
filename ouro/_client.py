@@ -11,7 +11,7 @@ import httpx
 import supabase
 from ouro.config import Config
 from ouro.realtime.websocket import OuroWebSocket
-from ouro.resources import Conversations, Datasets, Files, Posts, Users
+from ouro.resources import Assets, Conversations, Datasets, Files, Posts, Users
 from supabase.client import ClientOptions
 from typing_extensions import override
 
@@ -121,6 +121,7 @@ class Ouro:
         self.datasets = Datasets(self)
         self.files = Files(self)
         self.posts = Posts(self)
+        self.assets = Assets(self)
         # self.users = Users(self)
 
     @override
@@ -185,10 +186,12 @@ class Ouro:
         )
 
         # Set the session for the supabase clients
-        self.database.auth.set_session(
-            self.database_access_token, self.database_refresh_token
-        )
+        self.database.auth.set_session(self.access_token, self.refresh_token)
         auth = self.supabase.auth.set_session(self.access_token, self.refresh_token)
+
+        # Store the authenticated user
+        self.user = auth.user
+        log.info(f"Successfully authenticated as {self.user.email}")
 
         # Mark the expiration of the token
         self.last_token_refresh_expiration = auth.session.expires_at
@@ -196,21 +199,13 @@ class Ouro:
         # Set the Authorization header for the client
         self.client.headers["Authorization"] = f"{self.access_token}"
 
-        self.user = auth.user
-        log.info(f"Successfully authenticated as {self.user.email}")
-
         # When the session changes, update the access token and refresh token
         def on_auth_state_change(event, session):
             if event == "TOKEN_REFRESHED":
-                # Only refresh the token if it has expired
-                # if self.last_token_refresh_expiration > time.time():
-                #     return
-                # self.last_token_refresh_expiration = session.expires_at
-
                 print("TOKEN_REFRESHED")
                 self.access_token = session.access_token
                 self.refresh_token = session.refresh_token
-                self.client.headers["Authorization"] = f"{self.access_token}"
+                self.client.headers["Authorization"] = f"{session.access_token}"
                 # Reconnect the websocket and resubscribe to channels
                 self.websocket.refresh_connection()
 
@@ -227,13 +222,3 @@ class Ouro:
 
         self.access_token = data["access_token"]
         self.refresh_token = data["refresh_token"]
-
-        # Do it again for the database schema client
-
-        response = self.client.post("/users/get-token", json={"pat": self.api_key})
-        response.raise_for_status()
-        data = response.json()
-        if data.get("error"):
-            raise Exception(data["error"])
-        self.database_access_token = data["access_token"]
-        self.database_refresh_token = data["refresh_token"]

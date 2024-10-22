@@ -40,11 +40,14 @@ class OuroWebSocket:
         try:
             self.sio.connect(
                 self.ouro.websocket_url,
+                retry=True,
+                namespaces=["/"],
                 auth={
                     "access_token": self.ouro.access_token,
                     "refresh_token": self.ouro.refresh_token,
                 },
             )
+            self.sio.sleep(1)
         except Exception as e:
             log.error(f"Failed to connect to websocket: {e}")
 
@@ -53,6 +56,7 @@ class OuroWebSocket:
 
     def refresh_connection(self):
         self.disconnect()
+        self.sio.sleep(1)
         self.connect()
 
         # Re-subscribe to channels if needed
