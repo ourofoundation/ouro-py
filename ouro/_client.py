@@ -208,6 +208,7 @@ class Ouro:
                 self.access_token = session.access_token
                 self.refresh_token = session.refresh_token
                 self.client.headers["Authorization"] = f"{session.access_token}"
+                self.client.cookies.set("refresh_token", session.refresh_token)
                 # Reconnect the websocket and resubscribe to channels
                 self.websocket.refresh_connection(session.access_token)
 
