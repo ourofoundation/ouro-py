@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import threading
-import time
-from typing import Any, Callable, Union
+from typing import Union
 
 import httpx
 import supabase
@@ -27,6 +24,8 @@ __all__ = ["Ouro"]
 
 log: logging.Logger = logging.getLogger("ouro")
 
+# Get httpx log level set to debug
+logging.getLogger("httpx").setLevel(logging.DEBUG)
 
 class Ouro:
     # Resources
@@ -43,7 +42,6 @@ class Ouro:
 
     # Clients
     client: httpx.Client
-    database: supabase.Client  # datasets schema
     supabase: supabase.Client  # public schema
     websocket: OuroWebSocket
 
@@ -167,27 +165,21 @@ class Ouro:
         return APIStatusError(err_msg, response=response, body=data)
 
     def initialize_clients(self):
-        self.database = supabase.create_client(
-            self.database_url,
-            self.database_anon_key,
-            options=ClientOptions(
-                schema="datasets",
-                auto_refresh_token=True,
-                persist_session=False,
-            ),
-        )
         self.supabase = supabase.create_client(
             self.database_url,
             self.database_anon_key,
             options=ClientOptions(
                 auto_refresh_token=True,
-                persist_session=False,
+                persist_session=True,
+                headers={"Authorization": f"Bearer {self.access_token}"},
             ),
         )
+        # Set the session for the supabase client
+        self.supabase.auth.set_session(self.access_token, self.refresh_token)
+        auth = self.supabase.auth.refresh_session()
 
-        # Set the session for the supabase clients
-        self.database.auth.set_session(self.access_token, self.refresh_token)
-        auth = self.supabase.auth.set_session(self.access_token, self.refresh_token)
+        self.access_token = auth.session.access_token
+        self.refresh_token = auth.session.refresh_token
 
         # Store the authenticated user
         self.user = auth.user
@@ -199,7 +191,7 @@ class Ouro:
         # Set the Authorization header for the client
         self.client.headers["Authorization"] = f"{self.access_token}"
         # Set refresh token as a cookie
-        self.client.cookies.set("refresh_token", self.refresh_token)
+        # self.client.cookies.set("refresh_token", self.refresh_token)
 
         # When the session changes, update the access token and refresh token
         def on_auth_state_change(event, session):
@@ -208,9 +200,11 @@ class Ouro:
                 self.access_token = session.access_token
                 self.refresh_token = session.refresh_token
                 self.client.headers["Authorization"] = f"{session.access_token}"
-                self.client.cookies.set("refresh_token", session.refresh_token)
+                # self.client.cookies.set("refresh_token", session.refresh_token)
                 # Reconnect the websocket and resubscribe to channels
                 self.websocket.refresh_connection(session.access_token)
+            else:
+                print(event, session)
 
         self.supabase.auth.on_auth_state_change(on_auth_state_change)
 

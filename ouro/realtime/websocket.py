@@ -54,7 +54,7 @@ class OuroWebSocket:
     def disconnect(self):
         self.sio.disconnect()
 
-    def refresh_connection(self, access_token: str):
+    def refresh_connection(self, access_token: Optional[str] = None):
         self.disconnect()
         self.sio.sleep(1)
         self.connect(access_token)
