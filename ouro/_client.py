@@ -27,6 +27,7 @@ log: logging.Logger = logging.getLogger("ouro")
 # Get httpx log level set to debug
 logging.getLogger("httpx").setLevel(logging.DEBUG)
 
+
 class Ouro:
     # Resources
     datasets: Datasets
@@ -34,6 +35,7 @@ class Ouro:
     posts: Posts
     conversations: Conversations
     users: Users
+    assets: Assets
 
     # Client options
     api_key: str
@@ -120,7 +122,7 @@ class Ouro:
         self.files = Files(self)
         self.posts = Posts(self)
         self.assets = Assets(self)
-        # self.users = Users(self)
+        self.users = Users(self)
 
     @override
     def _make_status_error(

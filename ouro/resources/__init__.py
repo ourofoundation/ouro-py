@@ -29,17 +29,13 @@ def ContentFactory(self, **kwargs) -> Content:
 
 
 def __init__(self, ouro):
-    # Earth
+    self.users = Users(ouro)
+    self.assets = Assets(ouro)
+
     self.datasets = Datasets(ouro)
     self.files = Files(ouro)
-
-    # Air
     self.posts = Posts(ouro)
     self.conversations = Conversations(ouro)
 
     self.Editor = self.EditorFactory
     self.Content = self.ContentFactory
-
-    self.users = Users(ouro)
-
-    self.assets = Assets(ouro)
