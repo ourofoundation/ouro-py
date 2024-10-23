@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import socketio
 
@@ -36,15 +36,15 @@ class OuroWebSocket:
         def connect_error(data):
             log.error(f"Connection error: {data}")
 
-    def connect(self) -> None:
+    def connect(self, access_token: Optional[str] = None) -> None:
         try:
             self.sio.connect(
                 self.ouro.websocket_url,
                 retry=True,
                 namespaces=["/"],
                 auth={
-                    "access_token": self.ouro.access_token,
-                    "refresh_token": self.ouro.refresh_token,
+                    "access_token": access_token or self.ouro.access_token,
+                    # "refresh_token": access_token or self.ouro.refresh_token,
                 },
             )
             self.sio.sleep(1)
@@ -54,10 +54,10 @@ class OuroWebSocket:
     def disconnect(self):
         self.sio.disconnect()
 
-    def refresh_connection(self):
+    def refresh_connection(self, access_token: str):
         self.disconnect()
         self.sio.sleep(1)
-        self.connect()
+        self.connect(access_token)
 
         # Re-subscribe to channels if needed
         if self.ouro.conversations.subscribed:

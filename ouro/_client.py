@@ -207,7 +207,7 @@ class Ouro:
                 self.refresh_token = session.refresh_token
                 self.client.headers["Authorization"] = f"{session.access_token}"
                 # Reconnect the websocket and resubscribe to channels
-                self.websocket.refresh_connection()
+                self.websocket.refresh_connection(session.access_token)
 
         self.supabase.auth.on_auth_state_change(on_auth_state_change)
 
