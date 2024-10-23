@@ -198,6 +198,8 @@ class Ouro:
 
         # Set the Authorization header for the client
         self.client.headers["Authorization"] = f"{self.access_token}"
+        # Set refresh token as a cookie
+        self.client.cookies.set("refresh_token", self.refresh_token)
 
         # When the session changes, update the access token and refresh token
         def on_auth_state_change(event, session):
