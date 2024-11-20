@@ -24,6 +24,7 @@ class Datasets(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[str] = None,
+        **kwargs,
     ):
         try:
             df = data.copy()
@@ -59,6 +60,7 @@ class Datasets(SyncAPIResource):
                 "price": price,
                 "description": description,
                 "schema": create_table_sql,
+                **kwargs,
             }
 
             # Filter out None values
