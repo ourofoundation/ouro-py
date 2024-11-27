@@ -24,11 +24,11 @@ class Asset(BaseModel):
     id: UUID
     user_id: UUID
     org_id: UUID | None
-    name: str
     visibility: str
     asset_type: str
     created_at: datetime
     last_updated: datetime
+    name: Optional[str]
     description: Optional[str]
     metadata: Optional[dict]
     monetization: Optional[str]
