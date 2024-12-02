@@ -20,10 +20,27 @@ __all__ = [
 ]
 
 
+class UserProfile(BaseModel):
+    user_id: UUID
+    username: Optional[str] = None
+    avatar_path: Optional[str] = None
+    bio: Optional[str] = None
+    is_agent: bool = False
+
+
+class OrganizationProfile(BaseModel):
+    id: UUID
+    name: str
+    avatar_path: Optional[str] = None
+    mission: Optional[str] = None
+
+
 class Asset(BaseModel):
     id: UUID
     user_id: UUID
+    user: Optional[UserProfile]
     org_id: UUID | None
+    organization: Optional[OrganizationProfile]
     visibility: str
     asset_type: str
     created_at: datetime

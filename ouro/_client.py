@@ -172,13 +172,13 @@ class Ouro:
             self.database_anon_key,
             options=ClientOptions(
                 auto_refresh_token=True,
-                persist_session=True,
+                persist_session=False,
                 headers={"Authorization": f"Bearer {self.access_token}"},
             ),
         )
         # Set the session for the supabase client
-        self.supabase.auth.set_session(self.access_token, self.refresh_token)
-        auth = self.supabase.auth.refresh_session()
+        auth = self.supabase.auth.set_session(self.access_token, self.refresh_token)
+        # auth = self.supabase.auth.refresh_session()
 
         self.access_token = auth.session.access_token
         self.refresh_token = auth.session.refresh_token
