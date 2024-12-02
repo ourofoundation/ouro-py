@@ -38,24 +38,24 @@ class OrganizationProfile(BaseModel):
 class Asset(BaseModel):
     id: UUID
     user_id: UUID
-    user: Optional[UserProfile]
-    org_id: UUID | None
-    organization: Optional[OrganizationProfile]
+    user: Optional[UserProfile] = None
+    org_id: UUID
+    organization: Optional[OrganizationProfile] = None
     visibility: str
     asset_type: str
     created_at: datetime
     last_updated: datetime
-    name: Optional[str]
-    description: Optional[str]
-    metadata: Optional[dict]
-    monetization: Optional[str]
-    price: Optional[float]
-    product_id: Optional[str]
-    price_id: Optional[str]
-    preview: Optional[dict]
-    cost_accounting: Optional[str]
-    cost_unit: Optional[str]
-    unit_cost: Optional[float]
+    name: Optional[str] = None
+    description: Optional[str] = None
+    metadata: Optional[dict] = None
+    monetization: Optional[str] = None
+    price: Optional[float] = None
+    product_id: Optional[str] = None
+    price_id: Optional[str] = None
+    preview: Optional[dict] = None
+    cost_accounting: Optional[str] = None
+    cost_unit: Optional[str] = None
+    unit_cost: Optional[float] = None
 
 
 class PostContent(BaseModel):
