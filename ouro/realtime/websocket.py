@@ -1,7 +1,6 @@
-import asyncio
 import logging
 import time
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import socketio
 
@@ -13,7 +12,8 @@ class OuroWebSocket:
         self.ouro = ouro
         self.sio = socketio.Client(
             reconnection=True,
-            # logger=log,
+            reconnection_attempts=5,
+            reconnection_delay=1,
         )
         self.setup_event_handlers()
 
