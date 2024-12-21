@@ -59,11 +59,6 @@ class OuroWebSocket:
         self.sio.sleep(1)
         self.connect(access_token)
 
-        # Re-subscribe to channels if needed
-        if self.ouro.conversations.subscribed:
-            log.info("Re-subscribing to conversations")
-            self.ouro.conversations.subscribe()
-
     def handle_disconnect(self):
         max_retries = 5
         retry_delay = 1  # Start with 1 second delay

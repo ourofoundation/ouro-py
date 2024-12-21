@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Annotated, Any, List, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -56,6 +56,7 @@ class Asset(BaseModel):
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None
     unit_cost: Optional[float] = None
+    state: Literal["queued", "in-progress", "success", "error"] = "success"
 
 
 class PostContent(BaseModel):
@@ -105,17 +106,24 @@ class FileData(BaseModel):
 
 
 class FileMetadata(BaseModel):
-    id: UUID
     name: str
     path: str
     size: int
     type: str
     bucket: Literal["public-files", "files"]
-    fullPath: str
+    id: Optional[UUID] = None
+    fullPath: Optional[str] = None
+
+
+class InProgressFileMetadata(BaseModel):
+    type: str
 
 
 class File(Asset):
-    metadata: FileMetadata
+    metadata: Union[FileMetadata, InProgressFileMetadata] = Field(
+        union_mode="left_to_right",
+        # discriminator="state",
+    )
     data: Optional[FileData] = None
 
 

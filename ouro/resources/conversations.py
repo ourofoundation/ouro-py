@@ -102,7 +102,6 @@ class Conversations(SyncAPIResource):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # self.messages = Messages(*args, **kwargs)
-        self.subscribed = False
 
     def retrieve(self, conversation_id: str):
         """
@@ -144,27 +143,3 @@ class Conversations(SyncAPIResource):
             raise Exception(response["error"])
 
         return Conversation(**response["data"], _ouro=self.ouro)
-
-    def subscribe(self):
-        """
-        Subscribe to conversation changes. New messages will be sent to the websocket connection.
-        """
-        # Check to make sure the websocket connection is active
-        if not self.websocket.is_connected:
-            self.websocket.connect()
-        request = self.client.get("/conversations/subscribe")
-        request.raise_for_status()
-        response = request.json()
-        if response.get("error"):
-            raise Exception(response["error"])
-        log.info("Subscribed to conversations")
-        self.subscribed = True
-        return response["data"]
-
-    def unsubscribe(self):
-        """
-        Unsubscribe from conversation changes.
-        """
-        if self.websocket.is_connected:
-            self.websocket.disconnect()
-        self.subscribed = False

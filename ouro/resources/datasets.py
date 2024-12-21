@@ -53,6 +53,14 @@ class Datasets(SyncAPIResource):
 
             log.debug(f"Creating a dataset:\n{create_table_sql}")
 
+            # Create preview
+            preview = self._serialize_dataframe(df.head(12))
+            metadata = {
+                "table_name": table_name,
+                "schema": "datasets",
+                "columns": df.columns.tolist(),
+            }
+
             body = {
                 "name": name,
                 "visibility": visibility,
@@ -61,6 +69,8 @@ class Datasets(SyncAPIResource):
                 "description": description,
                 "schema": create_table_sql,
                 **kwargs,
+                "preview": preview,
+                "metadata": metadata,
             }
 
             # Filter out None values
@@ -84,8 +94,6 @@ class Datasets(SyncAPIResource):
 
             # Good response, we can now insert the data
             created = Dataset(**response["data"])
-            table_name = created.metadata["table_name"]
-
             insert_data = self._serialize_dataframe(df)
 
             # Insert the data into the table
@@ -96,9 +104,6 @@ class Datasets(SyncAPIResource):
 
             if len(insert.data) > 0:
                 log.info(f"Inserted {len(insert.data)} rows into {table_name}")
-
-            # Update the dataset with a data preview
-            update = self.update(created.id, preview=insert_data[0:7])
 
             return created
         except Exception as e:
@@ -216,6 +221,7 @@ class Datasets(SyncAPIResource):
         data: Optional[pd.DataFrame] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        **kwargs,
     ):
         """
         Update a Dataset's data by its id
@@ -228,6 +234,7 @@ class Datasets(SyncAPIResource):
                 "price": price,
                 "description": description,
                 "preview": preview,
+                **kwargs,
             }
             # Filter out None values
             body = {k: v for k, v in body.items() if v is not None}
@@ -239,6 +246,7 @@ class Datasets(SyncAPIResource):
             response = request.json()
             if response["error"]:
                 raise Exception(response["error"])
+
             # Make the data update if it's provided
             if data is not None:
                 table_name = self.retrieve(id).metadata["table_name"]
@@ -248,6 +256,7 @@ class Datasets(SyncAPIResource):
                 insert = self.supabase.table(table_name).insert(insert_data).execute()
                 if len(insert.data) > 0:
                     log.info(f"Inserted {len(insert.data)} rows into {table_name}")
+
             return Dataset(**response["data"])
         except Exception as e:
             log.error(e)
