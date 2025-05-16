@@ -3,7 +3,7 @@ import logging
 import mimetypes
 import os
 import uuid
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from ouro._resource import SyncAPIResource
 from ouro.models import File
@@ -46,26 +46,38 @@ class Files(SyncAPIResource):
             }
         else:
             # Update file with Supabase
+            id = str(uuid.uuid4())
             with open(file_path, "rb") as f:
                 # Get file extension and MIME type
                 mime_type = mimetypes.guess_type(file_path)[0]
                 file_extension = os.path.splitext(file_path)[1]
-                id = str(uuid.uuid4())
 
                 bucket = "public-files" if visibility == "public" else "files"
-                path_on_storage = f"{self.ouro.user.id}/{id}{file_extension}"
+                bucket_folder = f"{self.ouro.user.id}"
+                file_name = f"{id}{file_extension}"
+                path_on_storage = f"{bucket_folder}/{file_name}"
 
                 log.info(f"Uploading file to {path_on_storage} in the {bucket} bucket")
                 request = self.ouro.supabase.storage.from_(bucket).upload(
                     file=f,
                     path=path_on_storage,
                     file_options={"content-type": mime_type},
-                )
-                request.raise_for_status()
-                file = request.json()
+                )  # Dict with path, fullpath. this used to have file ID, but now it doesn't
 
-            # Not sure why it's cased like this
-            file_id = file["Id"]
+                # Get file details
+                response = self.ouro.supabase.storage.from_(bucket).list(
+                    bucket_folder,
+                    {
+                        "limit": 1,
+                        "offset": 0,
+                        "sortBy": {"column": "name", "order": "desc"},
+                        "search": id,
+                    },
+                )
+                file = response[0]
+                assert file["name"] == file_name
+
+            file_id = file["id"]
             # Get file details server-side
             request = self.client.get(
                 f"/files/{file_id}/metadata",
@@ -76,7 +88,7 @@ class Files(SyncAPIResource):
             metadata = response["data"]["metadata"]
             metadata = {
                 "id": file_id,
-                "name": f"{id}{file_extension}",
+                "name": file_name,
                 "bucket": bucket,
                 "path": path_on_storage,
                 "type": mime_type,
@@ -109,7 +121,7 @@ class Files(SyncAPIResource):
         log.info(response)
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
-        return File(**response["data"])
+        return File(**response["data"], _ouro=self.ouro)
 
     def retrieve(self, id: str) -> File:
         """
@@ -136,7 +148,7 @@ class Files(SyncAPIResource):
         # Combine the file asset and file data
         combined = response["data"]
         combined["data"] = data_response["data"]
-        return File(**combined)
+        return File(**combined, _ouro=self.ouro)
 
     def update(
         self,
@@ -174,7 +186,7 @@ class Files(SyncAPIResource):
                     path=path_on_storage,
                     file_options={"content-type": mime_type},
                 )
-                request.raise_for_status()
+                # request.raise_for_status()
                 file_data = request.json()
 
             # Not sure why it's cased like this
@@ -216,4 +228,26 @@ class Files(SyncAPIResource):
         log.info(response)
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
-        return File(**response["data"])
+        return File(**response["data"], _ouro=self.ouro)
+
+    def share(
+        self,
+        file_id: str,
+        user_id: uuid.UUID | str,
+        role: Literal["read", "write", "admin"] = "read",
+    ) -> None:
+        """Share a file with another user.
+
+        Args:
+            file_id: The ID of the file to share
+            user_id: The UUID of the user to share with
+            role: The role to grant the user (admin or viewer)
+        """
+        request = self.client.put(
+            f"/elements/common/{file_id}/share",
+            json={"permission": {"user": {"user_id": str(user_id)}, "role": role}},
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response.get("error"):
+            raise Exception(json.dumps(response["error"]))

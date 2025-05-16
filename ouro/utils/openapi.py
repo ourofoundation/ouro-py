@@ -29,15 +29,21 @@ def get_custom_openapi(app, get_openapi):
             routes=app.routes,
         )
 
+        # Create a mapping of route paths to their endpoints
+        route_map = {}
+        for route in app.routes:
+            # Get the full path including any router prefix
+            full_path = route.path
+            if hasattr(route, "endpoint"):
+                route_map[full_path] = route.endpoint
+
         for path, path_item in openapi_schema["paths"].items():
             for method, operation in path_item.items():
-                endpoint = app.routes[0]
-                for route in app.routes:
-                    if route.path == path and method.upper() in route.methods:
-                        endpoint = route.endpoint
-                        break
+                # Find the matching endpoint from our route map
+                endpoint = route_map.get(path)
 
-                if hasattr(endpoint, "ouro_fields"):
+                # Only update operation if we found a matching endpoint with ouro_fields
+                if endpoint and hasattr(endpoint, "ouro_fields"):
                     operation.update(endpoint.ouro_fields)
 
         app.openapi_schema = openapi_schema

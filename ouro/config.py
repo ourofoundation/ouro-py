@@ -8,9 +8,6 @@ load_dotenv()
 
 class Config:
     DEBUG = os.getenv("DEBUG", "False") == "True"
-    SUPABASE_URL = os.getenv("SUPABASE_URL", "https://database.ouro.foundation")
-    SUPABASE_ANON_KEY = os.getenv(
-        "SUPABASE_ANON_KEY",
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzE0OTc1MjAwLCJleHAiOjE4NzI3NDE2MDB9.qFUUaJ8m-hPNAM0VlU1QiqLN80c6twhP7Ok9EJkNMNw",
-    )
-    OURO_BACKEND_URL = os.getenv("OURO_BACKEND_URL", "https://api.ouro.foundation")
+    SUPABASE_URL = "https://database.ouro.foundation"
+    SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzE0OTc1MjAwLCJleHAiOjE4NzI3NDE2MDB9.qFUUaJ8m-hPNAM0VlU1QiqLN80c6twhP7Ok9EJkNMNw"
+    OURO_BACKEND_URL = "https://api.ouro.foundation"

@@ -125,6 +125,24 @@ class File(Asset):
         # discriminator="state",
     )
     data: Optional[FileData] = None
+    _ouro: Optional["Ouro"] = None
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._ouro = kwargs.get("_ouro")
+
+    def share(
+        self, user_id: UUID | str, role: Literal["read", "write", "admin"] = "read"
+    ) -> None:
+        """Share this file with another user. You must be an admin of the file to share.
+
+        Args:
+            user_id: The UUID of the user to share with
+            role: The role to grant the user (read, write, admin)
+        """
+        if not self._ouro:
+            raise RuntimeError("File object not connected to Ouro client")
+        self._ouro.files.share(self.id, user_id, role)
 
 
 class DatasetMetadata(BaseModel):

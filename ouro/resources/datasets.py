@@ -25,7 +25,7 @@ class Datasets(SyncAPIResource):
         price: Optional[float] = None,
         description: Optional[str] = None,
         **kwargs,
-    ):
+    ) -> Dataset:
         try:
             df = data.copy()
             # Get a sql safe table name from the name
@@ -98,9 +98,12 @@ class Datasets(SyncAPIResource):
 
             # Insert the data into the table
             # TODO: May need to batch insert
-            self.supabase.postgrest.schema("datasets")
-            insert = self.supabase.table(table_name).insert(insert_data).execute()
-            self.supabase.postgrest.schema("public")
+            insert = (
+                self.supabase.schema("datasets")
+                .table(table_name)
+                .insert(insert_data)
+                .execute()
+            )
 
             if len(insert.data) > 0:
                 log.info(f"Inserted {len(insert.data)} rows into {table_name}")
@@ -110,11 +113,11 @@ class Datasets(SyncAPIResource):
             log.error(e)
             raise e
         finally:
-            self.supabase.postgrest.schema("public")
+            pass
 
-    def retrieve(self, id: str):
+    def retrieve(self, id: str) -> Dataset:
         """
-        Retrieve a Dataset by its id
+        Retrieve a dataset by its id
         """
         request = self.client.get(
             f"/datasets/{id}",
@@ -125,9 +128,51 @@ class Datasets(SyncAPIResource):
             raise Exception(response["error"])
         return Dataset(**response["data"])
 
+    def stats(self, id: str) -> dict:
+        """
+        Retrieve a dataset's stats by its id
+        Returns a dict with the dataset's stats like row count, column count, etc.
+        """
+        request = self.client.get(
+            f"/datasets/{id}/stats",
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+        return response["data"]
+
+    def permissions(self, id: str) -> List[dict]:
+        """
+        Retrieve a dataset's permissions by its id
+        Returns a list of dicts, each representing a permission
+        """
+        request = self.client.get(
+            f"/datasets/{id}/permissions",
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+        return response["data"]
+
+    def schema(self, id: str) -> List[dict]:
+        """
+        Retrieve a dataset's schema
+        Returns a list of dicts, each representing a column in the dataset
+        """
+        request = self.client.get(
+            f"/datasets/{id}/schema",
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+        return response["data"]
+
     def query(self, id: str) -> pd.DataFrame:
         """
-        Query a Dataset's data by its id
+        Query a dataset's data by its id
         """
 
         if not id:
@@ -198,19 +243,6 @@ class Datasets(SyncAPIResource):
 
         return pd.DataFrame(data)
 
-    def schema(self, id: str):
-        """
-        Retrieve a Dataset's schema
-        """
-        request = self.client.get(
-            f"/datasets/{id}/schema",
-        )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(response["error"])
-        return response["data"]
-
     def update(
         self,
         id: str,
@@ -224,7 +256,7 @@ class Datasets(SyncAPIResource):
         **kwargs,
     ):
         """
-        Update a Dataset's data by its id
+        Update a dataset by its id
         """
         try:
             body = {
@@ -263,6 +295,19 @@ class Datasets(SyncAPIResource):
             raise e
         finally:
             self.supabase.postgrest.schema("public")
+
+    def delete(self, id: str):
+        """
+        Delete a dataset by its id
+        """
+        request = self.client.delete(
+            f"/datasets/{id}",
+        )
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(response["error"])
+        return response["data"]
 
     def _serialize_dataframe(self, data: pd.DataFrame) -> List[dict]:
         """
