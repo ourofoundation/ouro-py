@@ -1,6 +1,7 @@
 # This file is used to import all the resources in the ouro package
 
 from .assets import Assets
+from .comments import Comments
 from .content import Content, Editor
 from .conversations import Conversations
 from .datasets import Datasets
@@ -15,6 +16,7 @@ __all__ = [
     "Datasets",
     "Posts",
     "Files",
+    "Comments",
     "Users",
     "Assets",
 ]
@@ -36,6 +38,7 @@ def __init__(self, ouro):
     self.files = Files(ouro)
     self.posts = Posts(ouro)
     self.conversations = Conversations(ouro)
+    self.comments = Comments(ouro)
 
     self.Editor = self.EditorFactory
     self.Content = self.ContentFactory

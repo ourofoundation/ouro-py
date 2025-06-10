@@ -7,7 +7,15 @@ import httpx
 import supabase
 from ouro.config import Config
 from ouro.realtime.websocket import OuroWebSocket
-from ouro.resources import Assets, Conversations, Datasets, Files, Posts, Users
+from ouro.resources import (
+    Assets,
+    Comments,
+    Conversations,
+    Datasets,
+    Files,
+    Posts,
+    Users,
+)
 from supabase.client import ClientOptions
 from typing_extensions import override
 
@@ -43,6 +51,7 @@ class Ouro:
     conversations: Conversations
     users: Users
     assets: Assets
+    comments: Comments
 
     # Client options
     api_key: str
@@ -131,6 +140,7 @@ class Ouro:
         self.posts = Posts(self)
         self.assets = Assets(self)
         self.users = Users(self)
+        self.comments = Comments(self)
 
     def _make_status_error(
         self,

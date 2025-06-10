@@ -17,6 +17,7 @@ __all__ = [
     "File",
     "FileData",
     "Dataset",
+    "Comment",
 ]
 
 
@@ -40,6 +41,8 @@ class Asset(BaseModel):
     user_id: UUID
     user: Optional[UserProfile] = None
     org_id: UUID
+    team_id: UUID
+    parent_id: Optional[UUID] = None
     organization: Optional[OrganizationProfile] = None
     visibility: str
     asset_type: str
@@ -50,8 +53,6 @@ class Asset(BaseModel):
     metadata: Optional[dict] = None
     monetization: Optional[str] = None
     price: Optional[float] = None
-    product_id: Optional[str] = None
-    price_id: Optional[str] = None
     preview: Optional[dict] = None
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None
@@ -153,3 +154,7 @@ class DatasetMetadata(BaseModel):
 class Dataset(Asset):
     # metadata: Union[DatasetMetadata, Optional[FileMetadata]]
     preview: Optional[List[dict]] = None
+
+
+class Comment(Asset):
+    content: Optional[PostContent] = None
