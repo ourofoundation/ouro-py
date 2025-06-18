@@ -14,6 +14,8 @@ from ouro.resources import (
     Datasets,
     Files,
     Posts,
+    Routes,
+    Services,
     Users,
 )
 from supabase.client import ClientOptions
@@ -52,6 +54,8 @@ class Ouro:
     users: Users
     assets: Assets
     comments: Comments
+    services: Services
+    routes: Routes
 
     # Client options
     api_key: str
@@ -141,6 +145,8 @@ class Ouro:
         self.assets = Assets(self)
         self.users = Users(self)
         self.comments = Comments(self)
+        self.services = Services(self)
+        self.routes = Routes(self)
 
     def _make_status_error(
         self,

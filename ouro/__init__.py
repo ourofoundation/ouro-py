@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # from ._models import BaseModel
 from ouro.__version__ import __title__, __version__
-from ouro._client import Ouro
+from ouro.client import Ouro
 from ouro.config import Config
 from typing_extensions import override
 

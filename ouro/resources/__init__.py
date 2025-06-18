@@ -7,6 +7,8 @@ from .conversations import Conversations
 from .datasets import Datasets
 from .files import Files
 from .posts import Posts
+from .routes import Routes
+from .services import Services
 from .users import Users
 
 __all__ = [
@@ -19,6 +21,8 @@ __all__ = [
     "Comments",
     "Users",
     "Assets",
+    "Services",
+    "Routes",
 ]
 
 
@@ -39,6 +43,8 @@ def __init__(self, ouro):
     self.posts = Posts(ouro)
     self.conversations = Conversations(ouro)
     self.comments = Comments(ouro)
+    self.services = Services(ouro)
+    self.routes = Routes(ouro)
 
     self.Editor = self.EditorFactory
     self.Content = self.ContentFactory

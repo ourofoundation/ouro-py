@@ -30,8 +30,8 @@ class Files(SyncAPIResource):
         """
 
         log.debug(f"Creating a file")
-
         if not file_path:
+            log.warning("No file path provided, creating a file stub. Update it later.")
             # We're making a file stub to be updated later
             file = {
                 "id": str(uuid.uuid4()),
@@ -118,7 +118,7 @@ class Files(SyncAPIResource):
         )
         request.raise_for_status()
         response = request.json()
-        log.info(response)
+        log.debug(response)
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
         return File(**response["data"], _ouro=self.ouro)
