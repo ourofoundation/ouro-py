@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, Optional
 
+from ouro._constants import DEFAULT_TIMEOUT
 from ouro._resource import SyncAPIResource
 from ouro.models import Route
 from ouro.utils import is_valid_uuid
@@ -80,7 +81,12 @@ class Routes(SyncAPIResource):
         return Route(**response["data"], _ouro=self.ouro)
 
     def use(
-        self, name_or_id: str, body: Optional[Dict[str, Any]] = None, **kwargs
+        self,
+        name_or_id: str,
+        body: Optional[Dict[str, Any]] = None,
+        *,
+        timeout: Optional[float] = None,
+        **kwargs,
     ) -> Dict:
         """
         Use/execute a specific route by its name or ID.
@@ -96,9 +102,11 @@ class Routes(SyncAPIResource):
         route = self.retrieve(route_id)
 
         payload = {"config": {"body": body, **kwargs}, "async": False}
+        request_timeout = timeout or DEFAULT_TIMEOUT
         request = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",
             json=payload,
+            timeout=request_timeout,
         )
         # request.raise_for_status()
         response = request.json()
