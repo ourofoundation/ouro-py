@@ -12,8 +12,15 @@ class RouteData(BaseModel):
     description: Optional[str] = None
     path: str
     method: str
-    parameters: Optional[Dict] = None
+    parameters: Optional[List[Dict]] = None
+    request_body: Optional[Dict] = {}
     responses: Optional[Dict] = None
+    security: Optional[str] = None
+    input_type: Optional[str] = None
+    input_filter: Optional[str] = None
+    input_file_extension: Optional[str] = None
+    output_type: Optional[str] = None
+    rate_limit: Optional[int] = None
 
 
 class Route(Asset):
@@ -88,4 +95,4 @@ class Route(Asset):
         """
         if not self._ouro:
             raise RuntimeError("Route object not connected to Ouro client")
-        return self._ouro.services.routes.use(str(self.id), **kwargs)
+        return self._ouro.routes.use(str(self.id), **kwargs)

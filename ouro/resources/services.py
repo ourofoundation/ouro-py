@@ -60,4 +60,5 @@ class Services(SyncAPIResource):
         response = request.json()
         if response["error"]:
             raise Exception(response["error"])
+        print(response["data"])
         return [Route(**route, _ouro=self.ouro) for route in response["data"]]

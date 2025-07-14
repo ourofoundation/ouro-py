@@ -90,13 +90,13 @@ class Editor(Content):
         self.json["content"].append(element)
         self.text += f"{text}\n"
 
-    def new_line(self):
-        element = {
-            "type": "paragraph",
-            "content": [{"text": "", "type": "text"}],
-        }
-        self.json["content"].append(element)
-        self.text += "\n"
+    # def new_line(self):
+    #     element = {
+    #         "type": "paragraph",
+    #         "content": [{"text": "", "type": "text"}],
+    #     }
+    #     self.json["content"].append(element)
+    #     self.text += "\n"
 
     def new_code_block(self, code: str, language: str = None):
         element = {

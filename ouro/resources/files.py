@@ -226,9 +226,21 @@ class Files(SyncAPIResource):
         request.raise_for_status()
         response = request.json()
         log.info(response)
+        print("hello", response)
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
-        return File(**response["data"], _ouro=self.ouro)
+        return File(**response["data"], data=None, _ouro=self.ouro)
+
+    def delete(self, id: str) -> None:
+        """
+        Delete a file
+        """
+        request = self.client.delete(f"/files/{id}")
+        request.raise_for_status()
+        response = request.json()
+        if response["error"]:
+            raise Exception(json.dumps(response["error"]))
+        return response
 
     def share(
         self,

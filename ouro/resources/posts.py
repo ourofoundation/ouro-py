@@ -115,3 +115,14 @@ class Posts(SyncAPIResource):
         if response["error"]:
             raise Exception(response["error"])
         return Post(**response["data"])
+
+    def delete(self, id: str):
+        """
+        Delete a Post by its id
+        """
+        request = self.client.delete(
+            f"/posts/{id}",
+        )
+        request.raise_for_status()
+        response = request.json()
+        return response

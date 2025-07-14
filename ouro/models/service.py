@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel
 
@@ -23,21 +23,21 @@ class Service(Asset):
         super().__init__(**kwargs)
         self._ouro = kwargs.get("_ouro")
 
-    def get_spec(self) -> Dict:
+    def read_spec(self) -> Dict:
         """
         Get the OpenAPI specification for this service
         """
         if not self._ouro:
             raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro.services.get_spec(str(self.id))
+        return self._ouro.services.read_spec(str(self.id))
 
-    def get_routes(self) -> List[Route]:
+    def read_routes(self) -> List[Route]:
         """
         Get all routes for this service
         """
         if not self._ouro:
             raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro.services.get_routes(str(self.id))
+        return self._ouro.services.read_routes(str(self.id))
 
     def use_route(self, route_name_or_id: str, **kwargs) -> Dict:
         """

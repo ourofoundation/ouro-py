@@ -27,6 +27,7 @@ dependencies = [
     "pydantic",
     "distro",
     "python-socketio[asyncio_client]",
+    "tabulate",
 ]
 
 [project.urls]
