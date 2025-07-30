@@ -47,6 +47,7 @@ class Content:
         return {"json": self.json, "text": self.text}
 
     def from_markdown(self, markdown: str):
+        # TODO: get this working
         """
         Convert markdown to a JSON representation of the content.
         Parses custom Ouro syntax for inline assets and user mentions.

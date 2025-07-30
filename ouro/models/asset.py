@@ -42,3 +42,4 @@ class Asset(BaseModel):
     cost_unit: Optional[str] = None
     unit_cost: Optional[float] = None
     state: Literal["queued", "in-progress", "success", "error"] = "success"
+    source: Literal["web", "api"] = "web"

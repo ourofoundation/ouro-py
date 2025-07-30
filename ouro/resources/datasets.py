@@ -69,6 +69,9 @@ class Datasets(SyncAPIResource):
                 "description": description,
                 "schema": create_table_sql,
                 **kwargs,
+                # Strictly enforce these fields
+                "source": "api",
+                "asset_type": "dataset",
                 "preview": preview,
                 "metadata": metadata,
             }

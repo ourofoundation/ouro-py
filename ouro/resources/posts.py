@@ -45,6 +45,9 @@ class Posts(SyncAPIResource):
             "monetization": monetization,
             "price": price,
             **kwargs,
+            # Strictly enforce these fields
+            "source": "api",
+            "asset_type": "post",
         }
         # Filter out None values
         post = {k: v for k, v in post.items() if v is not None}

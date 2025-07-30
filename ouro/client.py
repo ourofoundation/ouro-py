@@ -131,6 +131,9 @@ class Ouro:
         # Initialize httpx client
         self.client = httpx.Client(
             base_url=self.base_url,
+            headers={
+                "User-Agent": f"ouro-py/{__version__}",
+            },
             # timeout=self.timeout,
         )
         # Perform initial token exchange

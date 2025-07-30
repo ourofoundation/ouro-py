@@ -33,8 +33,8 @@ class File(Asset):
         union_mode="left_to_right",
         # discriminator="state",
     )
-    data: Optional[FileData]
-    _ouro: Optional["Ouro"]
+    data: Optional[FileData] = None
+    _ouro: Optional["Ouro"] = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

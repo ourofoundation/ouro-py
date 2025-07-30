@@ -40,9 +40,11 @@ class Files(SyncAPIResource):
                 "monetization": monetization,
                 "price": price,
                 "description": description,
+                **kwargs,
+                # Strictly enforce these fields
                 "asset_type": "file",
                 "state": "in-progress",
-                **kwargs,
+                "source": "api",
             }
         else:
             # Update file with Supabase
@@ -104,6 +106,9 @@ class Files(SyncAPIResource):
                 "monetization": monetization,
                 "price": price,
                 "description": description,
+                **kwargs,
+                # Strictly enforce these fields
+                "source": "api",
                 "metadata": metadata,
                 "preview": preview,
                 "asset_type": "file",

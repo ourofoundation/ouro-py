@@ -34,8 +34,11 @@ class Comments(SyncAPIResource):
         Create a new Comment
         """
         comment = {
-            "parent_id": parent_id,
             **kwargs,
+            "parent_id": parent_id,
+            # Strictly enforce these fields
+            "source": "api",
+            "asset_type": "comment",
         }
         # Filter out None values
         comment = {k: v for k, v in comment.items() if v is not None}
