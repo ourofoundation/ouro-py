@@ -29,7 +29,9 @@ class InProgressFileMetadata(BaseModel):
 
 
 class File(Asset):
-    metadata: Union[FileMetadata, InProgressFileMetadata] = Field(
+    # Override with a more specific metadata type; keep default None for pydantic
+    metadata: Optional[Union[FileMetadata, InProgressFileMetadata]] = Field(
+        default=None,
         union_mode="left_to_right",
         # discriminator="state",
     )
@@ -41,7 +43,9 @@ class File(Asset):
         self._ouro = kwargs.get("_ouro")
 
     def share(
-        self, user_id: UUID | str, role: Literal["read", "write", "admin"] = "read"
+        self,
+        user_id: Union[UUID, str],
+        role: Literal["read", "write", "admin"] = "read",
     ) -> None:
         """Share this file with another user. You must be an admin of the file to share.
 

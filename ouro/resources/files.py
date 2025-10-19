@@ -3,10 +3,12 @@ import logging
 import mimetypes
 import os
 import uuid
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from ouro._resource import SyncAPIResource
 from ouro.models import File
+
+from .content import Content
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ class Files(SyncAPIResource):
         file_path: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
-        description: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
         **kwargs,
     ) -> File:
         """
@@ -39,7 +41,12 @@ class Files(SyncAPIResource):
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
-                "description": description,
+                # Allow description to be a plain string or Content
+                "description": (
+                    description.to_dict()
+                    if isinstance(description, Content)
+                    else description
+                ),
                 **kwargs,
                 # Strictly enforce these fields
                 "asset_type": "file",
@@ -105,7 +112,12 @@ class Files(SyncAPIResource):
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
-                "description": description,
+                # Allow description to be a plain string or Content
+                "description": (
+                    description.to_dict()
+                    if isinstance(description, Content)
+                    else description
+                ),
                 **kwargs,
                 # Strictly enforce these fields
                 "source": "api",
@@ -166,6 +178,10 @@ class Files(SyncAPIResource):
         """
 
         log.debug(f"Updating a file")
+
+        # Coerce description if provided as Content
+        if "description" in kwargs and isinstance(kwargs["description"], Content):
+            kwargs["description"] = kwargs["description"].to_dict()
 
         # Build the file body
         file = {
@@ -231,7 +247,6 @@ class Files(SyncAPIResource):
         request.raise_for_status()
         response = request.json()
         log.info(response)
-        print("hello", response)
         if response["error"]:
             raise Exception(json.dumps(response["error"]))
         return File(**response["data"], data=None, _ouro=self.ouro)
@@ -250,7 +265,7 @@ class Files(SyncAPIResource):
     def share(
         self,
         file_id: str,
-        user_id: uuid.UUID | str,
+        user_id: Union[uuid.UUID, str],
         role: Literal["read", "write", "admin"] = "read",
     ) -> None:
         """Share a file with another user.

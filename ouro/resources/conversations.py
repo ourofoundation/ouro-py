@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Callable, List, Optional
@@ -88,7 +90,7 @@ class ConversationMessages:
     def retrieve(self, message_id: str):
         return Messages(self._ouro).retrieve(message_id)
 
-    def update(self, message_id: str, content: Optional[Content] = None, **kwargs):
+    def update(self, message_id: str, content: Optional["Content"] = None, **kwargs):
         return Messages(self._ouro).update(message_id, content, **kwargs)
 
     def delete(self, message_id: str):

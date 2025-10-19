@@ -20,6 +20,7 @@ class RouteData(BaseModel):
     input_filter: Optional[str] = None
     input_file_extension: Optional[str] = None
     output_type: Optional[str] = None
+    output_file_extension: Optional[str] = None
     rate_limit: Optional[int] = None
 
 

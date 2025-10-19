@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from ouro._resource import SyncAPIResource
 from ouro.models import Post
@@ -21,14 +21,14 @@ class Posts(SyncAPIResource):
         return Editor(**kwargs)
 
     @staticmethod
-    def Content(**kwargs) -> Content:
+    def Content(**kwargs) -> "Content":
         return Content(**kwargs)
 
     def create(
         self,
-        content: Content,
+        content: "Content",
         name: str,
-        description: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
@@ -40,7 +40,12 @@ class Posts(SyncAPIResource):
 
         post = {
             "name": name,
-            "description": description,
+            # Allow description to be a plain string or Content
+            "description": (
+                description.to_dict()
+                if isinstance(description, Content)
+                else description
+            ),
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
@@ -83,9 +88,9 @@ class Posts(SyncAPIResource):
     def update(
         self,
         id: str,
-        content: Optional[Content] = None,
+        content: Optional["Content"] = None,
         name: Optional[str] = None,
-        description: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
@@ -97,7 +102,13 @@ class Posts(SyncAPIResource):
 
         post = {
             "name": name,
-            "description": description,
+            # Allow description to be a plain string or Content
+            "description": (
+                description.to_dict()
+                if isinstance(description, Content)
+                # TODO: handle conversion of string
+                else description
+            ),
             "visibility": visibility,
             "monetization": monetization,
             "price": price,

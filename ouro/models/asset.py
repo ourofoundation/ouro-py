@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -33,7 +33,7 @@ class Asset(BaseModel):
     created_at: datetime
     last_updated: datetime
     name: Optional[str] = None
-    description: Optional[str] = None
+    description: Optional[Union[str, dict]] = None
     metadata: Optional[dict] = None
     monetization: Optional[str] = None
     price: Optional[float] = None

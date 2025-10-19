@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import json
 import logging
 import time as timer
 from datetime import date, datetime, time
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 from ouro._resource import SyncAPIResource
 from ouro.models import Dataset
+
+from .content import Content
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -23,7 +27,7 @@ class Datasets(SyncAPIResource):
         data: Optional[pd.DataFrame] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
-        description: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
         **kwargs,
     ) -> Dataset:
         try:
@@ -66,7 +70,12 @@ class Datasets(SyncAPIResource):
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
-                "description": description,
+                # Allow description to be a plain string or Content
+                "description": (
+                    description.to_dict()
+                    if isinstance(description, Content)
+                    else description
+                ),
                 "schema": create_table_sql,
                 **kwargs,
                 # Strictly enforce these fields
@@ -251,7 +260,7 @@ class Datasets(SyncAPIResource):
         id: str,
         name: Optional[str] = None,
         visibility: Optional[str] = None,
-        description: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
         preview: Optional[List[dict]] = None,
         data: Optional[pd.DataFrame] = None,
         monetization: Optional[str] = None,
@@ -271,6 +280,9 @@ class Datasets(SyncAPIResource):
                 "preview": preview,
                 **kwargs,
             }
+            # Coerce description if provided as Content instance
+            if isinstance(body.get("description"), Content):
+                body["description"] = body["description"].to_dict()
             # Filter out None values
             body = {k: v for k, v in body.items() if v is not None}
             request = self.client.put(

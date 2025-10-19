@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -47,9 +47,7 @@ class ConversationMetadata(BaseModel):
 
 
 class Conversation(Asset):
-    id: UUID
-    name: str
-    description: Optional[str] = None
+    asset_type: Literal["conversation"] = "conversation"
     summary: Optional[str] = None
     metadata: ConversationMetadata
     _messages: Optional["ConversationMessages"] = None

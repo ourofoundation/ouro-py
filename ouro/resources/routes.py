@@ -84,6 +84,9 @@ class Routes(SyncAPIResource):
         self,
         name_or_id: str,
         body: Optional[Dict[str, Any]] = None,
+        query: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        output: Optional[Dict[str, Any]] = None,
         *,
         timeout: Optional[float] = None,
         **kwargs,
@@ -101,7 +104,17 @@ class Routes(SyncAPIResource):
         route_id = self._resolve_name_to_id(name_or_id, "route")
         route = self.retrieve(route_id)
 
-        payload = {"config": {"body": body, **kwargs}, "async": False}
+        payload = {
+            # Route config
+            "config": {
+                "body": body,
+                "query": query,
+                "params": params,
+                "output": output,
+                **kwargs,
+            },
+            "async": False,
+        }
         request_timeout = timeout or DEFAULT_TIMEOUT
         request = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import List, Optional
 
@@ -21,12 +23,12 @@ class Comments(SyncAPIResource):
         return Editor(**kwargs)
 
     @staticmethod
-    def Content(**kwargs) -> Content:
+    def Content(**kwargs) -> "Content":
         return Content(**kwargs)
 
     def create(
         self,
-        content: Content,
+        content: "Content",
         parent_id: str,
         **kwargs,
     ) -> Comment:
@@ -72,10 +74,10 @@ class Comments(SyncAPIResource):
 
     def list_by_parent(self, parent_id: str) -> List[Comment]:
         """
-        List all comments for a parent post
+        List all comments for a parent asset or comment (one-level replies).
         """
         request = self.client.get(
-            f"/posts/{parent_id}/comments",
+            f"/assets/{parent_id}/comments",
         )
         request.raise_for_status()
         response = request.json()
@@ -84,10 +86,18 @@ class Comments(SyncAPIResource):
 
         return [Comment(**comment) for comment in response["data"]]
 
+    def list_replies(self, comment_id: str) -> List[Comment]:
+        """
+        List replies for a top-level comment (one-level deep).
+        """
+        return self.list_by_parent(comment_id)
+
+    # Note: Replies are created via `create` by passing parent_id as the comment id.
+
     def update(
         self,
         id: str,
-        content: Optional[Content] = None,
+        content: Optional["Content"] = None,
         **kwargs,
     ) -> Comment:
         """
