@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time as timer
 from datetime import date, datetime, time
 from typing import Any, List, Optional, Union
@@ -19,6 +20,27 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Datasets"]
 
 
+def to_safe_sql_table_name(name: str) -> str:
+    """
+    Convert a name to a safe SQL table name that complies with PostgreSQL's 63 character limit.
+    Matches the TypeScript implementation in backend/src/lib/elements/datasets.ts
+    """
+    # Remove leading and trailing spaces
+    name = name.strip()
+    # Replace spaces and dashes with underscores
+    name = re.sub(r"[\s-]+", "_", name)
+    # Remove any characters that are not letters, numbers, or underscores
+    name = re.sub(r"[^a-zA-Z0-9_]", "", name)
+    # Ensure the name starts with a letter or underscore
+    if not re.match(r"^[a-zA-Z_]", name):
+        name = "_" + name
+    # Make name lowercase
+    name = name.lower()
+    # Limit the name length to a maximum of 63 characters (PostgreSQL identifier limit)
+    name = name[:63]
+    return name
+
+
 class Datasets(SyncAPIResource):
     def create(
         self,
@@ -32,8 +54,8 @@ class Datasets(SyncAPIResource):
     ) -> Dataset:
         try:
             df = data.copy()
-            # Get a sql safe table name from the name
-            table_name = name.replace(" ", "_").lower()
+            # Get a sql safe table name from the name (ensures PostgreSQL 63 char limit)
+            table_name = to_safe_sql_table_name(name)
 
             # Reset the index if it exists to use as the primary key
             index_name = df.index.name
@@ -108,17 +130,20 @@ class Datasets(SyncAPIResource):
             created = Dataset(**response["data"])
             insert_data = self._serialize_dataframe(df)
 
+            # Backend may sanitize the table name, so use the created dataset's metadata
+            created_table_name = created.metadata["table_name"]
+
             # Insert the data into the table
             # TODO: May need to batch insert
             insert = (
                 self.supabase.schema("datasets")
-                .table(table_name)
+                .table(created_table_name)
                 .insert(insert_data)
                 .execute()
             )
 
             if len(insert.data) > 0:
-                log.info(f"Inserted {len(insert.data)} rows into {table_name}")
+                log.info(f"Inserted {len(insert.data)} rows into {created_table_name}")
 
             return created
         except Exception as e:
