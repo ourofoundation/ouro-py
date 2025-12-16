@@ -10,10 +10,12 @@ if TYPE_CHECKING:
 
     from ouro import Ouro
 
+from .action import Action
 from .file import File, FileData
 from .service import Route, Service
 
 __all__ = [
+    "Action",
     "Asset",
     "PostContent",
     "Post",

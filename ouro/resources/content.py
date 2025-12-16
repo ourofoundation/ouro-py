@@ -46,6 +46,14 @@ class Content:
         }
         return {"json": self.json, "text": self.text}
 
+    def append(self, content: "Content"):
+        self.json["content"].extend(content.json["content"])
+        self.text += "\n" + content.text
+
+    def prepend(self, content: "Content"):
+        self.json["content"] = content.json["content"] + self.json["content"]
+        self.text = content.text + "\n" + self.text
+
     def from_markdown(self, markdown: str):
         # TODO: get this working
         """

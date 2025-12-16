@@ -90,10 +90,39 @@ class Route(Asset):
             raise Exception(response["error"])
         return response["data"]
 
-    def use(self, **kwargs) -> Dict:
+    def use(
+        self,
+        *,
+        wait: bool = True,
+        poll_interval: float = 1.0,
+        poll_timeout: Optional[float] = 600.0,
+        **kwargs,
+    ):
         """
-        Use/execute this route
+        Use/execute this route.
+
+        For routes that return 202 (async processing), this method will automatically
+        poll for updates until the action completes, unless wait=False.
+
+        Args:
+            wait: If True (default), wait for async routes to complete. If False,
+                  return the Action immediately for manual polling.
+            poll_interval: Seconds between status checks when waiting (default: 1.0)
+            poll_timeout: Maximum seconds to wait for completion (default: 600).
+                         Set to None to wait forever.
+            **kwargs: Additional arguments (body, query, params, output, timeout)
+
+        Returns:
+            If the route returns immediately: Dict with response data
+            If the route is async and wait=True: Dict with response data
+            If the route is async and wait=False: Action object for manual polling
         """
         if not self._ouro:
             raise RuntimeError("Route object not connected to Ouro client")
-        return self._ouro.routes.use(str(self.id), **kwargs)
+        return self._ouro.routes.use(
+            str(self.id),
+            wait=wait,
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
+            **kwargs,
+        )
