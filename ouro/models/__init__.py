@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .asset import Asset
+from .asset import Asset, DescriptionDict
 
 if TYPE_CHECKING:
     from ouro.resources.conversations import ConversationMessages
@@ -17,6 +17,7 @@ from .service import Route, Service
 __all__ = [
     "Action",
     "Asset",
+    "DescriptionDict",
     "PostContent",
     "Post",
     "Conversation",
@@ -38,7 +39,6 @@ class PostContent(BaseModel):
 
 class Post(Asset):
     content: Optional[PostContent] = None
-    # preview: Optional[PostContent]
     comments: Optional[int] = Field(default=0)
     views: Optional[int] = Field(default=0)
 
@@ -74,7 +74,6 @@ class DatasetMetadata(BaseModel):
 
 
 class Dataset(Asset):
-    # metadata: Union[DatasetMetadata, Optional[FileMetadata]]
     preview: Optional[List[dict]] = None
 
 

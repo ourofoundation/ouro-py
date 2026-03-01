@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -23,26 +23,22 @@ class Service(Asset):
         super().__init__(**kwargs)
         self._ouro = kwargs.get("_ouro")
 
-    def read_spec(self) -> Dict:
-        """
-        Get the OpenAPI specification for this service
-        """
+    def _require_client(self) -> "Ouro":
         if not self._ouro:
             raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro.services.read_spec(str(self.id))
+        return self._ouro
+
+    def read_spec(self) -> Dict:
+        """Get the OpenAPI specification for this service."""
+        ouro = self._require_client()
+        return ouro.services.read_spec(str(self.id))
 
     def read_routes(self) -> List[Route]:
-        """
-        Get all routes for this service
-        """
-        if not self._ouro:
-            raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro.services.read_routes(str(self.id))
+        """Get all routes for this service."""
+        ouro = self._require_client()
+        return ouro.services.read_routes(str(self.id))
 
     def use_route(self, route_name_or_id: str, **kwargs) -> Dict:
-        """
-        Use/execute a specific route of this service
-        """
-        if not self._ouro:
-            raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro.services.routes.use(f"{self.id}/{route_name_or_id}", **kwargs)
+        """Use/execute a specific route of this service."""
+        ouro = self._require_client()
+        return ouro.services.routes.use(f"{self.id}/{route_name_or_id}", **kwargs)

@@ -1,5 +1,0 @@
-supabase
-python-dotenv
-postgrest
-httpx==0.16.1
-python-socketio[asyncio_client]

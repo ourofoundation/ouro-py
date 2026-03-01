@@ -6,6 +6,7 @@ import time
 
 import httpx
 import supabase
+from ouro._logs import setup_logging
 from ouro.config import Config
 from ouro.realtime.websocket import OuroWebSocket
 from ouro.resources import (
@@ -14,15 +15,19 @@ from ouro.resources import (
     Conversations,
     Datasets,
     Files,
+    Money,
+    Notifications,
+    Organizations,
     Posts,
     Routes,
     Services,
+    Teams,
     Users,
 )
 from supabase.client import ClientOptions
-from typing_extensions import override
 
 from .__version__ import __version__
+from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_TIMEOUT
 from ._exceptions import (
     APIStatusError,
     AuthenticationError,
@@ -35,7 +40,6 @@ from ._exceptions import (
     RateLimitError,
     UnprocessableEntityError,
 )
-from ._utils import is_mapping  # is_given,
 
 # Refresh token 5 minutes before expiry
 TOKEN_REFRESH_BUFFER_SECONDS = 300
@@ -44,9 +48,6 @@ __all__ = ["Ouro"]
 
 
 log: logging.Logger = logging.getLogger("ouro")
-
-# Get httpx log level set to debug
-logging.getLogger("httpx").setLevel(logging.DEBUG)
 
 
 class AutoRefreshClient:
@@ -110,6 +111,10 @@ class Ouro:
     comments: Comments
     services: Services
     routes: Routes
+    money: Money
+    notifications: Notifications
+    organizations: Organizations
+    teams: Teams
 
     # Client options
     api_key: str
@@ -117,7 +122,7 @@ class Ouro:
     project: str | None
 
     # Clients
-    client: httpx.Client
+    client: AutoRefreshClient
     supabase: supabase.Client  # public schema
     websocket: OuroWebSocket
 
@@ -139,13 +144,6 @@ class Ouro:
         base_url: str | None = None,
         database_url: str | None = None,
         database_anon_key: str | None = None,
-        # max_retries: int = DEFAULT_MAX_RETRIES,
-        # default_headers: Mapping[str, str] | None = None,
-        # default_query: Mapping[str, object] | None = None,
-        # Configure a custom httpx client.
-        # We provide a `DefaultHttpxClient` class that you can pass to retain the default values we use for `limits`, `timeout` & `follow_redirects`.
-        # See the [httpx documentation](https://www.python-httpx.org/api/#client) for more details.
-        # http_client: httpx.Client | None = None,
     ) -> None:
         """Construct a new synchronous ouro client instance.
 
@@ -154,6 +152,8 @@ class Ouro:
         - `organization` from `OURO_ORG_ID`
         - `project` from `OURO_PROJECT_ID`
         """
+        setup_logging()
+
         if api_key is None:
             api_key = os.environ.get("OURO_API_KEY")
         if api_key is None:
@@ -182,13 +182,13 @@ class Ouro:
         # Initialize WebSocket
         self.websocket = OuroWebSocket(self)
 
-        # Initialize raw httpx client (used for initial token exchange)
         self._raw_client = httpx.Client(
             base_url=self.base_url,
             headers={
                 "User-Agent": f"ouro-py/{__version__}",
             },
-            # timeout=self.timeout,
+            timeout=DEFAULT_TIMEOUT,
+            limits=DEFAULT_CONNECTION_LIMITS,
         )
         # Perform initial token exchange (uses _raw_client)
         self.exchange_api_key()
@@ -207,6 +207,10 @@ class Ouro:
         self.comments = Comments(self)
         self.services = Services(self)
         self.routes = Routes(self)
+        self.money = Money(self)
+        self.notifications = Notifications(self)
+        self.organizations = Organizations(self)
+        self.teams = Teams(self)
 
     def _make_status_error(
         self,
@@ -215,7 +219,7 @@ class Ouro:
         body: object,
         response: httpx.Response,
     ) -> APIStatusError:
-        data = body.get("error", body) if is_mapping(body) else body
+        data = body
         if response.status_code == 400:
             return BadRequestError(err_msg, response=response, body=data)
         if response.status_code == 401:
@@ -246,7 +250,6 @@ class Ouro:
         )
         # Set the session for the supabase client
         auth = self.supabase.auth.set_session(self.access_token, self.refresh_token)
-        # auth = self.supabase.auth.refresh_session()
 
         self.access_token = auth.session.access_token
         self.refresh_token = auth.session.refresh_token
@@ -260,8 +263,6 @@ class Ouro:
 
         # Set the Authorization header for the client
         self._raw_client.headers["Authorization"] = f"{self.access_token}"
-        # Set refresh token as a cookie
-        # self._raw_client.cookies.set("refresh_token", self.refresh_token)
 
         # When the session changes, update the access token and refresh token
         def on_auth_state_change(event, session):
@@ -270,11 +271,9 @@ class Ouro:
                 self.refresh_token = session.refresh_token
                 self._raw_client.headers["Authorization"] = f"{session.access_token}"
                 self.last_token_refresh_expiration = session.expires_at
-                # self._raw_client.cookies.set("refresh_token", session.refresh_token)
-                # Reconnect the websocket and resubscribe to channels
                 self.websocket.refresh_connection(session.access_token)
             else:
-                print(event, session)
+                log.debug("Auth state change: %s", event)
 
         self.supabase.auth.on_auth_state_change(on_auth_state_change)
 
@@ -283,12 +282,25 @@ class Ouro:
         response.raise_for_status()
         data = response.json()
         if data.get("error"):
-            raise Exception(data["error"])
+            err = data["error"]
+            if isinstance(err, dict):
+                err_msg = err.get("message") or str(err)
+            else:
+                err_msg = str(err)
+            raise AuthenticationError(err_msg, response=response, body=data)
         if not data.get("access_token"):
-            raise Exception("No user found for this API key")
+            raise AuthenticationError(
+                "No user found for this API key", response=response, body=data
+            )
 
         self.access_token = data["access_token"]
         self.refresh_token = data["refresh_token"]
+
+        self._raw_client.headers["X-Ouro-Client"] = f"ouro-py/{__version__}"
+        api_key_name = data.get("api_key_name")
+        if api_key_name:
+            self.api_key_name = api_key_name
+            self._raw_client.headers["X-Ouro-Key-Name"] = api_key_name
 
     def _token_needs_refresh(self) -> bool:
         """Check if the token is expired or will expire soon."""

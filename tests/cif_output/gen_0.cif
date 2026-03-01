@@ -1,0 +1,32 @@
+# generated using pymatgen
+data_MnFeO4
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   3.03492734
+_cell_length_b   4.49311973
+_cell_length_c   4.63351965
+_cell_angle_alpha   90.06122670
+_cell_angle_beta   90.17281457
+_cell_angle_gamma   90.02102704
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   MnFeO4
+_chemical_formula_sum   'Mn1 Fe1 O4'
+_cell_volume   63.18369879
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  Fe  Fe0  1  0.57283765  0.76389480  0.65690559  1
+  Mn  Mn1  1  0.07313072  0.26475573  0.16120140  1
+  O  O2  1  0.57867801  0.07265028  0.35364556  1
+  O  O3  1  0.07678120  0.94951743  0.84688860  1
+  O  O4  1  0.57686263  0.45435742  0.97030026  1
+  O  O5  1  0.07299622  0.57788497  0.47242549  1

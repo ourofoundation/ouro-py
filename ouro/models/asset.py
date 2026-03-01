@@ -3,6 +3,7 @@ from typing import Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 
 class UserProfile(BaseModel):
@@ -20,6 +21,12 @@ class OrganizationProfile(BaseModel):
     mission: Optional[str] = None
 
 
+class DescriptionDict(TypedDict, total=False):
+    """Shape of a structured description as returned by the API."""
+    json: dict
+    text: str
+
+
 class Asset(BaseModel):
     id: UUID
     user_id: UUID
@@ -33,7 +40,7 @@ class Asset(BaseModel):
     created_at: datetime
     last_updated: datetime
     name: Optional[str] = None
-    description: Optional[Union[str, dict]] = None
+    description: Optional[Union[str, DescriptionDict]] = None
     metadata: Optional[dict] = None
     monetization: Optional[str] = None
     price: Optional[float] = None

@@ -1,7 +1,9 @@
-import logging
-from typing import List, Optional, Union
+from __future__ import annotations
 
-from ouro._resource import SyncAPIResource
+import logging
+from typing import Optional, Union
+
+from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import Post
 
 from .content import Content, Editor
@@ -13,16 +15,13 @@ __all__ = ["Posts"]
 
 
 class Posts(SyncAPIResource):
-    def __init__(self, client):
-        super().__init__(client)
+    def Editor(self, **kwargs) -> Editor:
+        """Create an Editor instance connected to the Ouro client."""
+        return Editor(_ouro=self.ouro, **kwargs)
 
-    @staticmethod
-    def Editor(**kwargs) -> Editor:
-        return Editor(**kwargs)
-
-    @staticmethod
-    def Content(**kwargs) -> "Content":
-        return Content(**kwargs)
+    def Content(self, **kwargs) -> "Content":
+        """Create a Content instance connected to the Ouro client."""
+        return Content(_ouro=self.ouro, **kwargs)
 
     def create(
         self,
@@ -34,28 +33,17 @@ class Posts(SyncAPIResource):
         price: Optional[float] = None,
         **kwargs,
     ) -> Post:
-        """
-        Create a new Post
-        """
-
-        post = {
+        """Create a new Post."""
+        post = _strip_none({
             "name": name,
-            # Allow description to be a plain string or Content
-            "description": (
-                description.to_dict()
-                if isinstance(description, Content)
-                else description
-            ),
+            "description": _coerce_description(description),
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
             **kwargs,
-            # Strictly enforce these fields
             "source": "api",
             "asset_type": "post",
-        }
-        # Filter out None values
-        post = {k: v for k, v in post.items() if v is not None}
+        })
 
         request = self.client.post(
             "/posts/create",
@@ -64,26 +52,12 @@ class Posts(SyncAPIResource):
                 "content": content.to_dict(),
             },
         )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(response["error"])
+        return Post(**self._handle_response(request))
 
-        return Post(**response["data"])
-
-    def retrieve(self, id: str):
-        """
-        Retrieve a Post by its id
-        """
-        request = self.client.get(
-            f"/posts/{id}",
-        )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(response["error"])
-
-        return Post(**response["data"])
+    def retrieve(self, id: str) -> Post:
+        """Retrieve a Post by its id."""
+        request = self.client.get(f"/posts/{id}")
+        return Post(**self._handle_response(request))
 
     def update(
         self,
@@ -96,26 +70,15 @@ class Posts(SyncAPIResource):
         price: Optional[float] = None,
         **kwargs,
     ) -> Post:
-        """
-        Update a Post by its id
-        """
-
-        post = {
+        """Update a Post by its id."""
+        post = _strip_none({
             "name": name,
-            # Allow description to be a plain string or Content
-            "description": (
-                description.to_dict()
-                if isinstance(description, Content)
-                # TODO: handle conversion of string
-                else description
-            ),
+            "description": _coerce_description(description),
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
             **kwargs,
-        }
-        # Filter out None values
-        post = {k: v for k, v in post.items() if v is not None}
+        })
 
         request = self.client.put(
             f"/posts/{id}",
@@ -124,19 +87,9 @@ class Posts(SyncAPIResource):
                 "content": content.to_dict() if content is not None else None,
             },
         )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(response["error"])
-        return Post(**response["data"])
+        return Post(**self._handle_response(request))
 
-    def delete(self, id: str):
-        """
-        Delete a Post by its id
-        """
-        request = self.client.delete(
-            f"/posts/{id}",
-        )
-        request.raise_for_status()
-        response = request.json()
-        return response
+    def delete(self, id: str) -> None:
+        """Delete a Post by its id."""
+        request = self.client.delete(f"/posts/{id}")
+        self._handle_response(request, raw=True)

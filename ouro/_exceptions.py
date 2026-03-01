@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, cast
+from typing import Optional
 
 import httpx
 from typing_extensions import Literal
@@ -52,15 +52,8 @@ class APIError(OuroError):
 
         if is_dict(body):
             self.code = body.get("code")
-            # cast(
-            #     Any, construct_type(type_=Optional[str], value=body.get("code"))
-            # )
             self.param = body.get("param")
-            # cast(
-            #     Any, construct_type(type_=Optional[str], value=body.get("param"))
-            # )
             self.type = body.get("type")
-            # cast(Any, construct_type(type_=str, value=body.get("type")))
         else:
             self.code = None
             self.param = None

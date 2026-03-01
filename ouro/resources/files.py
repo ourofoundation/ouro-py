@@ -1,11 +1,12 @@
-import json
+from __future__ import annotations
+
 import logging
 import mimetypes
 import os
 import uuid
-from typing import List, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
-from ouro._resource import SyncAPIResource
+from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import File
 
 from .content import Content
@@ -14,6 +15,26 @@ log: logging.Logger = logging.getLogger(__name__)
 
 
 __all__ = ["Files"]
+
+
+def _build_file_metadata(
+    file_id: str,
+    file_name: str,
+    bucket: str,
+    path_on_storage: str,
+    mime_type: str | None,
+    server_metadata: dict,
+) -> dict:
+    """Merge local upload info with server-extracted metadata."""
+    return {
+        "id": file_id,
+        "name": file_name,
+        "bucket": bucket,
+        "path": path_on_storage,
+        "type": mime_type,
+        "mimeType": mime_type,
+        **server_metadata,
+    }
 
 
 class Files(SyncAPIResource):
@@ -27,37 +48,25 @@ class Files(SyncAPIResource):
         description: Optional[Union[str, "Content"]] = None,
         **kwargs,
     ) -> File:
-        """
-        Create a File
-        """
-
-        log.debug(f"Creating a file")
+        """Create a File."""
+        log.debug("Creating a file")
         if not file_path:
             log.warning("No file path provided, creating a file stub. Update it later.")
-            # We're making a file stub to be updated later
             file = {
                 "id": str(uuid.uuid4()),
                 "name": name,
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
-                # Allow description to be a plain string or Content
-                "description": (
-                    description.to_dict()
-                    if isinstance(description, Content)
-                    else description
-                ),
+                "description": _coerce_description(description),
                 **kwargs,
-                # Strictly enforce these fields
                 "asset_type": "file",
                 "state": "in-progress",
                 "source": "api",
             }
         else:
-            # Update file with Supabase
             id = str(uuid.uuid4())
             with open(file_path, "rb") as f:
-                # Get file extension and MIME type
                 mime_type = mimetypes.guess_type(file_path)[0]
                 file_extension = os.path.splitext(file_path)[1]
 
@@ -67,13 +76,12 @@ class Files(SyncAPIResource):
                 path_on_storage = f"{bucket_folder}/{file_name}"
 
                 log.info(f"Uploading file to {path_on_storage} in the {bucket} bucket")
-                request = self.ouro.supabase.storage.from_(bucket).upload(
+                self.ouro.supabase.storage.from_(bucket).upload(
                     file=f,
                     path=path_on_storage,
                     file_options={"content-type": mime_type},
-                )  # Dict with path, fullpath. this used to have file ID, but now it doesn't
+                )
 
-                # Get file details
                 response = self.ouro.supabase.storage.from_(bucket).list(
                     bucket_folder,
                     {
@@ -84,117 +92,82 @@ class Files(SyncAPIResource):
                     },
                 )
                 file = response[0]
-                assert file["name"] == file_name
+                if file["name"] != file_name:
+                    raise RuntimeError(
+                        f"Upload verification failed: expected '{file_name}', "
+                        f"got '{file['name']}'"
+                    )
 
             file_id = file["id"]
-            # Get file details server-side
-            request = self.client.get(
-                f"/files/{file_id}/metadata",
+            meta_data = self._handle_response(
+                self.client.get(f"/files/{file_id}/metadata")
             )
-            request.raise_for_status()
-            response = request.json()
 
-            metadata = response["data"]["metadata"]
-            metadata = {
-                "id": file_id,
-                "name": file_name,
-                "bucket": bucket,
-                "path": path_on_storage,
-                "type": mime_type,
-                "mimeType": mime_type,
-                **metadata,
-            }
-            preview = response["data"]["preview"]
+            metadata = _build_file_metadata(
+                file_id, file_name, bucket, path_on_storage,
+                mime_type, meta_data["metadata"],
+            )
 
             file = {
-                "id": file_id,  # this doesn't need to be the same as the file object id
+                "id": file_id,
                 "name": name,
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
-                # Allow description to be a plain string or Content
-                "description": (
-                    description.to_dict()
-                    if isinstance(description, Content)
-                    else description
-                ),
+                "description": _coerce_description(description),
                 **kwargs,
-                # Strictly enforce these fields
                 "source": "api",
                 "metadata": metadata,
-                "preview": preview,
+                "preview": meta_data["preview"],
                 "asset_type": "file",
             }
 
-        # Filter out None values in the file body
-        file = {k: v for k, v in file.items() if v is not None}
+        file = _strip_none(file)
 
-        request = self.client.post(
-            "/files/create",
-            json={"file": file},
-        )
-        request.raise_for_status()
-        response = request.json()
-        log.debug(response)
-        if response["error"]:
-            raise Exception(json.dumps(response["error"]))
-        return File(**response["data"], _ouro=self.ouro)
+        request = self.client.post("/files/create", json={"file": file})
+        data = self._handle_response(request)
+        return File(**data, _ouro=self.ouro)
 
     def retrieve(self, id: str) -> File:
-        """
-        Retrieve a File by its ID
-        """
-        request = self.client.get(
-            f"/files/{id}",
-        )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(response["error"])
+        """Retrieve a File by its ID."""
+        data = self._handle_response(self.client.get(f"/files/{id}"))
 
-        # Get the file data
-        data_request = self.client.get(
-            f"/files/{id}/data",
-        )
-        data_request.raise_for_status()
-        data_response = data_request.json()
-        # Don't fail if the file is still in progress
-        # if data_response["error"]:
-        #     raise Exception(data_response["error"])
+        try:
+            file_data = self._handle_response(self.client.get(f"/files/{id}/data"))
+        except Exception:
+            file_data = None
 
-        # Combine the file asset and file data
-        combined = response["data"]
-        combined["data"] = data_response["data"]
-        return File(**combined, _ouro=self.ouro)
+        data["data"] = file_data
+        return File(**data, _ouro=self.ouro)
 
     def update(
         self,
         id: str,
         file_path: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
+        visibility: Optional[str] = None,
         **kwargs,
     ) -> File:
+        """Update a file by ID.
+
+        Pass file_path to replace the file data with a new file from the local filesystem.
+        Pass name, description, or visibility to update metadata.
         """
-        Create a File
-        """
+        log.debug("Updating a file")
 
-        log.debug(f"Updating a file")
+        update_params = _strip_none({
+            "name": name,
+            "description": _coerce_description(description),
+            "visibility": visibility,
+        })
+        update_params.update(kwargs)
 
-        # Coerce description if provided as Content
-        if "description" in kwargs and isinstance(kwargs["description"], Content):
-            kwargs["description"] = kwargs["description"].to_dict()
-
-        # Build the file body
-        file = {
-            "id": str(id),
-            **kwargs,
-        }
-        # Load existing file data
+        file: dict = {"id": str(id), **update_params}
         existing = self.retrieve(id)
 
         if file_path:
-            # Update file with Supabase
             with open(file_path, "rb") as f:
-                # Get file extension and MIME type
                 mime_type = mimetypes.guess_type(file_path)[0]
                 file_extension = os.path.splitext(file_path)[1]
 
@@ -207,60 +180,35 @@ class Files(SyncAPIResource):
                     path=path_on_storage,
                     file_options={"content-type": mime_type},
                 )
-                # request.raise_for_status()
                 file_data = request.json()
 
-            # Not sure why it's cased like this
             file_id = file_data["Id"]
-            # Get file details server-side
-            request = self.client.get(
-                f"/files/{file_id}/metadata",
+            meta_info = self._handle_response(
+                self.client.get(f"/files/{file_id}/metadata")
             )
-            request.raise_for_status()
-            response = request.json()
 
-            metadata = response["data"]["metadata"]
-            metadata = {
-                "id": file_id,
-                "name": f"{id}{file_extension}",
-                "bucket": bucket,
-                "path": path_on_storage,
-                "type": mime_type,
-                **metadata,
-            }
-            preview = response["data"]["preview"]
+            metadata = _build_file_metadata(
+                file_id, f"{id}{file_extension}", bucket, path_on_storage,
+                mime_type, meta_info["metadata"],
+            )
 
             file = {
                 **file,
                 "metadata": metadata,
-                "preview": preview,
+                "preview": meta_info["preview"],
                 "asset_type": "file",
             }
 
-        # Filter out None values in the file body
-        file = {k: v for k, v in file.items() if v is not None}
+        file = _strip_none(file)
 
-        request = self.client.put(
-            f"/files/{id}",
-            json={"file": file},
-        )
-        request.raise_for_status()
-        response = request.json()
-        log.info(response)
-        if response["error"]:
-            raise Exception(json.dumps(response["error"]))
-        return File(**response["data"], data=None, _ouro=self.ouro)
+        request = self.client.put(f"/files/{id}", json={"file": file})
+        data = self._handle_response(request)
+        return File(**data, data=None, _ouro=self.ouro)
 
     def delete(self, id: str) -> None:
-        """
-        Delete a file
-        """
+        """Delete a file."""
         request = self.client.delete(f"/files/{id}")
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(json.dumps(response["error"]))
-        return response
+        self._handle_response(request)
 
     def share(
         self,
@@ -268,18 +216,9 @@ class Files(SyncAPIResource):
         user_id: Union[uuid.UUID, str],
         role: Literal["read", "write", "admin"] = "read",
     ) -> None:
-        """Share a file with another user.
-
-        Args:
-            file_id: The ID of the file to share
-            user_id: The UUID of the user to share with
-            role: The role to grant the user (admin or viewer)
-        """
+        """Share a file with another user."""
         request = self.client.put(
             f"/elements/common/{file_id}/share",
             json={"permission": {"user": {"user_id": str(user_id)}, "role": role}},
         )
-        request.raise_for_status()
-        response = request.json()
-        if response.get("error"):
-            raise Exception(json.dumps(response["error"]))
+        self._handle_response(request)

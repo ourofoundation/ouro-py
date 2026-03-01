@@ -1,6 +1,21 @@
 from __future__ import annotations
 
 from ouro.__version__ import __title__, __version__
+from ouro._exceptions import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    ConflictError,
+    InternalServerError,
+    NotFoundError,
+    OuroError,
+    PermissionDeniedError,
+    RateLimitError,
+    UnprocessableEntityError,
+)
 
 from .utils.plotly import build_plotly_asset_tags, inject_assets_into_html
 
@@ -9,6 +24,19 @@ __all__ = [
     "__title__",
     "build_plotly_asset_tags",
     "inject_assets_into_html",
+    "OuroError",
+    "APIError",
+    "APIStatusError",
+    "APIConnectionError",
+    "APITimeoutError",
+    "BadRequestError",
+    "AuthenticationError",
+    "PermissionDeniedError",
+    "NotFoundError",
+    "ConflictError",
+    "UnprocessableEntityError",
+    "RateLimitError",
+    "InternalServerError",
 ]
 
 

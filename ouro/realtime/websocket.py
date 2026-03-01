@@ -18,10 +18,8 @@ class OuroWebSocket:
         self.setup_event_handlers()
 
     @property
-    def is_connected(self):
-        if not self.sio.connected:
-            return False
-        return True
+    def is_connected(self) -> bool:
+        return self.sio.connected
 
     def setup_event_handlers(self):
         @self.sio.event
@@ -44,7 +42,6 @@ class OuroWebSocket:
                 namespaces=["/"],
                 auth={
                     "access_token": access_token or self.ouro.access_token,
-                    # "refresh_token": access_token or self.ouro.refresh_token,
                 },
             )
             self.sio.sleep(1)
@@ -65,7 +62,6 @@ class OuroWebSocket:
 
         for attempt in range(max_retries):
             log.info(f"Attempting to reconnect (attempt {attempt + 1}/{max_retries})")
-            print("Attempting to reconnect", self.sio.connected, self.is_connected)
             try:
                 self.connect()
                 if self.is_connected:

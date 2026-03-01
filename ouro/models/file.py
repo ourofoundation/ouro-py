@@ -1,4 +1,3 @@
-import json
 from typing import TYPE_CHECKING, Literal, Optional, Union
 from uuid import UUID
 
@@ -29,11 +28,9 @@ class InProgressFileMetadata(BaseModel):
 
 
 class File(Asset):
-    # Override with a more specific metadata type; keep default None for pydantic
     metadata: Optional[Union[FileMetadata, InProgressFileMetadata]] = Field(
         default=None,
         union_mode="left_to_right",
-        # discriminator="state",
     )
     data: Optional[FileData] = None
     _ouro: Optional["Ouro"] = None
@@ -42,36 +39,36 @@ class File(Asset):
         super().__init__(**kwargs)
         self._ouro = kwargs.get("_ouro")
 
+    def _require_client(self) -> "Ouro":
+        if not self._ouro:
+            raise RuntimeError("File object not connected to Ouro client")
+        return self._ouro
+
     def share(
         self,
         user_id: Union[UUID, str],
         role: Literal["read", "write", "admin"] = "read",
     ) -> None:
-        """Share this file with another user. You must be an admin of the file to share.
+        """Share this file with another user.
 
         Args:
-            user_id: The UUID of the user to share with
-            role: The role to grant the user (read, write, admin)
+            user_id: The UUID of the user to share with.
+            role: The role to grant the user (read, write, admin).
         """
-        if not self._ouro:
-            raise RuntimeError("File object not connected to Ouro client")
-        self._ouro.files.share(str(self.id), user_id, role)
+        ouro = self._require_client()
+        ouro.files.share(str(self.id), user_id, role)
 
     def read_data(self) -> FileData:
-        """Get the file data.
+        """Get the file data (signed URL).
 
         Returns:
-            FileData with url property for this file
+            FileData with url property for this file.
         """
-        if not self._ouro:
-            raise RuntimeError("File object not connected to Ouro client")
-        request = self._ouro.client.get(
-            f"/files/{self.id}/data",
-        )
-        request.raise_for_status()
-        response = request.json()
-        if response["error"]:
-            raise Exception(json.dumps(response["error"]))
+        ouro = self._require_client()
+        from ouro._resource import SyncAPIResource
 
-        self.data = FileData(**response["data"])
+        resource = SyncAPIResource(ouro)
+        result = resource._handle_response(ouro.client.get(f"/files/{self.id}/data"))
+
+        self.data = FileData(**result)
         return self.data

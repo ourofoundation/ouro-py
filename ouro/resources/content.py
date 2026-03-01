@@ -1,6 +1,10 @@
 from copy import deepcopy
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ouro import Ouro
 
 __all__ = ["Editor", "Content"]
 
@@ -16,23 +20,35 @@ class Content:
 
     json: dict
     text: str
+    _ouro: Optional["Ouro"]
 
-    def __init__(self, json: dict = None, text: str = ""):
+    def __init__(
+        self, json: dict = None, text: str = "", _ouro: Optional["Ouro"] = None
+    ):
         self.json = deepcopy(json) if json else deepcopy(DEFAULT_CONTENT_JSON)
         self.text = text
+        self._ouro = _ouro
 
-        # If we only have text, get the JSON representation
         if not json and text:
             self.from_text(text)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {"json": self.json, "text": self.text}
 
-    def from_dict(self, data: dict):
-        pass
+    def from_dict(self, data: dict) -> None:
+        """Reconstruct Content from a dict with 'json' and/or 'text' keys."""
+        self.json = data.get("json", deepcopy(DEFAULT_CONTENT_JSON))
+        self.text = data.get("text", "")
 
-    # TODO; this should do parsing of markdown and html
-    def from_text(self, text: str):
+    def from_text(self, text: str) -> None:
+        """Convert plain text to content. Uses server-side markdown parsing
+        when connected to an Ouro client, otherwise falls back to naive
+        paragraph splitting.
+        """
+        if self._ouro:
+            self.from_markdown(text)
+            return
+
         self.text = text
         self.json = {
             "type": "doc",
@@ -44,31 +60,40 @@ class Content:
                 for line in text.split("\n")
             ],
         }
-        return {"json": self.json, "text": self.text}
 
-    def append(self, content: "Content"):
+    def append(self, content: "Content") -> None:
         self.json["content"].extend(content.json["content"])
         self.text += "\n" + content.text
 
-    def prepend(self, content: "Content"):
+    def prepend(self, content: "Content") -> None:
         self.json["content"] = content.json["content"] + self.json["content"]
         self.text = content.text + "\n" + self.text
 
-    def from_markdown(self, markdown: str):
-        # TODO: get this working
-        """
-        Convert markdown to a JSON representation of the content.
+    def from_markdown(self, markdown: str) -> None:
+        """Convert markdown to a JSON representation of the content.
+
         Parses custom Ouro syntax for inline assets and user mentions.
+        Requires the Content object to be connected to an Ouro client.
         """
-        conversion = self.client.post(
+        if not self._ouro:
+            raise RuntimeError(
+                "Content object not connected to Ouro client. "
+                "Pass _ouro to the constructor: Content(_ouro=ouro)"
+            )
+        response = self._ouro.client.post(
             "/utilities/convert/from-markdown", json={"markdown": markdown}
-        ).json()
+        )
+        response.raise_for_status()
+        conversion = response.json()
 
         self.json = conversion["json"]
         self.text = conversion["markdown"]
 
-    def from_html(self, html: str):
-        pass
+    def to_markdown(self) -> str:
+        """Convert this content's JSON to markdown."""
+        from ouro.utils.content import tiptap_to_markdown
+
+        return tiptap_to_markdown(self.json)
 
 
 class Editor(Content):
@@ -77,11 +102,9 @@ class Editor(Content):
     Inspired by https://github.com/didix21/mdutils
     """
 
-    # def __init__(self):
-    #     super().__init__()
-
-    def new_header(self, level: int, text: str):
-        assert 1 <= level <= 3, "Header level must be between 1 and 3"
+    def new_header(self, level: int, text: str) -> None:
+        if not 1 <= level <= 3:
+            raise ValueError(f"Header level must be between 1 and 3, got {level}")
 
         element = {
             "type": "heading",
@@ -91,7 +114,7 @@ class Editor(Content):
         self.json["content"].append(element)
         self.text += f"{'#' * level} {text}\n"
 
-    def new_paragraph(self, text: str):
+    def new_paragraph(self, text: str) -> None:
         element = {
             "type": "paragraph",
             "content": [{"text": text, "type": "text"}],
@@ -99,15 +122,7 @@ class Editor(Content):
         self.json["content"].append(element)
         self.text += f"{text}\n"
 
-    # def new_line(self):
-    #     element = {
-    #         "type": "paragraph",
-    #         "content": [{"text": "", "type": "text"}],
-    #     }
-    #     self.json["content"].append(element)
-    #     self.text += "\n"
-
-    def new_code_block(self, code: str, language: str = None):
+    def new_code_block(self, code: str, language: str = None) -> None:
         element = {
             "type": "codeBlock",
             "attrs": {"language": language},
@@ -116,77 +131,55 @@ class Editor(Content):
         self.json["content"].append(element)
         self.text += f"```{language}\n{code}\n```"
 
-    def new_table(self, data: pd.DataFrame):
+    def new_table(self, data: pd.DataFrame) -> None:
         element = {
             "type": "table",
             "content": [],
         }
 
-        # Generate the header row
         header_row = {
             "type": "tableRow",
-            "content": list(
-                map(
-                    (
-                        lambda x: {
-                            "type": "tableHeader",
-                            "attrs": {"colspan": 1, "rowspan": 1, "colwidth": None},
-                            "content": [
-                                {
-                                    "type": "paragraph",
-                                    "content": [{"text": str(x), "type": "text"}],
-                                }
-                            ],
+            "content": [
+                {
+                    "type": "tableHeader",
+                    "attrs": {"colspan": 1, "rowspan": 1, "colwidth": None},
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"text": str(col), "type": "text"}],
                         }
-                    ),
-                    data.columns,
-                )
-            ),
+                    ],
+                }
+                for col in data.columns
+            ],
         }
-        # Generate the rows
-        rows = list(
-            map(
-                (
-                    lambda x: {
-                        "type": "tableRow",
-                        "content": list(
-                            map(
-                                (
-                                    lambda y: {
-                                        "type": "tableCell",
-                                        "attrs": {
-                                            "colspan": 1,
-                                            "rowspan": 1,
-                                            "colwidth": None,
-                                        },
-                                        "content": [
-                                            {
-                                                "type": "paragraph",
-                                                "content": [
-                                                    {
-                                                        "text": str(y),
-                                                        "type": "text",
-                                                    }
-                                                ],
-                                            }
-                                        ],
-                                    }
-                                ),
-                                x[1].values,
-                            )
-                        ),
+
+        rows = [
+            {
+                "type": "tableRow",
+                "content": [
+                    {
+                        "type": "tableCell",
+                        "attrs": {"colspan": 1, "rowspan": 1, "colwidth": None},
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [{"text": str(val), "type": "text"}],
+                            }
+                        ],
                     }
-                ),
-                data.iterrows(),
-            )
-        )
-        # Add the header row and rows to the table
+                    for val in row.values
+                ],
+            }
+            for _, row in data.iterrows()
+        ]
+
         element["content"] = [header_row, *rows]
 
         self.json["content"].append(element)
         self.text += f"{data.to_markdown()}\n"
 
-    def new_inline_image(self, src: str, alt: str):
+    def new_inline_image(self, src: str, alt: str) -> None:
         element = {
             "type": "image",
             "attrs": {"src": src, "alt": alt},
@@ -199,12 +192,9 @@ class Editor(Content):
         id: str,
         asset_type: str,
         filters: dict = None,
-        view_mode: str = "default",
-    ):
+        view_mode: str = "card",
+    ) -> None:
         element = {
-            # "type": "paragraph",
-            # "content": [
-            #     {
             "type": "assetComponent",
             "attrs": {
                 "id": id,
@@ -212,8 +202,6 @@ class Editor(Content):
                 "filters": filters,
                 "viewMode": view_mode,
             },
-            #     }
-            # ],
         }
         self.json["content"].append(element)
         self.text += f"{{asset:{id}}}"
