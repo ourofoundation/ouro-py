@@ -104,6 +104,17 @@ post = ouro.posts.create(
     content=content,
     name="Hello World",
     description="This is a post from the Python SDK",
+    visibility="public",
+)
+```
+
+You can also create a post from a local markdown file:
+
+```python
+post = ouro.posts.create(
+    content=None,
+    name="Post From Markdown",
+    content_path="/absolute/path/to/post.md",
     visibility="private",
 )
 ```

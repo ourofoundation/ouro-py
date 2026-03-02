@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional, Union
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
@@ -15,6 +16,46 @@ __all__ = ["Posts"]
 
 
 class Posts(SyncAPIResource):
+    def _resolve_content(
+        self,
+        content: Optional["Content"],
+        content_markdown: Optional[str],
+        content_path: Optional[str],
+    ) -> "Content":
+        provided = [
+            ("content", content is not None),
+            ("content_markdown", content_markdown is not None),
+            ("content_path", content_path is not None),
+        ]
+        selected = [name for name, is_set in provided if is_set]
+        if len(selected) > 1:
+            raise ValueError(
+                f"Provide only one of content, content_markdown, or content_path (got: {', '.join(selected)})."
+            )
+
+        if content is not None:
+            return content
+
+        markdown: Optional[str] = content_markdown
+        if content_path is not None:
+            path = Path(content_path).expanduser()
+            if not path.exists():
+                raise ValueError(f"content_path not found: {content_path}")
+            if not path.is_file():
+                raise ValueError(f"content_path must point to a file: {content_path}")
+            if path.suffix.lower() not in {".md", ".markdown"}:
+                raise ValueError("content_path must be a .md or .markdown file.")
+            markdown = path.read_text(encoding="utf-8")
+
+        if markdown is None:
+            raise ValueError(
+                "No post body provided. Pass one of: content, content_markdown, or content_path."
+            )
+
+        resolved_content = self.Content()
+        resolved_content.from_markdown(markdown)
+        return resolved_content
+
     def Editor(self, **kwargs) -> Editor:
         """Create an Editor instance connected to the Ouro client."""
         return Editor(_ouro=self.ouro, **kwargs)
@@ -25,25 +66,39 @@ class Posts(SyncAPIResource):
 
     def create(
         self,
-        content: "Content",
+        content: Optional["Content"],
         name: str,
+        content_markdown: Optional[str] = None,
+        content_path: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         **kwargs,
     ) -> Post:
-        """Create a new Post."""
-        post = _strip_none({
-            "name": name,
-            "description": _coerce_description(description),
-            "visibility": visibility,
-            "monetization": monetization,
-            "price": price,
-            **kwargs,
-            "source": "api",
-            "asset_type": "post",
-        })
+        """Create a new Post.
+
+        Provide one of content, content_markdown, or content_path.
+        When using content_markdown or content_path, pass content=None.
+        """
+        content = self._resolve_content(
+            content=content,
+            content_markdown=content_markdown,
+            content_path=content_path,
+        )
+
+        post = _strip_none(
+            {
+                "name": name,
+                "description": _coerce_description(description),
+                "visibility": visibility,
+                "monetization": monetization,
+                "price": price,
+                **kwargs,
+                "source": "api",
+                "asset_type": "post",
+            }
+        )
 
         request = self.client.post(
             "/posts/create",
@@ -71,14 +126,16 @@ class Posts(SyncAPIResource):
         **kwargs,
     ) -> Post:
         """Update a Post by its id."""
-        post = _strip_none({
-            "name": name,
-            "description": _coerce_description(description),
-            "visibility": visibility,
-            "monetization": monetization,
-            "price": price,
-            **kwargs,
-        })
+        post = _strip_none(
+            {
+                "name": name,
+                "description": _coerce_description(description),
+                "visibility": visibility,
+                "monetization": monetization,
+                "price": price,
+                **kwargs,
+            }
+        )
 
         request = self.client.put(
             f"/posts/{id}",
