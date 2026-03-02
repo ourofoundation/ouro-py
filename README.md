@@ -41,21 +41,21 @@ Use the client to interface with the Ouro framework.
 ### Create a dataset
 
 ```python
-data = pd.DataFrame(
-    [
-        {"name": "Bob", "age": 30},
-        {"name": "Alice", "age": 27},
-        {"name": "Matt", "age": 26},
-    ]
-)
+rows = [
+    {"name": "Bob", "age": 30},
+    {"name": "Alice", "age": 27},
+    {"name": "Matt", "age": 26},
+]
 
 res = ouro.datasets.create(
-    data=data,
+    data=rows,  # also accepts a Pandas DataFrame or a single dict row
     name="your_dataset_name",
     description="your_dataset_description",
     visibility="private",
 )
 ```
+
+`data` is required for `datasets.create(...)` and must include at least one row and one column.
 
 ### Read a dataset
 
@@ -79,15 +79,15 @@ df = ouro.datasets.query(id)
 
 ```python
 id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6"
-data_update = pd.DataFrame([
+data_update = [
     {"name": "Bob", "age": 30},
     {"name": "Alice", "age": 27},
     {"name": "Matt", "age": 26},
-])
+]
 
 update = {
     "visibility": "private",
-    "data": data_update,
+    "data": data_update,  # also accepts a DataFrame or single dict row
 }
 data = ouro.datasets.update("018f86da-b1be-7099-9556-fe88fb6882c3", **update)
 ```

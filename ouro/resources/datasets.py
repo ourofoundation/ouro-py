@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time as timer
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from typing import Any, List, Optional, Union
 
@@ -20,6 +21,7 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Datasets"]
 
 BATCH_INSERT_WARNING_THRESHOLD = 10_000
+DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 
 
 def to_safe_sql_table_name(name: str) -> str:
@@ -38,18 +40,47 @@ def to_safe_sql_table_name(name: str) -> str:
 
 
 class Datasets(SyncAPIResource):
+    def _coerce_dataframe(
+        self,
+        data: Optional[DatasetRowsInput],
+        *,
+        parameter_name: str = "data",
+    ) -> Optional[pd.DataFrame]:
+        """Normalize common row inputs into a DataFrame."""
+        if data is None:
+            return None
+        if isinstance(data, pd.DataFrame):
+            return data.copy()
+        if isinstance(data, Mapping):
+            return pd.DataFrame([dict(data)])
+        if isinstance(data, Sequence) and not isinstance(data, (str, bytes, bytearray)):
+            rows = list(data)
+            if any(not isinstance(row, Mapping) for row in rows):
+                raise ValueError(
+                    f"{parameter_name} must be a DataFrame, dict, or list of dict rows."
+                )
+            return pd.DataFrame([dict(row) for row in rows])
+        raise ValueError(
+            f"{parameter_name} must be a DataFrame, dict, or list of dict rows."
+        )
+
     def create(
         self,
         name: str,
         visibility: str,
-        data: Optional[pd.DataFrame] = None,
+        data: Optional[DatasetRowsInput] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
         **kwargs,
     ) -> Dataset:
-        """Create a new Dataset."""
-        df = data.copy()
+        """Create a new Dataset from tabular rows."""
+        df = self._coerce_dataframe(data, parameter_name="data")
+        if df is None:
+            raise ValueError("data is required for dataset creation.")
+        if df.empty or len(df.columns) == 0:
+            raise ValueError("data must contain at least one row and one column.")
+
         table_name = to_safe_sql_table_name(name)
 
         index_name = df.index.name
@@ -98,9 +129,6 @@ class Datasets(SyncAPIResource):
         )
         response_data = self._handle_response(request)
 
-        if data is None:
-            return Dataset(**response_data)
-
         created = Dataset(**response_data)
         insert_data = self._serialize_dataframe(df)
 
@@ -112,17 +140,16 @@ class Datasets(SyncAPIResource):
                 "Consider batching for very large datasets."
             )
 
-        insert = (
-            self.supabase.schema("datasets")
-            .table(created_table_name)
-            .insert(insert_data)
-            .execute()
-        )
+        try:
+            self.supabase.postgrest.schema("datasets")
+            insert = self.supabase.table(created_table_name).insert(insert_data).execute()
 
-        if len(insert.data) > 0:
-            log.info(f"Inserted {len(insert.data)} rows into {created_table_name}")
+            if len(insert.data) > 0:
+                log.info(f"Inserted {len(insert.data)} rows into {created_table_name}")
 
-        return created
+            return created
+        finally:
+            self.supabase.postgrest.schema("public")
 
     def retrieve(self, id: str) -> Dataset:
         """Retrieve a dataset by its id."""
@@ -210,7 +237,7 @@ class Datasets(SyncAPIResource):
         visibility: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         preview: Optional[List[dict]] = None,
-        data: Optional[pd.DataFrame] = None,
+        data: Optional[DatasetRowsInput] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         **kwargs,
@@ -233,9 +260,13 @@ class Datasets(SyncAPIResource):
             )
             response_data = self._handle_response(request)
 
-            if data is not None:
+            df = self._coerce_dataframe(data, parameter_name="data")
+            if df is not None and (df.empty or len(df.columns) == 0):
+                raise ValueError("data must contain at least one row and one column.")
+
+            if df is not None:
                 table_name = self.retrieve(id).metadata["table_name"]
-                insert_data = self._serialize_dataframe(data)
+                insert_data = self._serialize_dataframe(df)
                 self.supabase.postgrest.schema("datasets")
                 insert = self.supabase.table(table_name).insert(insert_data).execute()
                 if len(insert.data) > 0:
