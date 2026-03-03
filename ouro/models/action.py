@@ -60,6 +60,30 @@ class Action(BaseModel):
         """Check if the action failed."""
         return self.status == "error"
 
+    def log(
+        self,
+        message: str,
+        *,
+        level: str = "info",
+        asset_id: Optional[str] = None,
+    ) -> None:
+        """Post a log message to this action.
+
+        Args:
+            message: The log message text.
+            level: Log level — "info", "warning", or "error" (default: "info").
+            asset_id: Asset ID to associate with the log.
+                Defaults to this action's route_id.
+        """
+        if not self._ouro:
+            raise RuntimeError("Action object not connected to Ouro client")
+        payload: Dict[str, Any] = {
+            "message": message,
+            "level": level,
+            "asset_id": asset_id or str(self.route_id),
+        }
+        self._ouro.client.post(f"/actions/{self.id}/log", json=payload)
+
     def refresh(self) -> "Action":
         """
         Refresh this action's data from the server.
