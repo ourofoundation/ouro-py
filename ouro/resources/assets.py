@@ -99,6 +99,8 @@ class Assets(SyncAPIResource):
             if not asset_type:
                 raise Exception(f"Asset with id {id} has no asset_type")
 
+            self._mark_viewed(id)
+
             if asset_type == "post":
                 return self.ouro.posts.retrieve(id)
             elif asset_type == "comment":
@@ -124,3 +126,17 @@ class Assets(SyncAPIResource):
             if "not found" in error_str or "404" in error_str or "no rows" in error_str:
                 raise Exception(f"Asset with id {id} not found") from e
             raise
+
+    def _mark_viewed(self, asset_id: str) -> None:
+        """Best-effort view recording to keep unread counts in sync."""
+        try:
+            self.supabase.table("views").insert(
+                {
+                    "asset_id": asset_id,
+                    "source": "api",
+                    "type": "full",
+                    "pathname": f"/assets/{asset_id}",
+                }
+            ).execute()
+        except Exception:
+            log.debug("Failed to record view for asset %s", asset_id, exc_info=True)

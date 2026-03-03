@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 
-from ouro._resource import SyncAPIResource, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+
+if TYPE_CHECKING:
+    from .content import Content
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -15,7 +18,7 @@ class Teams(SyncAPIResource):
         self,
         name: str,
         org_id: str,
-        description: Optional[dict] = None,
+        description: Optional[Union[str, dict, "Content"]] = None,
         visibility: Optional[str] = None,
         default_role: Optional[str] = None,
         actor_type_policy: Optional[str] = None,
@@ -26,7 +29,7 @@ class Teams(SyncAPIResource):
         team = _strip_none({
             "name": name,
             "org_id": org_id,
-            "description": description,
+            "description": _coerce_description(description),
             "visibility": visibility,
             "default_role": default_role,
             "actor_type_policy": actor_type_policy,
@@ -34,6 +37,31 @@ class Teams(SyncAPIResource):
             **kwargs,
         })
         request = self.client.post("/teams/create", json={"team": team})
+        return self._handle_response(request) or {}
+
+    def update(
+        self,
+        id: str,
+        name: Optional[str] = None,
+        description: Optional[Union[str, dict, "Content"]] = None,
+        visibility: Optional[str] = None,
+        default_role: Optional[str] = None,
+        actor_type_policy: Optional[str] = None,
+        source_policy: Optional[str] = None,
+        **kwargs,
+    ) -> dict:
+        """Update a team."""
+        team = _strip_none({
+            "id": id,
+            "name": name,
+            "description": _coerce_description(description),
+            "visibility": visibility,
+            "default_role": default_role,
+            "actor_type_policy": actor_type_policy,
+            "source_policy": source_policy,
+            **kwargs,
+        })
+        request = self.client.put(f"/teams/{id}", json={"team": team})
         return self._handle_response(request) or {}
 
     def list(
@@ -97,3 +125,46 @@ class Teams(SyncAPIResource):
 
         request = self.client.get(f"/teams/{id}/activity", params=params)
         return self._handle_response(request, raw=True)
+
+    def unreads(self, id: str, org_id: Optional[str] = None) -> int:
+        """Get unread post count for a single team.
+
+        Args:
+            id: Team ID.
+            org_id: Organization ID containing the team. If omitted, this method
+                fetches the team to resolve its org automatically.
+        """
+        resolved_org_id = org_id
+        if resolved_org_id is None:
+            team = self.retrieve(id)
+            resolved_org_id = team.get("org_id")
+
+        if not resolved_org_id:
+            raise ValueError(f"Unable to resolve org_id for team '{id}'")
+
+        request = self.client.get(
+            "/teams/unreads",
+            params={"org_id": resolved_org_id, "view_mode": "count"},
+        )
+        data = self._handle_response(request) or {}
+        unreads = data.get("unreads") if isinstance(data, dict) else {}
+        if not isinstance(unreads, dict):
+            return 0
+        return int(unreads.get(id, 0) or 0)
+
+    def unread_preview(self, id: str, offset: int = 0, limit: int = 20) -> dict:
+        """Get paginated unread post previews for a single team.
+
+        Args:
+            id: Team ID.
+            offset: Zero-based pagination offset.
+            limit: Number of unread items to return.
+        """
+        params = {
+            "view_mode": "preview",
+            "team_id": id,
+            "offset": offset,
+            "limit": limit,
+        }
+        request = self.client.get("/teams/unreads", params=params)
+        return self._handle_response(request) or {}
