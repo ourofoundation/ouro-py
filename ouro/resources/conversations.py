@@ -52,14 +52,51 @@ class ConversationMessages:
 
 
 class Conversations(SyncAPIResource):
+    def create(
+        self,
+        member_user_ids: List[str],
+        name: Optional[str] = None,
+        summary: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        **kwargs,
+    ) -> Conversation:
+        """Create a conversation with the specified member user IDs."""
+        conversation = _strip_none({
+            "name": name,
+            "summary": summary,
+            "org_id": org_id,
+            "team_id": team_id,
+            "metadata": {"members": member_user_ids},
+            **kwargs,
+        })
+
+        request = self.client.post(
+            "/conversations/create",
+            json={"conversation": conversation},
+        )
+        return Conversation(**self._handle_response(request), _ouro=self.ouro)
+
     def retrieve(self, conversation_id: str) -> Conversation:
         """Retrieve a conversation by id."""
         request = self.client.get(f"/conversations/{conversation_id}")
         return Conversation(**self._handle_response(request), _ouro=self.ouro)
 
-    def list(self, **kwargs) -> List[Conversation]:
-        """List all conversations."""
-        request = self.client.get("/conversations", params=kwargs)
+    def list(
+        self,
+        org_id: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Conversation]:
+        """List conversations with optional org filter and pagination."""
+        params = {
+            "limit": limit,
+            "offset": offset,
+        }
+        if org_id is not None:
+            params["org_id"] = org_id
+
+        request = self.client.get("/conversations", params=params)
         return [
             Conversation(**c, _ouro=self.ouro)
             for c in self._handle_response(request)
