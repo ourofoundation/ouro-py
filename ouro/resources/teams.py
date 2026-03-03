@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from ouro._resource import SyncAPIResource
+from ouro._resource import SyncAPIResource, _strip_none
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -11,6 +11,31 @@ __all__ = ["Teams"]
 
 
 class Teams(SyncAPIResource):
+    def create(
+        self,
+        name: str,
+        org_id: str,
+        description: Optional[dict] = None,
+        visibility: Optional[str] = None,
+        default_role: Optional[str] = None,
+        actor_type_policy: Optional[str] = None,
+        source_policy: Optional[str] = None,
+        **kwargs,
+    ) -> dict:
+        """Create a team in an organization."""
+        team = _strip_none({
+            "name": name,
+            "org_id": org_id,
+            "description": description,
+            "visibility": visibility,
+            "default_role": default_role,
+            "actor_type_policy": actor_type_policy,
+            "source_policy": source_policy,
+            **kwargs,
+        })
+        request = self.client.post("/teams/create", json={"team": team})
+        return self._handle_response(request) or {}
+
     def list(
         self,
         org_id: Optional[str] = None,
