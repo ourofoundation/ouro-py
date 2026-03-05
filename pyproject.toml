@@ -22,7 +22,6 @@ dependencies = [
     "pandas",
     "postgrest",
     "python-dotenv",
-    "supabase",
     "anyio",
     "pydantic",
     "distro",

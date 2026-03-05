@@ -130,13 +130,13 @@ class Assets(SyncAPIResource):
     def _mark_viewed(self, asset_id: str) -> None:
         """Best-effort view recording to keep unread counts in sync."""
         try:
-            self.supabase.table("views").insert(
-                {
-                    "asset_id": asset_id,
+            self.client.post(
+                f"/assets/{asset_id}/view",
+                json={
                     "source": "api",
                     "type": "full",
                     "pathname": f"/assets/{asset_id}",
-                }
-            ).execute()
+                },
+            )
         except Exception:
             log.debug("Failed to record view for asset %s", asset_id, exc_info=True)

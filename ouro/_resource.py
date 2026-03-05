@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 import httpx
 from ouro.realtime.websocket import OuroWebSocket
-from supabase import Client
 
 if TYPE_CHECKING:
     from ouro.resources.content import Content
@@ -28,13 +27,11 @@ def _strip_none(d: dict) -> dict:
 
 class SyncAPIResource:
     client: httpx.Client
-    supabase: Client
     websocket: OuroWebSocket
 
     def __init__(self, ouro) -> None:
         self.client = ouro.client
         self.websocket = ouro.websocket
-        self.supabase = ouro.supabase
         self.ouro = ouro
 
     def _handle_response(

@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time as timer
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
-from typing import Any, List, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -22,6 +21,7 @@ __all__ = ["Datasets"]
 
 BATCH_INSERT_WARNING_THRESHOLD = 10_000
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
+DatasetUploadMode = Literal["append", "overwrite", "upsert"]
 
 
 def to_safe_sql_table_name(name: str) -> str:
@@ -131,25 +131,19 @@ class Datasets(SyncAPIResource):
 
         created = Dataset(**response_data)
         insert_data = self._serialize_dataframe(df)
-
-        created_table_name = created.metadata["table_name"]
-
         if len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
-                f"Inserting {len(insert_data)} rows at once into {created_table_name}. "
+                f"Inserting {len(insert_data)} rows at once into {created.id}. "
                 "Consider batching for very large datasets."
             )
 
-        try:
-            self.supabase.postgrest.schema("datasets")
-            insert = self.supabase.table(created_table_name).insert(insert_data).execute()
-
-            if len(insert.data) > 0:
-                log.info(f"Inserted {len(insert.data)} rows into {created_table_name}")
-
-            return created
-        finally:
-            self.supabase.postgrest.schema("public")
+        upload_req = self.client.post(
+            f"/datasets/{created.id}/data",
+            json={"rows": insert_data, "mode": "append"},
+        )
+        self._handle_response(upload_req, raw=True)
+        log.info(f"Inserted {len(insert_data)} rows into dataset {created.id}")
+        return created
 
     def retrieve(self, id: str) -> Dataset:
         """Retrieve a dataset by its id."""
@@ -175,9 +169,7 @@ class Datasets(SyncAPIResource):
         """Query a dataset's data by its id."""
         if not id:
             raise ValueError("Dataset id is required")
-
-        request = self.client.get(f"/datasets/{id}/data")
-        data = self._handle_response(request)
+        data = self._fetch_all_rows(id)
 
         df = pd.DataFrame(data)
         schema = self.schema(id)
@@ -197,38 +189,20 @@ class Datasets(SyncAPIResource):
     def load(self, table_name: str) -> pd.DataFrame:
         """Load a Dataset's data by its table name.
 
-        Good for large datasets. Checks the row count and loads in batches
-        if necessary.
+        This resolves the dataset by metadata.table_name and then reads rows
+        via the backend's paginated dataset data endpoint.
         """
-        start = timer.time()
-
-        self.supabase.postgrest.schema("datasets")
-
-        row_count = self.supabase.table(table_name).select("*", count="exact").execute()
-        row_count = row_count.count
-
-        log.info(f"Loading {row_count} rows from datasets.{table_name}...")
-        if row_count > 1_000_000:
-            data = []
-            for i in range(0, row_count, 1_000_000):
-                log.debug(f"Loading rows {i} to {i+1_000_000}")
-                res = (
-                    self.supabase.table(table_name)
-                    .select("*")
-                    .range(i, i + 1_000_000)
-                    .execute()
-                )
-                data.extend(res.data)
-        else:
-            res = self.supabase.table(table_name).select("*").limit(1_000_000).execute()
-            data = res.data
-
-        end = timer.time()
-        log.info(f"Finished loading data in {round(end - start, 2)} seconds.")
-
-        self.supabase.postgrest.schema("public")
-
-        return pd.DataFrame(data)
+        matches = self.ouro.assets.search(
+            "",
+            asset_type="dataset",
+            metadata_filters={"table_name": table_name},
+            limit=1,
+            offset=0,
+        )
+        if not matches:
+            raise ValueError(f"Dataset table not found: {table_name}")
+        dataset_id = str(matches[0]["id"])
+        return pd.DataFrame(self._fetch_all_rows(dataset_id))
 
     def update(
         self,
@@ -238,43 +212,71 @@ class Datasets(SyncAPIResource):
         description: Optional[Union[str, "Content"]] = None,
         preview: Optional[List[dict]] = None,
         data: Optional[DatasetRowsInput] = None,
+        data_mode: DatasetUploadMode = "append",
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         **kwargs,
     ) -> Dataset:
-        """Update a dataset by its id."""
-        try:
-            body = _strip_none({
-                "name": name,
-                "visibility": visibility,
-                "monetization": monetization,
-                "price": price,
-                "description": _coerce_description(description),
-                "preview": preview,
-                **kwargs,
-            })
+        """Update a dataset by its id.
 
-            request = self.client.put(
-                f"/datasets/{id}",
-                json={"dataset": body},
+        When `data` is provided, `data_mode` controls ingest semantics:
+        - "append": add new rows
+        - "overwrite": replace existing rows
+        - "upsert": merge by id conflict target
+        """
+        if data_mode not in {"append", "overwrite", "upsert"}:
+            raise ValueError("data_mode must be one of: append, overwrite, upsert.")
+
+        body = _strip_none({
+            "name": name,
+            "visibility": visibility,
+            "monetization": monetization,
+            "price": price,
+            "description": _coerce_description(description),
+            "preview": preview,
+            **kwargs,
+        })
+
+        request = self.client.put(
+            f"/datasets/{id}",
+            json={"dataset": body},
+        )
+        response_data = self._handle_response(request)
+
+        df = self._coerce_dataframe(data, parameter_name="data")
+        if df is not None and (df.empty or len(df.columns) == 0):
+            raise ValueError("data must contain at least one row and one column.")
+
+        if df is not None:
+            insert_data = self._serialize_dataframe(df)
+            upload_req = self.client.post(
+                f"/datasets/{id}/data",
+                json={"rows": insert_data, "mode": data_mode},
             )
-            response_data = self._handle_response(request)
+            self._handle_response(upload_req, raw=True)
+            log.info(
+                f"Ingested {len(insert_data)} rows into dataset {id} using mode={data_mode}"
+            )
 
-            df = self._coerce_dataframe(data, parameter_name="data")
-            if df is not None and (df.empty or len(df.columns) == 0):
-                raise ValueError("data must contain at least one row and one column.")
+        return Dataset(**response_data)
 
-            if df is not None:
-                table_name = self.retrieve(id).metadata["table_name"]
-                insert_data = self._serialize_dataframe(df)
-                self.supabase.postgrest.schema("datasets")
-                insert = self.supabase.table(table_name).insert(insert_data).execute()
-                if len(insert.data) > 0:
-                    log.info(f"Inserted {len(insert.data)} rows into {table_name}")
-
-            return Dataset(**response_data)
-        finally:
-            self.supabase.postgrest.schema("public")
+    def _fetch_all_rows(self, dataset_id: str, page_size: int = 1000) -> list[dict]:
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            request = self.client.get(
+                f"/datasets/{dataset_id}/data",
+                params={"limit": page_size, "offset": offset},
+            )
+            payload = self._handle_response(request, raw=True) or {}
+            page_rows = payload.get("data") or []
+            pagination = payload.get("pagination") or {}
+            rows.extend(page_rows)
+            has_more = bool(pagination.get("hasMore"))
+            if not has_more or len(page_rows) == 0:
+                break
+            offset += len(page_rows)
+        return rows
 
     def delete(self, id: str) -> None:
         """Delete a dataset by its id."""

@@ -4,6 +4,7 @@ import logging
 import mimetypes
 import os
 import uuid
+from base64 import b64encode
 from typing import Literal, Optional, Union
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
@@ -38,6 +39,29 @@ def _build_file_metadata(
 
 
 class Files(SyncAPIResource):
+    def _upload_local_file(
+        self,
+        file_path: str,
+        visibility: str,
+        mime_type: str | None,
+    ) -> dict:
+        with open(file_path, "rb") as f:
+            file_base64 = b64encode(f.read()).decode("ascii")
+        upload = self.client.post(
+            "/files/upload",
+            json={
+                "file_name": os.path.basename(file_path),
+                "file_base64": file_base64,
+                "visibility": visibility,
+                "content_type": mime_type,
+            },
+        )
+        payload = self._handle_response(upload, raw=True) or {}
+        data = payload.get("data") or {}
+        if not data.get("id"):
+            raise RuntimeError("Upload failed: missing file object id")
+        return data
+
     def create(
         self,
         name: str,
@@ -65,40 +89,12 @@ class Files(SyncAPIResource):
                 "source": "api",
             }
         else:
-            id = str(uuid.uuid4())
-            with open(file_path, "rb") as f:
-                mime_type = mimetypes.guess_type(file_path)[0]
-                file_extension = os.path.splitext(file_path)[1]
-
-                bucket = "public-files" if visibility == "public" else "files"
-                bucket_folder = f"{self.ouro.user.id}"
-                file_name = f"{id}{file_extension}"
-                path_on_storage = f"{bucket_folder}/{file_name}"
-
-                log.info(f"Uploading file to {path_on_storage} in the {bucket} bucket")
-                self.ouro.supabase.storage.from_(bucket).upload(
-                    file=f,
-                    path=path_on_storage,
-                    file_options={"content-type": mime_type},
-                )
-
-                response = self.ouro.supabase.storage.from_(bucket).list(
-                    bucket_folder,
-                    {
-                        "limit": 1,
-                        "offset": 0,
-                        "sortBy": {"column": "name", "order": "desc"},
-                        "search": id,
-                    },
-                )
-                file = response[0]
-                if file["name"] != file_name:
-                    raise RuntimeError(
-                        f"Upload verification failed: expected '{file_name}', "
-                        f"got '{file['name']}'"
-                    )
-
-            file_id = file["id"]
+            mime_type = mimetypes.guess_type(file_path)[0]
+            upload_data = self._upload_local_file(file_path, visibility, mime_type)
+            file_id = upload_data["id"]
+            bucket = upload_data["bucket"]
+            path_on_storage = upload_data["path"]
+            file_name = os.path.basename(path_on_storage)
             meta_data = self._handle_response(
                 self.client.get(f"/files/{file_id}/metadata")
             )
@@ -167,28 +163,23 @@ class Files(SyncAPIResource):
         existing = self.retrieve(id)
 
         if file_path:
-            with open(file_path, "rb") as f:
-                mime_type = mimetypes.guess_type(file_path)[0]
-                file_extension = os.path.splitext(file_path)[1]
-
-                bucket = "public-files" if existing.visibility == "public" else "files"
-                path_on_storage = f"{self.ouro.user.id}/{id}{file_extension}"
-
-                log.info(f"Uploading file to {path_on_storage} in the {bucket} bucket")
-                request = self.ouro.supabase.storage.from_(bucket).upload(
-                    file=f,
-                    path=path_on_storage,
-                    file_options={"content-type": mime_type},
-                )
-                file_data = request.json()
-
-            file_id = file_data["Id"]
+            visibility_for_upload = visibility or existing.visibility
+            mime_type = mimetypes.guess_type(file_path)[0]
+            upload_data = self._upload_local_file(
+                file_path,
+                visibility_for_upload,
+                mime_type,
+            )
+            file_id = upload_data["id"]
+            bucket = upload_data["bucket"]
+            path_on_storage = upload_data["path"]
+            storage_name = os.path.basename(path_on_storage)
             meta_info = self._handle_response(
                 self.client.get(f"/files/{file_id}/metadata")
             )
 
             metadata = _build_file_metadata(
-                file_id, f"{id}{file_extension}", bucket, path_on_storage,
+                file_id, storage_name, bucket, path_on_storage,
                 mime_type, meta_info["metadata"],
             )
 

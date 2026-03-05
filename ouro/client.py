@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import os
 import time
+from base64 import urlsafe_b64decode
+from types import SimpleNamespace
 
 import httpx
-import supabase
 from ouro._logs import setup_logging
 from ouro.config import Config
 from ouro.realtime.websocket import OuroWebSocket
@@ -24,7 +25,6 @@ from ouro.resources import (
     Teams,
     Users,
 )
-from supabase.client import ClientOptions
 
 from .__version__ import __version__
 from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_TIMEOUT
@@ -123,7 +123,6 @@ class Ouro:
 
     # Clients
     client: AutoRefreshClient
-    supabase: supabase.Client  # public schema
     websocket: OuroWebSocket
 
     # Auth config
@@ -132,8 +131,6 @@ class Ouro:
 
     # Connection options
     base_url: str | None
-    database_url: str | None
-    database_anon_key: str | None
 
     def __init__(
         self,
@@ -142,8 +139,6 @@ class Ouro:
         organization: str | None = None,
         project: str | None = None,
         base_url: str | None = None,
-        database_url: str | None = None,
-        database_anon_key: str | None = None,
     ) -> None:
         """Construct a new synchronous ouro client instance.
 
@@ -176,8 +171,6 @@ class Ouro:
         # Set config for Supabase client and Ouro client
         self.base_url = base_url or Config.OURO_BACKEND_URL
         self.websocket_url = f"{'wss' if self.base_url.startswith('https://') else 'ws'}://{self.base_url.replace('http://', '').replace('https://', '')}/socket.io/"
-        self.database_url = database_url or Config.SUPABASE_URL
-        self.database_anon_key = database_anon_key or Config.SUPABASE_ANON_KEY
 
         # Initialize WebSocket
         self.websocket = OuroWebSocket(self)
@@ -192,7 +185,7 @@ class Ouro:
         )
         # Perform initial token exchange (uses _raw_client)
         self.exchange_api_key()
-        self.initialize_clients()
+        self._bootstrap_authenticated_client()
 
         # Wrap the client with auto-refresh capability
         self.client = AutoRefreshClient(self._raw_client, self)
@@ -238,44 +231,41 @@ class Ouro:
             return InternalServerError(err_msg, response=response, body=data)
         return APIStatusError(err_msg, response=response, body=data)
 
-    def initialize_clients(self):
-        self.supabase = supabase.create_client(
-            self.database_url,
-            self.database_anon_key,
-            options=ClientOptions(
-                auto_refresh_token=True,
-                persist_session=False,
-                headers={"Authorization": f"Bearer {self.access_token}"},
-            ),
-        )
-        # Set the session for the supabase client
-        auth = self.supabase.auth.set_session(self.access_token, self.refresh_token)
+    def _jwt_expiration(self, token: str | None) -> int | None:
+        if not token:
+            return None
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+            payload = parts[1]
+            padding = "=" * (-len(payload) % 4)
+            decoded = urlsafe_b64decode(payload + padding).decode("utf-8")
+            import json
 
-        self.access_token = auth.session.access_token
-        self.refresh_token = auth.session.refresh_token
+            data = json.loads(decoded)
+            exp = data.get("exp")
+            return int(exp) if exp is not None else None
+        except Exception:
+            return None
 
-        # Store the authenticated user
-        self.user = auth.user
-        log.info(f"Successfully authenticated as {self.user.email}")
-
-        # Mark the expiration of the token
-        self.last_token_refresh_expiration = auth.session.expires_at
-
-        # Set the Authorization header for the client
+    def _bootstrap_authenticated_client(self):
         self._raw_client.headers["Authorization"] = f"{self.access_token}"
+        self.last_token_refresh_expiration = self._jwt_expiration(self.access_token)
 
-        # When the session changes, update the access token and refresh token
-        def on_auth_state_change(event, session):
-            if event == "TOKEN_REFRESHED":
-                self.access_token = session.access_token
-                self.refresh_token = session.refresh_token
-                self._raw_client.headers["Authorization"] = f"{session.access_token}"
-                self.last_token_refresh_expiration = session.expires_at
-                self.websocket.refresh_connection(session.access_token)
-            else:
-                log.debug("Auth state change: %s", event)
-
-        self.supabase.auth.on_auth_state_change(on_auth_state_change)
+        # Store authenticated user details from backend.
+        user_response = self._raw_client.get("/user")
+        user_response.raise_for_status()
+        user_payload = user_response.json()
+        user_data = user_payload.get("data")
+        self.user = SimpleNamespace(**user_data) if user_data else None
+        if not self.user:
+            raise AuthenticationError(
+                "Failed to read authenticated user",
+                response=user_response,
+                body=user_payload,
+            )
+        log.info(f"Successfully authenticated as {self.user.email}")
 
     def exchange_api_key(self):
         response = self._raw_client.post("/users/get-token", json={"pat": self.api_key})
@@ -320,25 +310,14 @@ class Ouro:
         """
         log.info("Refreshing authentication session...")
         try:
-            auth = self.supabase.auth.refresh_session()
-
-            self.access_token = auth.session.access_token
-            self.refresh_token = auth.session.refresh_token
-            self.last_token_refresh_expiration = auth.session.expires_at
-
-            # Update the Authorization header
+            self.exchange_api_key()
             self._raw_client.headers["Authorization"] = f"{self.access_token}"
-
-            # Refresh websocket connection
+            self.last_token_refresh_expiration = self._jwt_expiration(self.access_token)
             self.websocket.refresh_connection(self.access_token)
-
             log.info("Session refreshed successfully")
         except Exception as e:
             log.warning(f"Failed to refresh session: {e}")
-            # If refresh fails, try re-exchanging the API key
-            log.info("Attempting to re-exchange API key...")
-            self.exchange_api_key()
-            self.initialize_clients()
+            raise
 
     def ensure_valid_token(self) -> None:
         """
