@@ -25,32 +25,76 @@ def _build_file_metadata(
     path_on_storage: str,
     mime_type: str | None,
     server_metadata: dict,
+    file_size: int,
 ) -> dict:
-    """Merge local upload info with server-extracted metadata."""
+    """Merge local upload info with server-extracted metadata.
+
+    The backend metadata endpoint can return partial values for some file types.
+    Ensure required file metadata fields always exist for CreateFileSchema.
+    """
+    resolved_type = (
+        server_metadata.get("type")
+        or server_metadata.get("mimeType")
+        or server_metadata.get("mime_type")
+        or mime_type
+        or "application/octet-stream"
+    )
+
+    resolved_extension = server_metadata.get("extension")
+    if not resolved_extension:
+        extension = os.path.splitext(file_name)[1] or os.path.splitext(path_on_storage)[1]
+        if extension.startswith("."):
+            extension = extension[1:]
+        resolved_extension = extension or None
+    if not resolved_extension and resolved_type:
+        guessed_extension = mimetypes.guess_extension(resolved_type)
+        if guessed_extension:
+            resolved_extension = guessed_extension.lstrip(".")
+    if not resolved_extension:
+        resolved_extension = "bin"
+
+    resolved_size = server_metadata.get("size")
+    if resolved_size is None:
+        resolved_size = server_metadata.get("contentLength")
+    if resolved_size is None:
+        resolved_size = file_size
+    try:
+        resolved_size = int(resolved_size)
+    except (TypeError, ValueError):
+        resolved_size = file_size
+
     return {
+        **server_metadata,
         "id": file_id,
         "name": file_name,
         "bucket": bucket,
         "path": path_on_storage,
-        "type": mime_type,
-        "mimeType": mime_type,
-        **server_metadata,
+        "type": resolved_type,
+        "mimeType": (
+            server_metadata.get("mimeType")
+            or server_metadata.get("mime_type")
+            or mime_type
+            or resolved_type
+        ),
+        "extension": resolved_extension,
+        "size": resolved_size,
     }
 
 
 class Files(SyncAPIResource):
-    def _upload_local_file(
+    def _upload_content(
         self,
-        file_path: str,
+        content: bytes,
+        file_name: str,
         visibility: str,
         mime_type: str | None,
     ) -> dict:
-        with open(file_path, "rb") as f:
-            file_base64 = b64encode(f.read()).decode("ascii")
+        """Upload raw bytes to Ouro's file storage."""
+        file_base64 = b64encode(content).decode("ascii")
         upload = self.client.post(
             "/files/upload",
             json={
-                "file_name": os.path.basename(file_path),
+                "file_name": file_name,
                 "file_base64": file_base64,
                 "visibility": visibility,
                 "content_type": mime_type,
@@ -62,20 +106,48 @@ class Files(SyncAPIResource):
             raise RuntimeError("Upload failed: missing file object id")
         return data
 
+    def _upload_local_file(
+        self,
+        file_path: str,
+        visibility: str,
+        mime_type: str | None,
+    ) -> dict:
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return self._upload_content(
+            content, os.path.basename(file_path), visibility, mime_type,
+        )
+
     def create(
         self,
         name: str,
         visibility: str,
         file_path: Optional[str] = None,
+        file_content: Optional[bytes] = None,
+        file_name: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
         **kwargs,
     ) -> File:
-        """Create a File."""
+        """Create a File.
+
+        Provide file data via *one* of:
+        - ``file_path`` — absolute path to a local file.
+        - ``file_content`` + ``file_name`` — raw bytes and the original
+          filename (with extension, e.g. ``"report.pdf"``).
+        - Neither — creates an in-progress stub to be updated later.
+        """
         log.debug("Creating a file")
-        if not file_path:
-            log.warning("No file path provided, creating a file stub. Update it later.")
+        if file_path and file_content is not None:
+            raise ValueError("Provide file_path or file_content, not both.")
+        if file_content is not None and not file_name:
+            raise ValueError("file_name is required when using file_content.")
+
+        has_upload = bool(file_path) or file_content is not None
+
+        if not has_upload:
+            log.warning("No file data provided, creating a file stub. Update it later.")
             file = {
                 "id": str(uuid.uuid4()),
                 "name": name,
@@ -89,19 +161,29 @@ class Files(SyncAPIResource):
                 "source": "api",
             }
         else:
-            mime_type = mimetypes.guess_type(file_path)[0]
-            upload_data = self._upload_local_file(file_path, visibility, mime_type)
+            if file_path:
+                mime_type = mimetypes.guess_type(file_path)[0]
+                local_file_size = os.path.getsize(file_path)
+                upload_data = self._upload_local_file(file_path, visibility, mime_type)
+            else:
+                mime_type = mimetypes.guess_type(file_name)[0]
+                local_file_size = len(file_content)
+                upload_data = self._upload_content(
+                    file_content, file_name, visibility, mime_type,
+                )
+
             file_id = upload_data["id"]
             bucket = upload_data["bucket"]
             path_on_storage = upload_data["path"]
-            file_name = os.path.basename(path_on_storage)
+            storage_name = os.path.basename(path_on_storage)
             meta_data = self._handle_response(
                 self.client.get(f"/files/{file_id}/metadata")
             )
+            server_metadata = (meta_data or {}).get("metadata") or {}
 
             metadata = _build_file_metadata(
-                file_id, file_name, bucket, path_on_storage,
-                mime_type, meta_data["metadata"],
+                file_id, storage_name, bucket, path_on_storage,
+                mime_type, server_metadata, local_file_size,
             )
 
             file = {
@@ -114,7 +196,7 @@ class Files(SyncAPIResource):
                 **kwargs,
                 "source": "api",
                 "metadata": metadata,
-                "preview": meta_data["preview"],
+                "preview": (meta_data or {}).get("preview"),
                 "asset_type": "file",
             }
 
@@ -140,6 +222,8 @@ class Files(SyncAPIResource):
         self,
         id: str,
         file_path: Optional[str] = None,
+        file_content: Optional[bytes] = None,
+        file_name: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
@@ -147,10 +231,15 @@ class Files(SyncAPIResource):
     ) -> File:
         """Update a file by ID.
 
-        Pass file_path to replace the file data with a new file from the local filesystem.
-        Pass name, description, or visibility to update metadata.
+        Pass *one* of ``file_path`` or ``file_content`` + ``file_name`` to
+        replace the file data.  Pass name, description, or visibility to
+        update metadata.
         """
         log.debug("Updating a file")
+        if file_path and file_content is not None:
+            raise ValueError("Provide file_path or file_content, not both.")
+        if file_content is not None and not file_name:
+            raise ValueError("file_name is required when using file_content.")
 
         update_params = _strip_none({
             "name": name,
@@ -162,14 +251,23 @@ class Files(SyncAPIResource):
         file: dict = {"id": str(id), **update_params}
         existing = self.retrieve(id)
 
-        if file_path:
+        has_upload = bool(file_path) or file_content is not None
+        if has_upload:
             visibility_for_upload = visibility or existing.visibility
-            mime_type = mimetypes.guess_type(file_path)[0]
-            upload_data = self._upload_local_file(
-                file_path,
-                visibility_for_upload,
-                mime_type,
-            )
+
+            if file_path:
+                mime_type = mimetypes.guess_type(file_path)[0]
+                local_file_size = os.path.getsize(file_path)
+                upload_data = self._upload_local_file(
+                    file_path, visibility_for_upload, mime_type,
+                )
+            else:
+                mime_type = mimetypes.guess_type(file_name)[0]
+                local_file_size = len(file_content)
+                upload_data = self._upload_content(
+                    file_content, file_name, visibility_for_upload, mime_type,
+                )
+
             file_id = upload_data["id"]
             bucket = upload_data["bucket"]
             path_on_storage = upload_data["path"]
@@ -177,16 +275,17 @@ class Files(SyncAPIResource):
             meta_info = self._handle_response(
                 self.client.get(f"/files/{file_id}/metadata")
             )
+            server_metadata = (meta_info or {}).get("metadata") or {}
 
             metadata = _build_file_metadata(
                 file_id, storage_name, bucket, path_on_storage,
-                mime_type, meta_info["metadata"],
+                mime_type, server_metadata, local_file_size,
             )
 
             file = {
                 **file,
                 "metadata": metadata,
-                "preview": meta_info["preview"],
+                "preview": (meta_info or {}).get("preview"),
                 "asset_type": "file",
             }
 

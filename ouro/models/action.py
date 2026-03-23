@@ -1,8 +1,11 @@
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ouro import Ouro
@@ -82,7 +85,15 @@ class Action(BaseModel):
             "level": level,
             "asset_id": asset_id or str(self.route_id),
         }
-        self._ouro.client.post(f"/actions/{self.id}/log", json=payload)
+        try:
+            self._ouro.client.post(f"/actions/{self.id}/log", json=payload)
+        except Exception as e:
+            log.warning(
+                "Failed to post action log (action_id=%s): %s",
+                self.id,
+                e,
+                exc_info=True,
+            )
 
     def refresh(self) -> "Action":
         """

@@ -124,6 +124,7 @@ id = "b9ff1bfd-b3ae-4e92-9afc-70b1e1e2011a" # The post id
 post = ouro.posts.retrieve(id)
 ```
 
+
 ### Update a post
 
 ```python
@@ -140,6 +141,19 @@ update = {
 }
 post = ouro.posts.update(id, **update)
 ```
+
+### Download any asset
+
+```python
+result = ouro.assets.download(
+    "3d82308b-0747-45e4-8045-c8f7d2f6c0a6",
+    output_path="./downloads/",
+)
+
+print(result["path"])
+```
+
+`assets.download(...)` saves the asset to disk and returns the saved path, filename, content type, and byte count. Files download as their original bytes, datasets as `.csv`, and posts as `.html`.
 
 Read the full API docs at [ouro.foundation/docs/developers/api](https://ouro.foundation/docs/developers/api).
 

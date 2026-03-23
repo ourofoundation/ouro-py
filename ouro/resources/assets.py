@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, List, Union
+from pathlib import Path
+from typing import Any, List, Optional, Union
+from urllib.parse import unquote
 
 from ouro._resource import SyncAPIResource
 from ouro.models import Asset, Comment, Dataset, File, Post, Route, Service
@@ -11,6 +13,50 @@ log: logging.Logger = logging.getLogger(__name__)
 
 
 __all__ = ["Assets"]
+
+
+def _extract_download_filename(
+    content_disposition: Optional[str],
+    fallback: str,
+) -> str:
+    """Parse a safe filename from Content-Disposition."""
+    if not content_disposition:
+        return fallback
+
+    for part in [segment.strip() for segment in content_disposition.split(";")]:
+        if part.lower().startswith("filename*="):
+            raw_value = part.split("=", 1)[1].strip().strip('"')
+            _, _, encoded_value = raw_value.partition("''")
+            candidate = unquote(encoded_value or raw_value)
+            name = Path(candidate).name
+            return name or fallback
+
+    for part in [segment.strip() for segment in content_disposition.split(";")]:
+        if part.lower().startswith("filename="):
+            candidate = part.split("=", 1)[1].strip().strip('"')
+            name = Path(candidate).name
+            return name or fallback
+
+    return fallback
+
+
+def _resolve_download_path(
+    output_path: Optional[str],
+    filename: str,
+) -> Path:
+    """Resolve an output file path, allowing directory targets."""
+    if output_path is None:
+        target = Path.cwd() / filename
+    else:
+        candidate = Path(output_path).expanduser()
+        output_text = output_path.rstrip()
+        is_directory_target = (
+            candidate.exists() and candidate.is_dir()
+        ) or output_text.endswith(("/", "\\"))
+        target = candidate / filename if is_directory_target else candidate
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 class Assets(SyncAPIResource):
@@ -126,6 +172,63 @@ class Assets(SyncAPIResource):
             if "not found" in error_str or "404" in error_str or "no rows" in error_str:
                 raise Exception(f"Asset with id {id} not found") from e
             raise
+
+    def download(
+        self,
+        id: str,
+        output_path: Optional[str] = None,
+        asset_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Download an asset to disk and return metadata about the saved file.
+
+        Files are downloaded as their original bytes, datasets as CSV, and posts
+        as HTML. If ``output_path`` points to a directory (or is omitted), the
+        server-provided filename is used inside that directory.
+        """
+        self.ouro.ensure_valid_token()
+        body = {"asset_type": asset_type} if asset_type else None
+
+        with self.ouro._raw_client.stream(
+            "POST",
+            f"/assets/{id}/download",
+            json=body,
+        ) as response:
+            if response.is_error:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = None
+                error_msg = ""
+                if isinstance(body, dict):
+                    error_msg = self._extract_error_message(body.get("error", body))
+                raise self.ouro._make_status_error(
+                    error_msg or f"HTTP {response.status_code}",
+                    response=response,
+                    body=body,
+                )
+
+            filename = _extract_download_filename(
+                response.headers.get("content-disposition"),
+                fallback=f"{id}.bin",
+            )
+            target_path = _resolve_download_path(output_path, filename)
+            content_type = response.headers.get("content-type")
+
+            bytes_written = 0
+            with target_path.open("wb") as fh:
+                for chunk in response.iter_bytes():
+                    if not chunk:
+                        continue
+                    fh.write(chunk)
+                    bytes_written += len(chunk)
+
+        return {
+            "id": id,
+            "path": str(target_path.resolve()),
+            "filename": target_path.name,
+            "content_type": content_type,
+            "bytes": bytes_written,
+        }
 
     def _mark_viewed(self, asset_id: str) -> None:
         """Best-effort view recording to keep unread counts in sync."""

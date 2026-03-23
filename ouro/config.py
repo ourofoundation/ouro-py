@@ -8,4 +8,7 @@ load_dotenv()
 
 class Config:
     DEBUG = os.getenv("DEBUG", "False") == "True"
-    OURO_BACKEND_URL = "https://api.ouro.foundation"
+    OURO_BACKEND_URL = os.getenv(
+        "OURO_BACKEND_URL",
+        os.getenv("OURO_BASE_URL", "https://api.ouro.foundation"),
+    )
