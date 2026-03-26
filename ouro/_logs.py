@@ -5,6 +5,11 @@ from ouro.config import Config
 
 logger: logging.Logger = logging.getLogger("ouro")
 httpx_logger: logging.Logger = logging.getLogger("httpx")
+httpcore_logger: logging.Logger = logging.getLogger("httpcore")
+
+
+def _http_traffic_verbose() -> bool:
+    return os.getenv("OURO_HTTP_LOG", "").strip().lower() in ("1", "true", "yes")
 
 
 def _basic_config() -> None:
@@ -17,11 +22,19 @@ def _basic_config() -> None:
 
 def setup_logging() -> None:
     debug = Config.DEBUG
+    http_verbose = _http_traffic_verbose()
     if debug:
         _basic_config()
         logger.setLevel(logging.DEBUG)
         httpx_logger.setLevel(logging.DEBUG)
+        httpcore_logger.setLevel(logging.DEBUG)
     else:
         _basic_config()
         logger.setLevel(logging.INFO)
-        httpx_logger.setLevel(logging.INFO)
+        if http_verbose:
+            httpx_logger.setLevel(logging.INFO)
+            httpcore_logger.setLevel(logging.INFO)
+        else:
+            # Embedded clients (MCP, tests) rarely want per-request httpx lines on stderr.
+            httpx_logger.setLevel(logging.WARNING)
+            httpcore_logger.setLevel(logging.WARNING)

@@ -260,6 +260,65 @@ class Datasets(SyncAPIResource):
 
         return Dataset(**response_data)
 
+    def list_views(self, id: str) -> List[dict]:
+        """List saved views (visualizations) for a dataset."""
+        request = self.client.get(f"/datasets/{id}/visualizations")
+        return self._handle_response(request) or []
+
+    def create_view(
+        self,
+        id: str,
+        name: str,
+        description: Optional[str] = None,
+        sql_query: Optional[str] = None,
+        engine_type: str = "auto",
+        config: Optional[dict] = None,
+        prompt: Optional[str] = None,
+    ) -> dict:
+        """Create a saved view (visualization) for a dataset."""
+        body = _strip_none(
+            {
+                "name": name,
+                "description": description,
+                "sql_query": sql_query,
+                "engine_type": engine_type,
+                "config": config,
+                "prompt": prompt,
+            }
+        )
+        request = self.client.post(f"/datasets/{id}/visualizations", json=body)
+        return self._handle_response(request)
+
+    def update_view(
+        self,
+        id: str,
+        view_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        sql_query: Optional[str] = None,
+        engine_type: Optional[str] = None,
+        config: Optional[dict] = None,
+        prompt: Optional[str] = None,
+    ) -> dict:
+        """Update a saved view (visualization) for a dataset."""
+        body = _strip_none(
+            {
+                "name": name,
+                "description": description,
+                "sql_query": sql_query,
+                "engine_type": engine_type,
+                "config": config,
+                "prompt": prompt,
+            }
+        )
+        request = self.client.put(f"/datasets/{id}/visualizations/{view_id}", json=body)
+        return self._handle_response(request)
+
+    def delete_view(self, id: str, view_id: str) -> None:
+        """Delete a saved view (visualization) from a dataset."""
+        request = self.client.delete(f"/datasets/{id}/visualizations/{view_id}")
+        self._handle_response(request)
+
     def _fetch_all_rows(self, dataset_id: str, page_size: int = 1000) -> list[dict]:
         rows: list[dict] = []
         offset = 0

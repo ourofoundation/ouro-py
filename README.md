@@ -89,6 +89,24 @@ update = {
 data = ouro.datasets.update("018f86da-b1be-7099-9556-fe88fb6882c3", **update)
 ```
 
+### Save a dataset view
+
+```python
+view = ouro.datasets.create_view(
+    "3d82308b-0747-45e4-8045-c8f7d2f6c0a6",
+    name="Age Distribution",
+    sql_query="select age, count(*) as total from {{table}} group by age order by age",
+    engine_type="recharts_json",
+    config={
+        "type": "bar",
+        "xAxis": {"dataKey": "age", "type": "category"},
+        "series": [{"dataKey": "total", "name": "People"}],
+    },
+)
+
+views = ouro.datasets.list_views("3d82308b-0747-45e4-8045-c8f7d2f6c0a6")
+```
+
 
 ### Create a post
 
@@ -109,7 +127,6 @@ You can also create a post from a local markdown file:
 
 ```python
 post = ouro.posts.create(
-    content=None,
     name="Post From Markdown",
     content_path="/absolute/path/to/post.md",
     visibility="private",

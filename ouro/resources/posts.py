@@ -66,8 +66,8 @@ class Posts(SyncAPIResource):
 
     def create(
         self,
-        content: Optional["Content"],
         name: str,
+        content: Optional["Content"] = None,
         content_markdown: Optional[str] = None,
         content_path: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
@@ -79,7 +79,7 @@ class Posts(SyncAPIResource):
         """Create a new Post.
 
         Provide one of content, content_markdown, or content_path.
-        When using content_markdown or content_path, pass content=None.
+        When using content_markdown or content_path, omit content (or pass None).
         """
         content = self._resolve_content(
             content=content,

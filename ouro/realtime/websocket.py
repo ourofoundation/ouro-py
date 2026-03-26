@@ -176,6 +176,9 @@ class OuroWebSocket:
                 "user_id": user_id or str(self.ouro.user.id),
                 "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
+                # Same id as llm-response chunks; use to clear streaming UI when data.id is the persisted row uuid.
+                "stream_message_id": message_id,
+                # When message is None, clients only receive id + user_id; UIs should merge or wait for DB Realtime for full row.
                 "data": (
                     message
                     if message is not None
