@@ -146,18 +146,100 @@ class OuroWebSocket:
         content: str,
         message_id: str,
         user_id: Optional[str] = None,
+        event_type: Optional[str] = None,
     ):
+        data: dict = {
+            "content": content,
+            "id": message_id,
+            "user_id": user_id or str(self.ouro.user.id),
+        }
+        if event_type:
+            data["type"] = event_type
         return self.emit(
             "llm-response",
             {
                 "user_id": user_id or str(self.ouro.user.id),
                 "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
-                "data": {
-                    "content": content,
-                    "id": message_id,
-                    "user_id": user_id or str(self.ouro.user.id),
-                },
+                "data": data,
+            },
+        )
+
+    def emit_reasoning(
+        self,
+        *,
+        recipient_id: str,
+        conversation_id: str,
+        content: str,
+        message_id: str,
+        user_id: Optional[str] = None,
+    ):
+        return self.emit_llm_response(
+            recipient_id=recipient_id,
+            conversation_id=conversation_id,
+            content=content,
+            message_id=message_id,
+            user_id=user_id,
+            event_type="reasoning",
+        )
+
+    def emit_tool_start(
+        self,
+        *,
+        recipient_id: str,
+        conversation_id: str,
+        message_id: str,
+        tool_name: str,
+        tool_call_id: str,
+        input_data: Optional[dict] = None,
+        user_id: Optional[str] = None,
+    ):
+        data: dict = {
+            "content": tool_name,
+            "id": message_id,
+            "user_id": user_id or str(self.ouro.user.id),
+            "type": "tool-start",
+            "toolName": tool_name,
+            "toolCallId": tool_call_id,
+        }
+        if input_data is not None:
+            data["input"] = input_data
+        return self.emit(
+            "llm-response",
+            {
+                "user_id": user_id or str(self.ouro.user.id),
+                "recipient_id": recipient_id,
+                "conversation_id": conversation_id,
+                "data": data,
+            },
+        )
+
+    def emit_tool_result(
+        self,
+        *,
+        recipient_id: str,
+        conversation_id: str,
+        message_id: str,
+        tool_call_id: str,
+        output_data: Optional[dict] = None,
+        user_id: Optional[str] = None,
+    ):
+        data: dict = {
+            "content": "",
+            "id": message_id,
+            "user_id": user_id or str(self.ouro.user.id),
+            "type": "tool-result",
+            "toolCallId": tool_call_id,
+        }
+        if output_data is not None:
+            data["output"] = output_data
+        return self.emit(
+            "llm-response",
+            {
+                "user_id": user_id or str(self.ouro.user.id),
+                "recipient_id": recipient_id,
+                "conversation_id": conversation_id,
+                "data": data,
             },
         )
 
