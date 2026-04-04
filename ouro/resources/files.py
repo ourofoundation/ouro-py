@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
-import uuid
 from base64 import b64encode
 from typing import Literal, Optional, Union
+from uuid import UUID
+
+from ouro.utils import generate_uuid
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import File
@@ -81,7 +83,91 @@ def _build_file_metadata(
     }
 
 
+def _infer_partial_metadata(
+    file_name: str,
+    content_type: str | None,
+    size: int,
+) -> tuple[str, str, dict]:
+    """Return (resolved_content_type, extension, metadata) for a partial payload."""
+    resolved_type = content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+
+    ext = os.path.splitext(file_name)[1]
+    if ext.startswith("."):
+        ext = ext[1:]
+    if not ext:
+        guessed = mimetypes.guess_extension(resolved_type)
+        ext = guessed.lstrip(".") if guessed else "bin"
+
+    metadata = {
+        "name": file_name,
+        "type": resolved_type,
+        "extension": ext,
+        "size": size,
+    }
+    return resolved_type, ext, metadata
+
+
 class Files(SyncAPIResource):
+    @staticmethod
+    def partial_from_bytes(
+        content: bytes,
+        file_name: str,
+        *,
+        name: str,
+        description: str = "",
+        content_type: str | None = None,
+    ) -> dict:
+        """Build a backend-compatible partial file payload from raw bytes.
+
+        The returned dict is passed to ``Editor.new_partial_asset()`` so the
+        backend can materialise the file when the post is saved.  MIME type
+        and extension are inferred from *file_name* when *content_type* is
+        omitted.
+
+        >>> partial = ouro.files.partial_from_bytes(
+        ...     b"<html>...</html>", "report.html",
+        ...     name="Energy curve", description="Energy vs. step",
+        ... )
+        """
+        _, _, metadata = _infer_partial_metadata(file_name, content_type, len(content))
+        return {
+            "asset_type": "file",
+            "name": name,
+            "description": description,
+            "metadata": metadata,
+            "base64": b64encode(content).decode("ascii"),
+        }
+
+    @staticmethod
+    def partial_from_file(
+        file_path: str | os.PathLike,
+        *,
+        name: str,
+        description: str = "",
+        content_type: str | None = None,
+    ) -> dict:
+        """Build a backend-compatible partial file payload from a local file.
+
+        Reads the file at *file_path*, infers the MIME type from the
+        extension (unless *content_type* is given), and delegates to
+        :meth:`partial_from_bytes`.
+
+        >>> partial = ouro.files.partial_from_file(
+        ...     "/tmp/report.html",
+        ...     name="Energy curve", description="Energy vs. step",
+        ... )
+        """
+        path = os.fspath(file_path)
+        with open(path, "rb") as f:
+            content = f.read()
+        return Files.partial_from_bytes(
+            content,
+            os.path.basename(path),
+            name=name,
+            description=description,
+            content_type=content_type,
+        )
+
     def _upload_content(
         self,
         content: bytes,
@@ -149,7 +235,7 @@ class Files(SyncAPIResource):
         if not has_upload:
             log.warning("No file data provided, creating a file stub. Update it later.")
             file = {
-                "id": str(uuid.uuid4()),
+                "id": generate_uuid(),
                 "name": name,
                 "visibility": visibility,
                 "monetization": monetization,
@@ -303,7 +389,7 @@ class Files(SyncAPIResource):
     def share(
         self,
         file_id: str,
-        user_id: Union[uuid.UUID, str],
+        user_id: Union[UUID, str],
         role: Literal["read", "write", "admin"] = "read",
     ) -> None:
         """Share a file with another user."""

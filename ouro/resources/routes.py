@@ -73,7 +73,7 @@ class Routes(SyncAPIResource):
         raise_on_error: bool = True,
     ) -> Action:
         """
-        Poll an action until it completes (status is 'success' or 'error').
+        Poll an action until it completes (status is 'success', 'error', or 'timed-out').
 
         Args:
             action_id: The ID of the action to poll
@@ -181,7 +181,14 @@ class Routes(SyncAPIResource):
                     poll_interval=poll_interval,
                     timeout=poll_timeout,
                 )
-                return completed_action.response
+                response_data = completed_action.response
+                if completed_action.output_asset:
+                    if not isinstance(response_data, dict):
+                        response_data = {"_raw": response_data} if response_data is not None else {}
+                    asset_type = completed_action.output_asset.get("asset_type")
+                    if asset_type:
+                        response_data[asset_type] = completed_action.output_asset
+                return response_data
             else:
                 return action
 

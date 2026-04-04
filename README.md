@@ -133,6 +133,44 @@ post = ouro.posts.create(
 )
 ```
 
+### Embed generated files in a post
+
+Use **partial assets** to embed files that don't exist on the platform yet. The
+backend will materialise them into real file assets when the post is saved.
+
+```python
+# Build a partial file payload from a local file
+partial = ouro.files.partial_from_file(
+    "/tmp/energy_curve.html",
+    name="Energy curve",
+    description="Energy vs. optimisation step",
+    content_type="text/html",
+)
+
+# Or from raw bytes
+partial = ouro.files.partial_from_bytes(
+    html_bytes,
+    "energy_curve.html",
+    name="Energy curve",
+    description="Energy vs. optimisation step",
+)
+
+# Embed it in a post
+editor = ouro.posts.Editor()
+editor.new_header(level=2, text="Results")
+editor.new_partial_asset(partial, view_mode="preview")
+
+post = ouro.posts.create(
+    content=editor,
+    name="Simulation Report",
+    visibility="private",
+)
+```
+
+`partial_from_file` and `partial_from_bytes` infer the MIME type and extension
+automatically when `content_type` is omitted. Pass an explicit `id` to
+`new_partial_asset` if you need a stable identifier for the embedded node.
+
 ### Read a post
 
 ```python

@@ -205,3 +205,39 @@ class Editor(Content):
         }
         self.json["content"].append(element)
         self.text += f"{{asset:{id}}}"
+
+    def new_partial_asset(
+        self,
+        partial_data: dict,
+        *,
+        id: Optional[str] = None,
+        view_mode: str = "card",
+        filters: Optional[dict] = None,
+    ) -> None:
+        """Embed a not-yet-uploaded file as an inline asset.
+
+        ``partial_data`` is a dict returned by
+        :meth:`~ouro.resources.files.Files.partial_from_bytes` or
+        :meth:`~ouro.resources.files.Files.partial_from_file`.
+        The backend materialises the file when the post is saved.
+
+        >>> partial = ouro.files.partial_from_file("/tmp/report.html", name="Report")
+        >>> editor.new_partial_asset(partial, view_mode="preview")
+        """
+        from ouro.utils import generate_uuid
+
+        node_id = id or generate_uuid()
+        asset_type = partial_data.get("asset_type", "file")
+        element = {
+            "type": "assetComponent",
+            "attrs": {
+                "id": node_id,
+                "assetType": asset_type,
+                "partial": True,
+                "partialData": partial_data,
+                "filters": filters or {},
+                "viewMode": view_mode,
+            },
+        }
+        self.json["content"].append(element)
+        self.text += f"{{asset:{node_id}}}"

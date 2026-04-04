@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ouro import Ouro
 
 
-ActionStatus = Literal["pending", "in-progress", "success", "error"]
+ActionStatus = Literal["queued", "in-progress", "timed-out", "success", "error"]
 
 
 class Action(BaseModel):
@@ -45,13 +45,13 @@ class Action(BaseModel):
 
     @property
     def is_complete(self) -> bool:
-        """Check if the action has finished (success or error)."""
-        return self.status in ("success", "error")
+        """Check if the action has finished polling."""
+        return self.status in ("success", "error", "timed-out")
 
     @property
     def is_pending(self) -> bool:
-        """Check if the action is still pending or in progress."""
-        return self.status in ("pending", "in-progress")
+        """Check if the action is still queued or in progress."""
+        return self.status in ("queued", "in-progress")
 
     @property
     def is_success(self) -> bool:
@@ -62,6 +62,11 @@ class Action(BaseModel):
     def is_error(self) -> bool:
         """Check if the action failed."""
         return self.status == "error"
+
+    @property
+    def is_timed_out(self) -> bool:
+        """Check if the action was marked stale but may still resolve later."""
+        return self.status == "timed-out"
 
     def log(
         self,
