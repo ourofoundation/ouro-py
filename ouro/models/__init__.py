@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .asset import Asset, DescriptionDict
+from .asset import Asset, DescriptionDict, TeamProfile
 
 if TYPE_CHECKING:
     from ouro.resources.conversations import ConversationMessages
@@ -18,6 +18,7 @@ __all__ = [
     "Action",
     "Asset",
     "DescriptionDict",
+    "TeamProfile",
     "PostContent",
     "Post",
     "Conversation",

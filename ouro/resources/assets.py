@@ -230,6 +230,36 @@ class Assets(SyncAPIResource):
             "bytes": bytes_written,
         }
 
+    def counts(self, id: str) -> dict:
+        """Fetch engagement counts (views, comments, reactions, downloads) for an asset."""
+        request = self.client.get(f"/assets/{id}/counts")
+        return self._handle_response(request) or {}
+
+    def connections(self, id: str) -> List[dict]:
+        """Fetch the connection graph for an asset (references, components, derivatives, etc.)."""
+        request = self.client.get(f"/assets/{id}/connections")
+        return self._handle_response(request) or []
+
+    def creation_actions(self, id: str) -> Optional[dict]:
+        """Fetch the creation-action provenance for an asset (which route created it, with what inputs)."""
+        request = self.client.get(f"/assets/{id}/creation-actions")
+        return self._handle_response(request)
+
+    def tags(self, id: str) -> List[dict]:
+        """Fetch tags attached to an asset."""
+        request = self.client.get(f"/assets/{id}/tags")
+        return self._handle_response(request) or []
+
+    def compatible_routes(self, id: str) -> List[dict]:
+        """Fetch routes that can operate on this asset."""
+        request = self.client.get(f"/assets/{id}/compatible-routes")
+        return self._handle_response(request) or []
+
+    def children(self, id: str) -> List[dict]:
+        """Fetch child assets (e.g. routes of a service)."""
+        request = self.client.get(f"/assets/{id}/children")
+        return self._handle_response(request) or []
+
     def _mark_viewed(self, asset_id: str) -> None:
         """Best-effort view recording to keep unread counts in sync."""
         try:

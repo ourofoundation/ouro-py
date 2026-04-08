@@ -12,6 +12,7 @@ class OuroWebSocket:
     def __init__(self, ouro):
         self.ouro = ouro
         self._last_connect_error = None
+        self._joined_conversations: set[str] = set()
         self.sio = socketio.Client(
             reconnection=True,
             reconnection_attempts=5,
@@ -31,6 +32,7 @@ class OuroWebSocket:
 
         @self.sio.event
         def disconnect():
+            self._joined_conversations.clear()
             log.warning("Disconnected from websocket")
 
         @self.sio.event
@@ -115,19 +117,36 @@ class OuroWebSocket:
             raise RuntimeError("Cannot emit websocket event while disconnected")
         return self.sio.emit(event, data)
 
+    def join_conversation(self, conversation_id: str):
+        if not conversation_id:
+            raise ValueError("conversation_id is required")
+        if not self.is_connected:
+            self.connect()
+        if conversation_id in self._joined_conversations:
+            return
+        response = self.sio.call(
+            "conversation:join",
+            {"conversation_id": conversation_id},
+            timeout=5,
+        )
+        if not isinstance(response, dict) or not response.get("ok"):
+            raise RuntimeError(
+                f"Failed to join conversation room: {response or 'unknown error'}"
+            )
+        self._joined_conversations.add(conversation_id)
+
     def emit_activity(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         status: str,
         active: bool,
         message: Optional[str] = None,
         user_id: Optional[str] = None,
     ):
+        self.join_conversation(conversation_id)
         payload = {
             "user_id": user_id or str(self.ouro.user.id),
-            "recipient_id": recipient_id,
             "conversation_id": conversation_id,
             "data": {
                 "status": status,
@@ -141,13 +160,13 @@ class OuroWebSocket:
     def emit_llm_response(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         content: str,
         message_id: str,
         user_id: Optional[str] = None,
         event_type: Optional[str] = None,
     ):
+        self.join_conversation(conversation_id)
         data: dict = {
             "content": content,
             "id": message_id,
@@ -159,7 +178,6 @@ class OuroWebSocket:
             "llm-response",
             {
                 "user_id": user_id or str(self.ouro.user.id),
-                "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
                 "data": data,
             },
@@ -168,14 +186,12 @@ class OuroWebSocket:
     def emit_reasoning(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         content: str,
         message_id: str,
         user_id: Optional[str] = None,
     ):
         return self.emit_llm_response(
-            recipient_id=recipient_id,
             conversation_id=conversation_id,
             content=content,
             message_id=message_id,
@@ -186,7 +202,6 @@ class OuroWebSocket:
     def emit_tool_start(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         message_id: str,
         tool_name: str,
@@ -194,6 +209,7 @@ class OuroWebSocket:
         input_data: Optional[dict] = None,
         user_id: Optional[str] = None,
     ):
+        self.join_conversation(conversation_id)
         data: dict = {
             "content": tool_name,
             "id": message_id,
@@ -208,7 +224,6 @@ class OuroWebSocket:
             "llm-response",
             {
                 "user_id": user_id or str(self.ouro.user.id),
-                "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
                 "data": data,
             },
@@ -217,13 +232,13 @@ class OuroWebSocket:
     def emit_tool_result(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         message_id: str,
         tool_call_id: str,
         output_data: Optional[dict] = None,
         user_id: Optional[str] = None,
     ):
+        self.join_conversation(conversation_id)
         data: dict = {
             "content": "",
             "id": message_id,
@@ -237,7 +252,6 @@ class OuroWebSocket:
             "llm-response",
             {
                 "user_id": user_id or str(self.ouro.user.id),
-                "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
                 "data": data,
             },
@@ -246,17 +260,16 @@ class OuroWebSocket:
     def emit_llm_response_end(
         self,
         *,
-        recipient_id: str,
         conversation_id: str,
         message_id: str,
         user_id: Optional[str] = None,
         message: Optional[dict] = None,
     ):
+        self.join_conversation(conversation_id)
         return self.emit(
             "llm-response-end",
             {
                 "user_id": user_id or str(self.ouro.user.id),
-                "recipient_id": recipient_id,
                 "conversation_id": conversation_id,
                 # Same id as llm-response chunks; use to clear streaming UI when data.id is the persisted row uuid.
                 "stream_message_id": message_id,

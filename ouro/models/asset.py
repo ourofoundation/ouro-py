@@ -21,6 +21,12 @@ class OrganizationProfile(BaseModel):
     mission: Optional[str] = None
 
 
+class TeamProfile(BaseModel):
+    id: Optional[UUID] = None
+    org_id: Optional[UUID] = None
+    name: Optional[str] = None
+
+
 class DescriptionDict(TypedDict, total=False):
     """Shape of a structured description as returned by the API."""
     json: dict
@@ -35,6 +41,7 @@ class Asset(BaseModel):
     team_id: UUID
     parent_id: Optional[UUID] = None
     organization: Optional[OrganizationProfile] = None
+    team: Optional[TeamProfile] = None
     visibility: str
     asset_type: str
     created_at: datetime

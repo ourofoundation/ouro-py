@@ -43,14 +43,24 @@ def parse_webhook_event(
     if not conversation_id and event_type == "new-conversation":
         conversation_id = data.get("id")
 
+    sender_obj = data.get("sender") if isinstance(data.get("sender"), Mapping) else {}
+    user_obj = data.get("user") if isinstance(data.get("user"), Mapping) else {}
+    actor_user_id = data.get("user_id") or sender_obj.get("id") or user_obj.get("id")
+    sender_username = (
+        data.get("sender_username")
+        or sender_obj.get("username")
+        or (data.get("sender") if isinstance(data.get("sender"), str) else None)
+        or user_obj.get("username")
+    )
+
     return WebhookEvent(
         event_type=event_type,
         data=data,
         timestamp=payload.timestamp,
         recipient_user_id=payload.user_id,
         conversation_id=conversation_id,
-        actor_user_id=data.get("user_id"),
-        sender_username=data.get("sender_username") or data.get("sender"),
+        actor_user_id=actor_user_id,
+        sender_username=sender_username,
         source_id=data.get("source_id"),
         source_asset_type=data.get("source_asset_type"),
     )
