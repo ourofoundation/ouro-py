@@ -40,6 +40,39 @@ def to_safe_sql_table_name(name: str) -> str:
 
 
 class Datasets(SyncAPIResource):
+    def list(
+        self,
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+        scope: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        sort: Optional[str] = None,
+        time_window: Optional[str] = None,
+        **kwargs: Any,
+    ) -> List[Dataset]:
+        """List datasets, optionally filtered by search query and scope.
+
+        Args:
+            sort: "relevant" | "recent" | "popular" | "updated"
+            time_window: For sort="popular": "day" | "week" | "month" | "all".
+                         Default: "month".
+        """
+        results = self.ouro.assets.search(
+            query=query,
+            asset_type="dataset",
+            limit=limit,
+            offset=offset,
+            scope=scope,
+            org_id=org_id,
+            team_id=team_id,
+            sort=sort,
+            time_window=time_window,
+            **kwargs,
+        )
+        return [Dataset(**item) for item in results]
+
     def _coerce_dataframe(
         self,
         data: Optional[DatasetRowsInput],

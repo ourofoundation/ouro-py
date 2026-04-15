@@ -8,6 +8,7 @@ from .money import Money
 from .notifications import Notifications
 from .organizations import Organizations
 from .posts import Posts
+from .quests import Quests
 from .routes import Routes
 from .services import Services
 from .teams import Teams
@@ -19,6 +20,7 @@ __all__ = [
     "Conversations",
     "Datasets",
     "Posts",
+    "Quests",
     "Files",
     "Comments",
     "Users",

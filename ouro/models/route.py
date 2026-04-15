@@ -27,7 +27,7 @@ class RouteData(BaseModel):
 
 
 class Route(Asset):
-    route: RouteData
+    route: Optional[RouteData] = None
     _ouro: Optional["Ouro"] = None
 
     def __init__(self, **kwargs):

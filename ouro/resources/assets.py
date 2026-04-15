@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Union
 from urllib.parse import unquote
 
 from ouro._resource import SyncAPIResource
-from ouro.models import Asset, Comment, Dataset, File, Post, Route, Service
+from ouro.models import Asset, Comment, Dataset, File, Post, Quest, Route, Service
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -86,6 +86,11 @@ class Assets(SyncAPIResource):
             top_level_only: True to exclude child assets
             metadata_filters: dict of metadata key/values, e.g.
                 {"file_type": "image", "extension": "csv"}
+            sort:        "relevant" | "recent" | "popular" | "updated"
+                         Defaults to "relevant" when query is present,
+                         "recent" when browsing.
+            time_window: "day" | "week" | "month" | "all"
+                         Only used when sort="popular". Default: "month".
             limit:  page size (default 20, max 200)
             offset: pagination offset (default 0)
 
@@ -104,6 +109,14 @@ class Assets(SyncAPIResource):
         scope = kwargs.pop("scope", None)
         if scope is not None:
             params["scope"] = scope
+
+        sort = kwargs.pop("sort", None)
+        if sort is not None:
+            params["sort"] = sort
+
+        time_window = kwargs.pop("time_window", None)
+        if time_window is not None:
+            params["time_window"] = time_window
 
         metadata_filters = kwargs.pop("metadata_filters", None)
         if metadata_filters is not None:
@@ -130,7 +143,7 @@ class Assets(SyncAPIResource):
     def retrieve(
         self,
         id: str,
-    ) -> Union[Post, Comment, File, Dataset, Service, Route, Asset]:
+    ) -> Union[Post, Comment, File, Dataset, Service, Route, Quest, Asset]:
         """
         Retrieve any asset by its ID, regardless of asset type.
         Automatically determines the asset type and routes to the
@@ -159,6 +172,8 @@ class Assets(SyncAPIResource):
                 return self.ouro.services.retrieve(id)
             elif asset_type == "route":
                 return self.ouro.routes.retrieve(id)
+            elif asset_type == "quest":
+                return self.ouro.quests.retrieve(id)
             else:
                 log.warning(
                     f"Unknown asset type: {asset_type}. Cannot retrieve full asset details via API."

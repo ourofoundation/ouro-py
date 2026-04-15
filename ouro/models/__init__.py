@@ -21,6 +21,10 @@ __all__ = [
     "TeamProfile",
     "PostContent",
     "Post",
+    "Quest",
+    "QuestDetails",
+    "QuestItem",
+    "QuestProgress",
     "Conversation",
     "File",
     "FileData",
@@ -42,6 +46,53 @@ class Post(Asset):
     content: Optional[PostContent] = None
     comments: Optional[int] = Field(default=0)
     views: Optional[int] = Field(default=0)
+
+
+class QuestDetails(BaseModel):
+    id: Optional[UUID] = None
+    type: Optional[Literal["closable", "continuous"]] = None
+    status: Optional[Literal["draft", "open", "closed", "cancelled"]] = None
+    reward_xp: Optional[int] = 0
+    reward_currency: Optional[str] = "btc"
+    reward_sats: Optional[int] = 0
+    reward_usd_cents: Optional[int] = 0
+    max_xp_per_contributor: Optional[int] = None
+    allowed_submission_type: Optional[str] = None
+    constraints: Optional[dict] = None
+
+
+class QuestItem(BaseModel):
+    id: Optional[UUID] = None
+    quest_id: Optional[UUID] = None
+    description: str = ""
+    status: Literal["pending", "in_progress", "done", "skipped"] = "pending"
+    sort_order: int = 0
+    type: str = "task"
+    created_by: Optional[UUID] = None
+    assignee_id: Optional[UUID] = None
+    expected_asset_type: Optional[str] = None
+    reward_xp: int = 0
+    reward_currency: str = "btc"
+    reward_sats: int = 0
+    reward_usd_cents: int = 0
+    child_quest_id: Optional[UUID] = None
+    completed_entry_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class QuestProgress(BaseModel):
+    total: int = 0
+    done: int = 0
+    remaining: int = 0
+
+
+class Quest(Asset):
+    quest: Optional[QuestDetails] = None
+    items: Optional[List[QuestItem]] = None
+    progress: Optional[QuestProgress] = None
+    comments: Optional[int] = Field(default=0)
 
 
 class ConversationMetadata(BaseModel):

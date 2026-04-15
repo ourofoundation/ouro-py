@@ -4,7 +4,7 @@ import logging
 import mimetypes
 import os
 from base64 import b64encode
-from typing import Literal, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 from uuid import UUID
 
 from ouro.utils import generate_uuid
@@ -203,6 +203,39 @@ class Files(SyncAPIResource):
         return self._upload_content(
             content, os.path.basename(file_path), visibility, mime_type,
         )
+
+    def list(
+        self,
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+        scope: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        sort: Optional[str] = None,
+        time_window: Optional[str] = None,
+        **kwargs: Any,
+    ) -> List[File]:
+        """List files, optionally filtered by search query and scope.
+
+        Args:
+            sort: "relevant" | "recent" | "popular" | "updated"
+            time_window: For sort="popular": "day" | "week" | "month" | "all".
+                         Default: "month".
+        """
+        results = self.ouro.assets.search(
+            query=query,
+            asset_type="file",
+            limit=limit,
+            offset=offset,
+            scope=scope,
+            org_id=org_id,
+            team_id=team_id,
+            sort=sort,
+            time_window=time_window,
+            **kwargs,
+        )
+        return [File(**item, _ouro=self.ouro) for item in results]
 
     def create(
         self,

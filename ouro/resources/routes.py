@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from ouro._constants import DEFAULT_TIMEOUT
 from ouro._resource import SyncAPIResource
@@ -19,6 +19,42 @@ DEFAULT_POLL_TIMEOUT = 600.0  # 10 minutes
 
 
 class Routes(SyncAPIResource):
+    def list(
+        self,
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+        scope: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        sort: Optional[str] = None,
+        time_window: Optional[str] = None,
+        **kwargs: Any,
+    ) -> List[Route]:
+        """List routes, optionally filtered by search query and scope.
+
+        Results include base asset fields but not full route definitions.
+        Use ``retrieve()`` for the complete route with path, method, and parameters.
+
+        Args:
+            sort: "relevant" | "recent" | "popular" | "updated"
+            time_window: For sort="popular": "day" | "week" | "month" | "all".
+                         Default: "month".
+        """
+        results = self.ouro.assets.search(
+            query=query,
+            asset_type="route",
+            limit=limit,
+            offset=offset,
+            scope=scope,
+            org_id=org_id,
+            team_id=team_id,
+            sort=sort,
+            time_window=time_window,
+            **kwargs,
+        )
+        return [Route(**item, _ouro=self.ouro) for item in results]
+
     def _resolve_name_to_id(self, name_or_id: str, asset_type: str) -> str:
         """Resolve a name to an ID using the backend endpoint."""
         if is_valid_uuid(name_or_id):

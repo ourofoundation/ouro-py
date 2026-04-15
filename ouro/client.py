@@ -20,6 +20,7 @@ from ouro.resources import (
     Notifications,
     Organizations,
     Posts,
+    Quests,
     Routes,
     Services,
     Teams,
@@ -105,6 +106,7 @@ class Ouro:
     datasets: Datasets
     files: Files
     posts: Posts
+    quests: Quests
     conversations: Conversations
     users: Users
     assets: Assets
@@ -195,6 +197,7 @@ class Ouro:
         self.datasets = Datasets(self)
         self.files = Files(self)
         self.posts = Posts(self)
+        self.quests = Quests(self)
         self.assets = Assets(self)
         self.users = Users(self)
         self.comments = Comments(self)
