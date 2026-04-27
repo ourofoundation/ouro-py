@@ -14,9 +14,14 @@ __all__ = ["Services"]
 
 
 class Services(SyncAPIResource):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.routes = Routes(*args, **kwargs)
+    @property
+    def routes(self) -> Routes:
+        """Deprecated alias for ``ouro.routes``.
+
+        Kept for backwards compatibility. Prefer ``ouro.routes`` directly — both
+        point to the same underlying ``Routes`` instance now.
+        """
+        return self.ouro.routes
 
     def retrieve(self, id: str) -> Service:
         """Retrieve a Service by its ID."""

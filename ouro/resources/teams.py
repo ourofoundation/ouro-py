@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro.models import Team
 
 if TYPE_CHECKING:
     from .content import Content
@@ -24,7 +25,7 @@ class Teams(SyncAPIResource):
         actor_type_policy: Optional[str] = None,
         source_policy: Optional[str] = None,
         **kwargs,
-    ) -> dict:
+    ) -> Team:
         """Create a team in an organization."""
         team = _strip_none({
             "name": name,
@@ -37,7 +38,7 @@ class Teams(SyncAPIResource):
             **kwargs,
         })
         request = self.client.post("/teams/create", json={"team": team})
-        return self._handle_response(request) or {}
+        return Team.model_validate(self._handle_response(request) or {})
 
     def update(
         self,
@@ -49,7 +50,7 @@ class Teams(SyncAPIResource):
         actor_type_policy: Optional[str] = None,
         source_policy: Optional[str] = None,
         **kwargs,
-    ) -> dict:
+    ) -> Team:
         """Update a team."""
         team = _strip_none({
             "id": id,
@@ -62,14 +63,14 @@ class Teams(SyncAPIResource):
             **kwargs,
         })
         request = self.client.put(f"/teams/{id}", json={"team": team})
-        return self._handle_response(request) or {}
+        return Team.model_validate(self._handle_response(request) or {})
 
     def list(
         self,
         org_id: Optional[str] = None,
         joined: Optional[bool] = None,
         public_only: Optional[bool] = None,
-    ) -> List[dict]:
+    ) -> List[Team]:
         """List teams with optional filters.
 
         Args:
@@ -86,12 +87,13 @@ class Teams(SyncAPIResource):
             params["public_only"] = str(public_only).lower()
 
         request = self.client.get("/teams", params=params)
-        return self._handle_response(request) or []
+        data = self._handle_response(request) or []
+        return [Team.model_validate(t) for t in data]
 
-    def retrieve(self, id: str) -> dict:
+    def retrieve(self, id: str) -> Team:
         """Retrieve a team by ID, including members and metrics."""
         request = self.client.get(f"/teams/{id}")
-        return self._handle_response(request) or {}
+        return Team.model_validate(self._handle_response(request) or {})
 
     def join(self, id: str) -> dict:
         """Join a team."""
@@ -159,6 +161,19 @@ class Teams(SyncAPIResource):
             id: Team ID.
             offset: Zero-based pagination offset.
             limit: Number of unread items to return.
+
+        Returns:
+            A dict with the preview payload plus a ``pagination`` key
+            containing the standard ``{offset, limit, hasMore, total}``
+            envelope::
+
+                {
+                    "view_mode": "preview",
+                    "team_id": "...",
+                    "unread_count": 123,
+                    "results": [...],
+                    "pagination": {"offset": 0, "limit": 20, "hasMore": True, "total": 123},
+                }
         """
         params = {
             "view_mode": "preview",
@@ -167,4 +182,13 @@ class Teams(SyncAPIResource):
             "limit": limit,
         }
         request = self.client.get("/teams/unreads", params=params)
-        return self._handle_response(request) or {}
+        envelope = self._handle_response(request, with_pagination=True) or {}
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        if not isinstance(data, dict):
+            data = {}
+        pagination = envelope.get("pagination") if isinstance(envelope, dict) else None
+        if isinstance(pagination, dict):
+            return {**data, "pagination": pagination}
+        # Back-compat: older backends nested the pagination block inside the
+        # `data` object itself; if we see that, leave the shape alone.
+        return data

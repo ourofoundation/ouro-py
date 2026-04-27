@@ -5,7 +5,7 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -198,16 +198,73 @@ class Datasets(SyncAPIResource):
         request = self.client.get(f"/datasets/{id}/schema")
         return self._handle_response(request)
 
-    def query(self, id: str) -> pd.DataFrame:
-        """Query a dataset's data by its id."""
+    def query(
+        self,
+        id: str,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        with_pagination: bool = False,
+    ) -> Union[pd.DataFrame, Dict[str, Any]]:
+        """Query a dataset's data by its id.
+
+        By default (``limit=None``) this fetches every row via the backend's
+        paginated data endpoint and returns a single :class:`pandas.DataFrame`.
+        That's fine for small datasets and notebook use, but on large tables
+        it can be slow and memory-heavy.
+
+        When ``limit`` is provided, a single page is fetched server-side
+        (``GET /datasets/{id}/data?limit=&offset=``) — this is the path
+        agents and MCP tools should use.
+
+        Args:
+            id: Dataset UUID.
+            limit: If set, fetch a single page of this size from the server.
+                If ``None`` (default), stream every row.
+            offset: Zero-based row offset (ignored when ``limit`` is ``None``).
+            with_pagination: If True (requires ``limit`` to be set), return
+                ``{"data": DataFrame, "pagination": {"hasMore": bool, ...}}``
+                so callers can page.
+
+        Returns:
+            A DataFrame, or — when ``with_pagination=True`` — a dict with
+            ``data`` (DataFrame) and ``pagination`` keys.
+        """
         if not id:
             raise ValueError("Dataset id is required")
-        data = self._fetch_all_rows(id)
+        if with_pagination and limit is None:
+            raise ValueError("with_pagination=True requires a limit.")
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be a positive integer.")
+        if offset < 0:
+            raise ValueError("offset must be non-negative.")
 
-        df = pd.DataFrame(data)
+        if limit is None:
+            rows = self._fetch_all_rows(id)
+            pagination: Dict[str, Any] = {"hasMore": False, "offset": 0, "limit": len(rows)}
+        else:
+            request = self.client.get(
+                f"/datasets/{id}/data",
+                params={"limit": limit, "offset": offset},
+            )
+            payload = self._handle_response(request, raw=True) or {}
+            rows = payload.get("data") or []
+            pagination = payload.get("pagination") or {"hasMore": False}
+
+        df = self._coerce_schema_dtypes(pd.DataFrame(rows), id)
+
+        if with_pagination:
+            return {"data": df, "pagination": pagination}
+        return df
+
+    def _coerce_schema_dtypes(self, df: pd.DataFrame, id: str) -> pd.DataFrame:
+        """Apply timestamp/date dtype coercion to a query result."""
+        if df.empty:
+            return df
         schema = self.schema(id)
         for definition in schema:
             column_name = definition["column_name"]
+            if column_name not in df.columns:
+                continue
             if (
                 "timestamp" in definition["data_type"]
                 or "date" in definition["data_type"]

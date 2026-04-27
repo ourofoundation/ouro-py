@@ -9,6 +9,9 @@ from uuid import UUID
 
 from ouro.utils import generate_uuid
 
+import httpx
+
+from ouro._exceptions import APIConnectionError, APIStatusError
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import File
 
@@ -325,14 +328,37 @@ class Files(SyncAPIResource):
         data = self._handle_response(request)
         return File(**data, _ouro=self.ouro)
 
-    def retrieve(self, id: str) -> File:
-        """Retrieve a File by its ID."""
+    def retrieve(self, id: str, *, include_data: bool = True) -> File:
+        """Retrieve a File by its ID.
+
+        Args:
+            id: The File's UUID.
+            include_data: When ``True`` (default), also fetch ``/files/{id}/data``
+                and attach it as ``File.data``. Set to ``False`` to skip the
+                second request (e.g. for metadata-only lookups, or large binary
+                files where the data endpoint is expensive).
+
+                If the data fetch itself fails with a 4xx/5xx or a transient
+                transport error, ``File.data`` is set to ``None`` and a warning
+                is logged; non-HTTP exceptions (bugs, cancellations) propagate
+                as before.
+        """
         data = self._handle_response(self.client.get(f"/files/{id}"))
 
-        try:
-            file_data = self._handle_response(self.client.get(f"/files/{id}/data"))
-        except Exception:
-            file_data = None
+        file_data = None
+        if include_data:
+            try:
+                file_data = self._handle_response(
+                    self.client.get(f"/files/{id}/data")
+                )
+            except (APIStatusError, APIConnectionError, httpx.HTTPError) as exc:
+                log.warning(
+                    "Failed to fetch /files/%s/data (%s); returning File "
+                    "without .data. Use include_data=False to skip this "
+                    "request entirely.",
+                    id,
+                    exc.__class__.__name__,
+                )
 
         data["data"] = file_data
         return File(**data, _ouro=self.ouro)

@@ -167,9 +167,16 @@ def _render_block(node: dict, indent: str = "") -> Optional[str]:
         return "---"
 
     if node_type == "assetComponent":
+        import json as _json
+
         asset_type = attrs.get("assetType", "asset")
         asset_id = attrs.get("id", "")
-        return f"[Embedded {asset_type}: {asset_id}]"
+        view_mode = attrs.get("viewMode", "card")
+        display_config = attrs.get("displayConfig")
+        block = {"id": asset_id, "assetType": asset_type, "viewMode": view_mode}
+        if display_config:
+            block["displayConfig"] = display_config
+        return f"```assetComponent\n{_json.dumps(block, indent=2)}\n```"
 
     if node_type == "hardBreak":
         return ""

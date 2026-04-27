@@ -191,17 +191,37 @@ class Editor(Content):
         self,
         id: str,
         asset_type: str,
-        filters: dict = None,
         view_mode: str = "card",
+        display_config: dict = None,
+        *,
+        filters: dict = None,
     ) -> None:
+        """Embed an existing asset as an inline block.
+
+        Args:
+            id: Asset UUID.
+            asset_type: One of "post", "file", "dataset", "route", "service".
+            view_mode: "card" or "preview".
+            display_config: Type-specific display options, e.g.
+                ``{"visualizationId": "<uuid>"}`` for datasets or
+                ``{"actionId": "<uuid>"}`` for routes.
+            filters: **Deprecated** – use ``display_config={"filters": [...]}`` instead.
+        """
+        config = dict(display_config or {})
+        if filters and "filters" not in config:
+            config["filters"] = filters
+
+        attrs = {
+            "id": id,
+            "assetType": asset_type,
+            "viewMode": view_mode,
+        }
+        if config:
+            attrs["displayConfig"] = config
+
         element = {
             "type": "assetComponent",
-            "attrs": {
-                "id": id,
-                "assetType": asset_type,
-                "filters": filters,
-                "viewMode": view_mode,
-            },
+            "attrs": attrs,
         }
         self.json["content"].append(element)
         self.text += f"{{asset:{id}}}"

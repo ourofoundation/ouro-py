@@ -30,7 +30,9 @@ from ouro.resources import (
 from .__version__ import __version__
 from ._constants import DEFAULT_CONNECTION_LIMITS, DEFAULT_TIMEOUT
 from ._exceptions import (
+    APIConnectionError,
     APIStatusError,
+    APITimeoutError,
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -51,11 +53,54 @@ __all__ = ["Ouro"]
 log: logging.Logger = logging.getLogger("ouro")
 
 
+def _request_for_exception(
+    exc: httpx.HTTPError, method: str, url: str
+) -> httpx.Request:
+    """Best-effort recovery of the `httpx.Request` attached to a transport error.
+
+    `httpx.RequestError` normally carries `.request`, but when the exception was
+    raised before request construction (rare, e.g. misconfigured transport) the
+    attribute isn't set. In that case we synthesize a minimal `httpx.Request`
+    so our SDK exception still has a meaningful `request` field.
+    """
+    try:
+        request = getattr(exc, "request", None)
+        if isinstance(request, httpx.Request):
+            return request
+    except RuntimeError:
+        pass
+    return httpx.Request(method, url)
+
+
+def _translate_httpx_errors(
+    call,
+    method: str,
+    url: str,
+):
+    """Invoke ``call()`` translating httpx transport errors to SDK exceptions."""
+    try:
+        return call()
+    except httpx.TimeoutException as exc:
+        raise APITimeoutError(
+            request=_request_for_exception(exc, method, url)
+        ) from exc
+    except httpx.TransportError as exc:
+        raise APIConnectionError(
+            message=str(exc) or "Connection error.",
+            request=_request_for_exception(exc, method, url),
+        ) from exc
+
+
 class AutoRefreshClient:
     """
     A wrapper around httpx.Client that automatically refreshes tokens before requests.
 
     This ensures that long-running processes don't encounter JWT expiration errors.
+
+    It also translates httpx transport errors (timeouts, connect errors, etc.)
+    into the SDK's typed :class:`~ouro.APITimeoutError` /
+    :class:`~ouro.APIConnectionError` so callers can handle them via
+    ``except OuroError``.
     """
 
     def __init__(self, client: httpx.Client, ouro: "Ouro"):
@@ -68,29 +113,49 @@ class AutoRefreshClient:
             log.info("Token expiring soon, refreshing proactively...")
             self._ouro.refresh_session()
 
-    def get(self, *args, **kwargs) -> httpx.Response:
+    def _url_for(self, args, kwargs) -> str:
+        url = kwargs.get("url")
+        if url is None and args:
+            url = args[0]
+        return str(url) if url is not None else ""
+
+    def _do(self, method: str, args, kwargs) -> httpx.Response:
         self._ensure_valid_token()
-        return self._client.get(*args, **kwargs)
+        fn = getattr(self._client, method)
+        return _translate_httpx_errors(
+            lambda: fn(*args, **kwargs),
+            method.upper(),
+            self._url_for(args, kwargs),
+        )
+
+    def get(self, *args, **kwargs) -> httpx.Response:
+        return self._do("get", args, kwargs)
 
     def post(self, *args, **kwargs) -> httpx.Response:
-        self._ensure_valid_token()
-        return self._client.post(*args, **kwargs)
+        return self._do("post", args, kwargs)
 
     def put(self, *args, **kwargs) -> httpx.Response:
-        self._ensure_valid_token()
-        return self._client.put(*args, **kwargs)
+        return self._do("put", args, kwargs)
 
     def patch(self, *args, **kwargs) -> httpx.Response:
-        self._ensure_valid_token()
-        return self._client.patch(*args, **kwargs)
+        return self._do("patch", args, kwargs)
 
     def delete(self, *args, **kwargs) -> httpx.Response:
-        self._ensure_valid_token()
-        return self._client.delete(*args, **kwargs)
+        return self._do("delete", args, kwargs)
 
     def request(self, *args, **kwargs) -> httpx.Response:
         self._ensure_valid_token()
-        return self._client.request(*args, **kwargs)
+        method = kwargs.get("method")
+        if method is None and args:
+            method = args[0]
+        url = kwargs.get("url")
+        if url is None and len(args) > 1:
+            url = args[1]
+        return _translate_httpx_errors(
+            lambda: self._client.request(*args, **kwargs),
+            str(method or "").upper(),
+            str(url or ""),
+        )
 
     @property
     def headers(self):
@@ -201,8 +266,8 @@ class Ouro:
         self.assets = Assets(self)
         self.users = Users(self)
         self.comments = Comments(self)
-        self.services = Services(self)
         self.routes = Routes(self)
+        self.services = Services(self)
         self.money = Money(self)
         self.notifications = Notifications(self)
         self.organizations = Organizations(self)

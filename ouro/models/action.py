@@ -14,6 +14,28 @@ if TYPE_CHECKING:
 ActionStatus = Literal["queued", "in-progress", "timed-out", "success", "error"]
 
 
+class ActionLog(BaseModel):
+    """A log entry emitted while a route action is running."""
+
+    id: UUID
+    action_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    asset_id: Optional[UUID] = None
+    event_type: Optional[str] = None
+    level: Optional[str] = None
+    message: Optional[str] = None
+    origin: Optional[str] = None
+    source: Optional[str] = None
+    client: Optional[str] = None
+    api_key_name: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+
+    # Nested objects from joins
+    user: Optional[Dict[str, Any]] = None
+    asset: Optional[Dict[str, Any]] = None
+
+
 class Action(BaseModel):
     """Represents an action (route execution) in the Ouro system."""
 
@@ -25,13 +47,17 @@ class Action(BaseModel):
     output_asset_id: Optional[UUID] = None
     response: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
+    side_effects: Optional[bool] = None
     created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
 
     # Nested objects from joins
     input_asset: Optional[Dict[str, Any]] = None
+    input_assets: Optional[list[Dict[str, Any]]] = None
     output_asset: Optional[Dict[str, Any]] = None
+    route: Optional[Dict[str, Any]] = None
     user: Optional[Dict[str, Any]] = None
 
     _ouro: Optional["Ouro"] = None
@@ -68,6 +94,27 @@ class Action(BaseModel):
         """Check if the action was marked stale but may still resolve later."""
         return self.status == "timed-out"
 
+    @property
+    def final_data(self) -> Any:
+        """Return the response payload shaped like :meth:`Routes.use` returns.
+
+        If the action created an output asset, it's merged into the response
+        under the asset-type key (e.g. ``{"dataset": {...}}``). Otherwise the
+        raw ``response`` is returned unchanged. Useful for migrating callers
+        from :meth:`Routes.use` (dict return) to :meth:`Routes.execute`
+        (Action return) without changing downstream code.
+        """
+        response_data = self.response
+        if self.output_asset:
+            if not isinstance(response_data, dict):
+                response_data = (
+                    {"_raw": response_data} if response_data is not None else {}
+                )
+            asset_type = self.output_asset.get("asset_type")
+            if asset_type:
+                response_data[asset_type] = self.output_asset
+        return response_data
+
     def log(
         self,
         message: str,
@@ -99,6 +146,29 @@ class Action(BaseModel):
                 e,
                 exc_info=True,
             )
+
+    def read_logs(
+        self,
+        *,
+        level: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_order: str = "desc",
+        chronological: Optional[bool] = None,
+        with_pagination: bool = False,
+    ):
+        """Read logs for this action."""
+        if not self._ouro:
+            raise RuntimeError("Action object not connected to Ouro client")
+        return self._ouro.routes.get_action_logs(
+            str(self.id),
+            level=level,
+            limit=limit,
+            offset=offset,
+            sort_order=sort_order,
+            chronological=chronological,
+            with_pagination=with_pagination,
+        )
 
     def refresh(self) -> "Action":
         """

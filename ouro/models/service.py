@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from pydantic import BaseModel
 
+from ouro.utils import is_valid_uuid
+
 from .asset import Asset
 from .route import Route
 
@@ -39,6 +41,20 @@ class Service(Asset):
         return ouro.services.read_routes(str(self.id))
 
     def use_route(self, route_name_or_id: str, **kwargs) -> Dict:
-        """Use/execute a specific route of this service."""
+        """Use/execute a specific route of this service.
+
+        ``route_name_or_id`` may be:
+          - a bare route slug (e.g. ``"predict"``), which is resolved relative
+            to this service's entity name;
+          - a fully-qualified ``"entity_name/route_name"``;
+          - or a route UUID.
+
+        The latter two are passed through unchanged so we don't accidentally
+        build a 3-segment identifier like ``"{service_id}/entity/route"``.
+        """
         ouro = self._require_client()
-        return ouro.services.routes.use(f"{self.id}/{route_name_or_id}", **kwargs)
+        if is_valid_uuid(route_name_or_id) or "/" in route_name_or_id:
+            target = route_name_or_id
+        else:
+            target = f"{self.id}/{route_name_or_id}"
+        return ouro.services.routes.use(target, **kwargs)

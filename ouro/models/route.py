@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from ouro import Ouro
     from ouro.models.action import Action
 
+# Kept in sync with ``ouro.resources.routes.DEFAULT_POLL_INTERVAL`` /
+# ``DEFAULT_POLL_TIMEOUT``. Imported lazily in ``use`` to avoid a circular
+# import between ``ouro.models`` and ``ouro.resources``.
+
 
 class RouteData(BaseModel):
     description: Optional[str] = None
@@ -17,6 +21,7 @@ class RouteData(BaseModel):
     request_body: Optional[Dict] = {}
     responses: Optional[Dict] = None
     security: Optional[str] = None
+    input_assets: Optional[Dict[str, Dict[str, Any]]] = None
     input_type: Optional[str] = None
     input_filter: Optional[str] = None
     input_file_extension: Optional[str] = None
@@ -51,11 +56,10 @@ class Route(Asset):
         """Get stats for a route."""
         return self._api_get(f"/routes/{self.id}/stats")
 
-    def read_actions(self) -> List[Dict]:
+    def read_actions(self) -> List["Action"]:
         """Get actions for a route."""
-        return self._api_get(
-            f"/services/{self.parent_id}/routes/{self.id}/actions"
-        )
+        ouro = self._require_client()
+        return ouro.routes.list_actions(str(self.id))
 
     def read_analytics(self) -> Dict:
         """Get analytics for a route."""
@@ -73,8 +77,8 @@ class Route(Asset):
         self,
         *,
         wait: bool = True,
-        poll_interval: float = 1.0,
-        poll_timeout: Optional[float] = 600.0,
+        poll_interval: Optional[float] = None,
+        poll_timeout: Optional[float] = None,
         **kwargs,
     ) -> Union[Dict, "Action"]:
         """Use/execute this route.
@@ -84,15 +88,22 @@ class Route(Asset):
 
         Args:
             wait: If True (default), wait for async routes to complete.
-            poll_interval: Seconds between status checks when waiting (default: 1.0).
-            poll_timeout: Maximum seconds to wait for completion (default: 600).
+            poll_interval: Seconds between status checks when waiting. Defaults
+                to :data:`ouro.resources.routes.DEFAULT_POLL_INTERVAL` (10s).
+            poll_timeout: Maximum seconds to wait for completion. Defaults to
+                :data:`ouro.resources.routes.DEFAULT_POLL_TIMEOUT` (600s).
             **kwargs: Additional arguments (body, query, params, output, timeout).
         """
+        from ouro.resources.routes import (
+            DEFAULT_POLL_INTERVAL,
+            DEFAULT_POLL_TIMEOUT,
+        )
+
         ouro = self._require_client()
         return ouro.routes.use(
             str(self.id),
             wait=wait,
-            poll_interval=poll_interval,
-            poll_timeout=poll_timeout,
+            poll_interval=DEFAULT_POLL_INTERVAL if poll_interval is None else poll_interval,
+            poll_timeout=DEFAULT_POLL_TIMEOUT if poll_timeout is None else poll_timeout,
             **kwargs,
         )

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from ouro._resource import SyncAPIResource
+from ouro.models import Notification
 
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -20,8 +21,13 @@ class Notifications(SyncAPIResource):
         org_id: Optional[str] = None,
         unread_only: bool = False,
         with_pagination: bool = False,
-    ) -> Union[List[dict], dict]:
-        """Fetch paginated notifications for the authenticated user."""
+    ) -> Union[List[Notification], Dict[str, Any]]:
+        """Fetch paginated notifications for the authenticated user.
+
+        Returns a list of :class:`Notification` by default. When
+        ``with_pagination=True``, returns ``{"data": [Notification, ...],
+        "pagination": ...}`` so callers can implement their own paging.
+        """
         params = {
             "offset": offset,
             "limit": limit,
@@ -36,9 +42,11 @@ class Notifications(SyncAPIResource):
             result = self._handle_response(request, with_pagination=True) or {}
             if not isinstance(result, dict):
                 return {"data": [], "pagination": None}
-            result["data"] = result.get("data") or []
+            items = result.get("data") or []
+            result["data"] = [Notification.model_validate(n) for n in items]
             return result
-        return self._handle_response(request) or []
+        data = self._handle_response(request) or []
+        return [Notification.model_validate(n) for n in data]
 
     def unreads(self, org_id: Optional[str] = None) -> int:
         """Get the count of unread notifications."""
@@ -49,7 +57,8 @@ class Notifications(SyncAPIResource):
         request = self.client.get("/user/notifications/unreads", params=params)
         return self._handle_response(request) or 0
 
-    def read(self, id: str) -> dict:
+    def read(self, id: str) -> Notification:
         """Mark a single notification as read and return it."""
         request = self.client.get(f"/user/notifications/{id}")
-        return self._handle_response(request) or {}
+        data = self._handle_response(request) or {}
+        return Notification.model_validate(data)

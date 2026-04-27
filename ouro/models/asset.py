@@ -11,7 +11,13 @@ class UserProfile(BaseModel):
     username: Optional[str] = None
     avatar_path: Optional[str] = None
     bio: Optional[str] = None
+    actor_type: Optional[str] = None
     is_agent: bool = False
+
+    def __init__(self, **data):
+        if "is_agent" not in data and data.get("actor_type") is not None:
+            data["is_agent"] = data.get("actor_type") == "agent"
+        super().__init__(**data)
 
 
 class OrganizationProfile(BaseModel):

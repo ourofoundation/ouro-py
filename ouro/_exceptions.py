@@ -16,6 +16,8 @@ __all__ = [
     "UnprocessableEntityError",
     "RateLimitError",
     "InternalServerError",
+    "RouteExecutionError",
+    "ExternalServiceError",
 ]
 
 
@@ -152,3 +154,56 @@ class RateLimitError(APIStatusError):
 
 class InternalServerError(APIStatusError):
     pass
+
+
+class RouteExecutionError(OuroError):
+    """Raised when a route action terminates in a non-success state.
+
+    Unlike :class:`APIStatusError`, this represents a *server-side* route
+    failure that completed the HTTP lifecycle successfully — the HTTP call
+    returned 200/202 and produced an :class:`~ouro.models.action.Action`,
+    but the action itself ended in ``error`` / ``timed-out`` / similar.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action_id: Optional[str] = None,
+        status: Optional[str] = None,
+        response: object | None = None,
+        retryable: Optional[bool] = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.action_id = action_id
+        self.status = status
+        self.response = response
+        self.retryable = retryable
+
+
+class ExternalServiceError(RouteExecutionError):
+    """Raised when a route action failed because the published service failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action_id: Optional[str] = None,
+        status: Optional[str] = None,
+        response: object | None = None,
+        status_code: Optional[int] = None,
+        service_url: Optional[str] = None,
+        retryable: Optional[bool] = None,
+        code: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message,
+            action_id=action_id,
+            status=status,
+            response=response,
+            retryable=retryable,
+        )
+        self.status_code = status_code
+        self.service_url = service_url
+        self.code = code

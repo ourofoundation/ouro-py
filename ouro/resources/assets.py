@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Union
 from urllib.parse import unquote
 
+from ouro._exceptions import NotFoundError
 from ouro._resource import SyncAPIResource
 from ouro.models import Asset, Comment, Dataset, File, Post, Quest, Route, Service
 
@@ -149,44 +150,42 @@ class Assets(SyncAPIResource):
         Automatically determines the asset type and routes to the
         appropriate resource's retrieve method.
         """
-        try:
-            request = self.client.get(f"/assets/{id}/type")
-            data = self._handle_response(request)
+        request = self.client.get(f"/assets/{id}/type")
+        data = self._handle_response(request)
 
-            asset_type = data.get("asset_type") if data else None
+        asset_type = data.get("asset_type") if data else None
 
-            if not asset_type:
-                raise Exception(f"Asset with id {id} has no asset_type")
+        if not asset_type:
+            raise NotFoundError(
+                f"Asset with id {id} has no asset_type",
+                response=request,
+                body=data,
+            )
 
-            self._mark_viewed(id)
+        self._mark_viewed(id)
 
-            if asset_type == "post":
-                return self.ouro.posts.retrieve(id)
-            elif asset_type == "comment":
-                return self.ouro.comments.retrieve(id)
-            elif asset_type == "file":
-                return self.ouro.files.retrieve(id)
-            elif asset_type == "dataset":
-                return self.ouro.datasets.retrieve(id)
-            elif asset_type == "service":
-                return self.ouro.services.retrieve(id)
-            elif asset_type == "route":
-                return self.ouro.routes.retrieve(id)
-            elif asset_type == "quest":
-                return self.ouro.quests.retrieve(id)
-            else:
-                log.warning(
-                    f"Unknown asset type: {asset_type}. Cannot retrieve full asset details via API."
-                )
-                raise Exception(
-                    f"Asset type '{asset_type}' is not supported by the unified retrieve method. "
-                    f"Please use the specific resource's retrieve method if available."
-                )
-        except Exception as e:
-            error_str = str(e).lower()
-            if "not found" in error_str or "404" in error_str or "no rows" in error_str:
-                raise Exception(f"Asset with id {id} not found") from e
-            raise
+        if asset_type == "post":
+            return self.ouro.posts.retrieve(id)
+        elif asset_type == "comment":
+            return self.ouro.comments.retrieve(id)
+        elif asset_type == "file":
+            return self.ouro.files.retrieve(id)
+        elif asset_type == "dataset":
+            return self.ouro.datasets.retrieve(id)
+        elif asset_type == "service":
+            return self.ouro.services.retrieve(id)
+        elif asset_type == "route":
+            return self.ouro.routes.retrieve(id)
+        elif asset_type == "quest":
+            return self.ouro.quests.retrieve(id)
+        else:
+            log.warning(
+                f"Unknown asset type: {asset_type}. Cannot retrieve full asset details via API."
+            )
+            raise ValueError(
+                f"Asset type '{asset_type}' is not supported by the unified retrieve method. "
+                f"Please use the specific resource's retrieve method if available."
+            )
 
     def download(
         self,
@@ -265,9 +264,35 @@ class Assets(SyncAPIResource):
         request = self.client.get(f"/assets/{id}/tags")
         return self._handle_response(request) or []
 
-    def compatible_routes(self, id: str) -> List[dict]:
-        """Fetch routes that can operate on this asset."""
-        request = self.client.get(f"/assets/{id}/compatible-routes")
+    def compatible_routes(
+        self,
+        id: str,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        sort: str = "popular",
+        with_pagination: bool = False,
+    ) -> Union[List[dict], dict]:
+        """Fetch routes that can operate on this asset.
+
+        Routes default to popularity order (most used first). Pass ``limit`` and
+        ``offset`` to request a page; set ``with_pagination=True`` to include the
+        server pagination envelope.
+        """
+        if with_pagination and limit is None:
+            limit = 20
+
+        params = {
+            "limit": limit,
+            "offset": offset if limit is not None else None,
+            "sort": sort,
+        }
+        request = self.client.get(
+            f"/assets/{id}/compatible-routes",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+        if with_pagination:
+            return self._handle_response(request, with_pagination=True) or {}
         return self._handle_response(request) or []
 
     def children(self, id: str) -> List[dict]:

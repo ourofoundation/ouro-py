@@ -77,3 +77,17 @@ class Comments(SyncAPIResource):
             },
         )
         return Comment(**self._handle_response(request))
+
+    def delete(self, id: str) -> None:
+        """Delete a Comment (and its reply thread) by its id.
+
+        The backend's generic comment-delete path runs through
+        ``DELETE /posts/:id`` — ``has_delete_permission`` is asset-type
+        agnostic, and the deletion cascades into nested replies. This
+        mirrors what the Ouro web app does. Dedicated ``DELETE /comments/:id``
+        is not wired on the backend as of 2026-04-17; we'll point this at
+        the dedicated route if/when that changes.
+        """
+        request = self.client.delete(f"/posts/{id}")
+        self._handle_response(request)
+        return None
