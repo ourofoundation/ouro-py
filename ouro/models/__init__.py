@@ -76,6 +76,10 @@ class QuestItem(BaseModel):
     quest_id: Optional[UUID] = None
     description: str = ""
     status: Literal["pending", "in_progress", "done", "skipped"] = "pending"
+    auto_skipped: bool = False
+    status_before_auto_skip: Optional[
+        Literal["pending", "in_progress", "done", "skipped"]
+    ] = None
     sort_order: int = 0
     type: str = "task"
     created_by: Optional[UUID] = None

@@ -271,13 +271,18 @@ class Assets(SyncAPIResource):
         limit: Optional[int] = None,
         offset: int = 0,
         sort: str = "popular",
+        output_type: Optional[str] = None,
+        output_asset_type: Optional[str] = None,
+        output_file_extension: Optional[str] = None,
+        contains_file_extension: Optional[str] = None,
         with_pagination: bool = False,
     ) -> Union[List[dict], dict]:
         """Fetch routes that can operate on this asset.
 
         Routes default to popularity order (most used first). Pass ``limit`` and
         ``offset`` to request a page; set ``with_pagination=True`` to include the
-        server pagination envelope.
+        server pagination envelope. Output filters match both the primary route
+        output and any structured ``output_assets`` metadata.
         """
         if with_pagination and limit is None:
             limit = 20
@@ -286,6 +291,10 @@ class Assets(SyncAPIResource):
             "limit": limit,
             "offset": offset if limit is not None else None,
             "sort": sort,
+            "output_type": output_type,
+            "output_asset_type": output_asset_type,
+            "output_file_extension": output_file_extension,
+            "contains_file_extension": contains_file_extension,
         }
         request = self.client.get(
             f"/assets/{id}/compatible-routes",

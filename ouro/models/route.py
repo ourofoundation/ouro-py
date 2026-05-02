@@ -27,6 +27,7 @@ class RouteData(BaseModel):
     input_file_extension: Optional[str] = None
     input_file_extensions: Optional[List[str]] = None
     output_type: Optional[str] = None
+    output_assets: Optional[Dict[str, Dict[str, Any]]] = None
     output_file_extension: Optional[str] = None
     rate_limit: Optional[int] = None
 

@@ -19,8 +19,14 @@ from ouro._exceptions import (
     UnprocessableEntityError,
 )
 from ouro.events import (
+    WEBHOOK_EVENT_TYPES,
+    WebhookActor,
+    WebhookAssetRef,
     WebhookEvent,
+    WebhookEventName,
     WebhookEventPayload,
+    WebhookOrgRef,
+    WebhookTeamRef,
     normalize_event_type,
     parse_webhook_event,
 )
@@ -47,8 +53,14 @@ __all__ = [
     "RateLimitError",
     "InternalServerError",
     "RouteExecutionError",
+    "WEBHOOK_EVENT_TYPES",
+    "WebhookActor",
+    "WebhookAssetRef",
     "WebhookEvent",
+    "WebhookEventName",
     "WebhookEventPayload",
+    "WebhookOrgRef",
+    "WebhookTeamRef",
     "normalize_event_type",
     "parse_webhook_event",
 ]

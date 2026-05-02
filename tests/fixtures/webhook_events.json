@@ -1,0 +1,12 @@
+[
+  "comment",
+  "mention",
+  "reference",
+  "reaction",
+  "share",
+  "follow",
+  "action",
+  "asset.deleted",
+  "new-conversation",
+  "new-message"
+]
