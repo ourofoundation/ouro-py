@@ -12,6 +12,28 @@ def ouro_field(key, value):
     return decorator
 
 
+def ouro_execution_mode(mode: str):
+    """
+    Convenience decorator to declare a route's execution model so Ouro (and
+    AI agents discovering the route) know whether to wait inline for a
+    response or expect to poll/await a webhook completion via action_id.
+
+    Modes:
+      - "sync":  upstream returns the result inline (HTTP 200). Caller may
+                 block on the response. This is the default if not declared.
+      - "async": upstream returns 202 quickly and posts completion to
+                 /actions/{action_id}/response. Caller should typically
+                 retrieve results via the action handle.
+
+    Equivalent to ``ouro_field("x-ouro-execution-mode", mode)``.
+    """
+    if mode not in ("sync", "async"):
+        raise ValueError(
+            f"ouro_execution_mode: mode must be 'sync' or 'async', got {mode!r}"
+        )
+    return ouro_field("x-ouro-execution-mode", mode)
+
+
 def get_custom_openapi(app, get_openapi):
     """
     Function to generate a custom OpenAPI schema for your FastAPI app.

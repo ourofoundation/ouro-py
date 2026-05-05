@@ -8,11 +8,6 @@ if TYPE_CHECKING:
     from ouro import Ouro
     from ouro.models.action import Action
 
-# Kept in sync with ``ouro.resources.routes.DEFAULT_POLL_INTERVAL`` /
-# ``DEFAULT_POLL_TIMEOUT``. Imported lazily in ``use`` to avoid a circular
-# import between ``ouro.models`` and ``ouro.resources``.
-
-
 class RouteData(BaseModel):
     description: Optional[str] = None
     path: str
@@ -30,10 +25,39 @@ class RouteData(BaseModel):
     output_assets: Optional[Dict[str, Dict[str, Any]]] = None
     output_file_extension: Optional[str] = None
     rate_limit: Optional[int] = None
+    # Author-declared execution model: 'sync' = upstream returns the result
+    # inline; 'async' = upstream returns 202 quickly and webhooks completion.
+    # Agents should consult this when deciding whether to wait inline or
+    # request the action handle and check back later via action_id.
+    execution_mode: Optional[str] = "sync"
+    # Empirical mode derived by the platform from recent action history; null
+    # until enough samples have been observed. When this differs from
+    # ``execution_mode`` the route's declaration is misconfigured.
+    observed_execution_mode: Optional[str] = None
+
+
+class RouteMetrics(BaseModel):
+    """Per-route latency aggregates surfaced from ``asset_metrics``.
+
+    All fields are optional because they don't exist until the platform has
+    observed at least one completed action for the route.
+    """
+
+    # Average HTTP-hop latency in milliseconds: time from request start until
+    # upstream returned 200 or 202.
+    avg_ack_ms: Optional[int] = None
+    p95_ack_ms: Optional[int] = None
+    # Average end-to-end latency in milliseconds: started_at to finished_at,
+    # includes webhook completion for async routes. This is the value an
+    # agent should consider when deciding whether to wait or poll.
+    avg_completion_ms: Optional[int] = None
+    p95_completion_ms: Optional[int] = None
+    latency_sample_count: Optional[int] = None
 
 
 class Route(Asset):
     route: Optional[RouteData] = None
+    metrics: Optional[RouteMetrics] = None
     _ouro: Optional["Ouro"] = None
 
     def __init__(self, **kwargs):
@@ -74,6 +98,24 @@ class Route(Asset):
             f"/services/{self.parent_id}/routes/{self.id}/cost?input={asset_id}"
         )
 
+    def execute(
+        self,
+        *,
+        wait: bool = True,
+        poll_interval: Optional[float] = None,
+        poll_timeout: Optional[float] = None,
+        **kwargs,
+    ) -> "Action":
+        """Execute this route and return the full Action."""
+        ouro = self._require_client()
+        return ouro.routes.execute(
+            str(self.id),
+            wait=wait,
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
+            **kwargs,
+        )
+
     def use(
         self,
         *,
@@ -82,29 +124,30 @@ class Route(Asset):
         poll_timeout: Optional[float] = None,
         **kwargs,
     ) -> Union[Dict, "Action"]:
-        """Use/execute this route.
+        """Deprecated compatibility wrapper for :meth:`execute`.
 
         For routes that return 202 (async processing), this method will automatically
         poll for updates until the action completes, unless wait=False.
 
         Args:
-            wait: If True (default), wait for async routes to complete.
-            poll_interval: Seconds between status checks when waiting. Defaults
-                to :data:`ouro.resources.routes.DEFAULT_POLL_INTERVAL` (10s).
-            poll_timeout: Maximum seconds to wait for completion. Defaults to
-                :data:`ouro.resources.routes.DEFAULT_POLL_TIMEOUT` (600s).
+            wait: If True (default), wait for async routes to complete. If False,
+                send ``Prefer: respond-async`` to get the action handle back
+                immediately and check on it later via ``action.refresh()`` or
+                ``ouro.routes.poll_action``.
+            poll_interval: Seconds between status checks when waiting. If None
+                (default), the SDK derives an interval from this route's
+                ``avg_completion_ms`` metric.
+            poll_timeout: Maximum seconds to wait for completion. If None
+                (default), the SDK derives a timeout from this route's
+                ``p95_completion_ms`` metric.
             **kwargs: Additional arguments (body, query, params, output, timeout).
         """
-        from ouro.resources.routes import (
-            DEFAULT_POLL_INTERVAL,
-            DEFAULT_POLL_TIMEOUT,
-        )
-
-        ouro = self._require_client()
-        return ouro.routes.use(
-            str(self.id),
+        raise_on_error = kwargs.pop("raise_on_error", wait)
+        action = self.execute(
             wait=wait,
-            poll_interval=DEFAULT_POLL_INTERVAL if poll_interval is None else poll_interval,
-            poll_timeout=DEFAULT_POLL_TIMEOUT if poll_timeout is None else poll_timeout,
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
+            raise_on_error=raise_on_error,
             **kwargs,
         )
+        return action if not wait else action.final_data

@@ -97,6 +97,15 @@ class Datasets(SyncAPIResource):
             f"{parameter_name} must be a DataFrame, dict, or list of dict rows."
         )
 
+    def _dataset_has_rows(self, id: str) -> bool:
+        """Return whether the dataset table has rows, falling back to upload on errors."""
+        try:
+            stats = self.stats(id)
+            return int(stats.get("count") or 0) > 0
+        except Exception as exc:
+            log.debug("Could not verify dataset row count for %s: %s", id, exc)
+            return False
+
     def create(
         self,
         name: str,
@@ -136,6 +145,7 @@ class Datasets(SyncAPIResource):
         log.debug(f"Creating a dataset:\n{create_table_sql}")
 
         preview = self._serialize_dataframe(df.head(12))
+        insert_data = self._serialize_dataframe(df)
         metadata = {
             "table_name": table_name,
             "schema": "datasets",
@@ -153,6 +163,7 @@ class Datasets(SyncAPIResource):
             "source": "api",
             "asset_type": "dataset",
             "preview": preview,
+            "rows": insert_data,
             "metadata": metadata,
         })
 
@@ -163,18 +174,22 @@ class Datasets(SyncAPIResource):
         response_data = self._handle_response(request)
 
         created = Dataset(**response_data)
-        insert_data = self._serialize_dataframe(df)
         if len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
                 f"Inserting {len(insert_data)} rows at once into {created.id}. "
                 "Consider batching for very large datasets."
             )
 
-        upload_req = self.client.post(
-            f"/datasets/{created.id}/data",
-            json={"rows": insert_data, "mode": "append"},
-        )
-        self._handle_response(upload_req, raw=True)
+        # Newer backends ingest rows atomically in the create request. Older
+        # backends ignore ``rows`` and create only schema/preview, so keep the
+        # explicit upload fallback until all deployments have the create support.
+        if insert_data and not self._dataset_has_rows(str(created.id)):
+            upload_req = self.client.post(
+                f"/datasets/{created.id}/data",
+                json={"rows": insert_data, "mode": "append"},
+            )
+            self._handle_response(upload_req, raw=True)
+
         log.info(f"Inserted {len(insert_data)} rows into dataset {created.id}")
         return created
 

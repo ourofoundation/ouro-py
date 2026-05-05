@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 from ouro._exceptions import ExternalServiceError, InternalServerError
+from ouro.models.action import Action
 from ouro.resources.routes import Routes
 
 
@@ -29,8 +30,10 @@ class _FakeClient:
         self.requests.append({"path": path, "params": params})
         return self._responses.pop(0)
 
-    def post(self, path: str, json=None, timeout=None):
-        self.requests.append({"path": path, "json": json, "timeout": timeout})
+    def post(self, path: str, json=None, timeout=None, headers=None):
+        self.requests.append(
+            {"path": path, "json": json, "timeout": timeout, "headers": headers}
+        )
         return self._responses.pop(0)
 
 
@@ -197,6 +200,133 @@ class TestRouteActions(unittest.TestCase):
         self.assertEqual(
             ouro.client.requests[1]["json"]["config"]["parameters"],
             {"sample_id": "abc"},
+        )
+
+    def test_execute_warns_for_caller_side_input_asset_metadata(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "id": "00000000-0000-0000-0000-000000000010",
+                            "user_id": "00000000-0000-0000-0000-000000000011",
+                            "org_id": "00000000-0000-0000-0000-000000000012",
+                            "team_id": "00000000-0000-0000-0000-000000000013",
+                            "parent_id": "00000000-0000-0000-0000-000000000014",
+                            "asset_type": "route",
+                            "name": "Predict",
+                            "visibility": "public",
+                            "created_at": "2026-01-01T00:00:00+00:00",
+                            "last_updated": "2026-01-01T00:00:00+00:00",
+                        }
+                    }
+                ),
+                _FakeResponse(
+                    {
+                        "data": {"responseData": {"ok": True}},
+                        "action": {
+                            "id": "00000000-0000-0000-0000-000000000001",
+                            "route_id": "00000000-0000-0000-0000-000000000010",
+                            "user_id": "00000000-0000-0000-0000-000000000003",
+                            "status": "success",
+                        },
+                        "metadata": {},
+                    }
+                ),
+            ]
+        )
+
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            "Declare asset type and body path on the route",
+        ):
+            Routes(ouro).execute(
+                "00000000-0000-0000-0000-000000000010",
+                input_assets={
+                    "structure": {
+                        "assetId": "00000000-0000-0000-0000-000000000020",
+                        "assetType": "file",
+                        "bodyPath": "inputs.structure",
+                    }
+                },
+            )
+
+        self.assertEqual(
+            ouro.client.requests[1]["json"]["config"]["input_assets"],
+            {
+                "structure": {
+                    "assetId": "00000000-0000-0000-0000-000000000020",
+                    "assetType": "file",
+                    "bodyPath": "inputs.structure",
+                }
+            },
+        )
+
+    def test_use_wraps_execute_and_returns_final_data(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "id": "00000000-0000-0000-0000-000000000010",
+                            "user_id": "00000000-0000-0000-0000-000000000011",
+                            "org_id": "00000000-0000-0000-0000-000000000012",
+                            "team_id": "00000000-0000-0000-0000-000000000013",
+                            "parent_id": "00000000-0000-0000-0000-000000000014",
+                            "asset_type": "route",
+                            "name": "Predict",
+                            "visibility": "public",
+                            "created_at": "2026-01-01T00:00:00+00:00",
+                            "last_updated": "2026-01-01T00:00:00+00:00",
+                        }
+                    }
+                ),
+                _FakeResponse(
+                    {
+                        "data": {"responseData": {"ok": True}},
+                        "action": {
+                            "id": "00000000-0000-0000-0000-000000000001",
+                            "route_id": "00000000-0000-0000-0000-000000000010",
+                            "user_id": "00000000-0000-0000-0000-000000000003",
+                            "status": "success",
+                        },
+                        "metadata": {},
+                    }
+                ),
+            ]
+        )
+
+        response = Routes(ouro).use("00000000-0000-0000-0000-000000000010")
+
+        self.assertEqual(response, {"ok": True})
+
+    def test_action_final_data_includes_keyed_output_assets(self) -> None:
+        action = Action(
+            id="00000000-0000-0000-0000-000000000001",
+            route_id="00000000-0000-0000-0000-000000000010",
+            user_id="00000000-0000-0000-0000-000000000003",
+            status="success",
+            response={"ok": True},
+            output_assets=[
+                {
+                    "name": "report",
+                    "asset": {
+                        "id": "00000000-0000-0000-0000-000000000020",
+                        "asset_type": "post",
+                    },
+                }
+            ],
+        )
+
+        self.assertEqual(
+            action.final_data,
+            {
+                "ok": True,
+                "report": {
+                    "id": "00000000-0000-0000-0000-000000000020",
+                    "asset_type": "post",
+                },
+            },
         )
 
     def test_execute_preserves_failed_route_action_envelope(self) -> None:

@@ -1,14 +1,15 @@
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
 from ouro.utils import is_valid_uuid
 
 from .asset import Asset
-from .route import Route
+from .route import Route, RouteData, RouteMetrics
 
 if TYPE_CHECKING:
     from ouro import Ouro
+    from ouro.models.action import Action
 
 
 class ServiceMetadata(BaseModel):
@@ -40,8 +41,18 @@ class Service(Asset):
         ouro = self._require_client()
         return ouro.services.read_routes(str(self.id))
 
-    def use_route(self, route_name_or_id: str, **kwargs) -> Dict:
-        """Use/execute a specific route of this service.
+    def _route_target(self, route_name_or_id: str) -> str:
+        if is_valid_uuid(route_name_or_id) or "/" in route_name_or_id:
+            return route_name_or_id
+        return f"{self.id}/{route_name_or_id}"
+
+    def execute_route(self, route_name_or_id: str, **kwargs) -> "Action":
+        """Execute a specific route of this service and return the full Action."""
+        ouro = self._require_client()
+        return ouro.routes.execute(self._route_target(route_name_or_id), **kwargs)
+
+    def use_route(self, route_name_or_id: str, **kwargs) -> Union[Dict, "Action"]:
+        """Deprecated compatibility wrapper for :meth:`execute_route`.
 
         ``route_name_or_id`` may be:
           - a bare route slug (e.g. ``"predict"``), which is resolved relative
@@ -52,9 +63,7 @@ class Service(Asset):
         The latter two are passed through unchanged so we don't accidentally
         build a 3-segment identifier like ``"{service_id}/entity/route"``.
         """
-        ouro = self._require_client()
-        if is_valid_uuid(route_name_or_id) or "/" in route_name_or_id:
-            target = route_name_or_id
-        else:
-            target = f"{self.id}/{route_name_or_id}"
-        return ouro.services.routes.use(target, **kwargs)
+        wait = kwargs.get("wait", True)
+        kwargs.setdefault("raise_on_error", wait)
+        action = self.execute_route(route_name_or_id, **kwargs)
+        return action if not wait else action.final_data

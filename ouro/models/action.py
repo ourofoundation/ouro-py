@@ -50,6 +50,11 @@ class Action(BaseModel):
     side_effects: Optional[bool] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
+    # When the upstream service first responded (200 or 202). For sync routes
+    # this is approximately equal to ``finished_at``; for async routes the
+    # gap between ``ack_at`` and ``finished_at`` is the out-of-band wait
+    # time the upstream took to complete after acknowledging the request.
+    ack_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
 
@@ -57,6 +62,7 @@ class Action(BaseModel):
     input_asset: Optional[Dict[str, Any]] = None
     input_assets: Optional[list[Dict[str, Any]]] = None
     output_asset: Optional[Dict[str, Any]] = None
+    output_assets: Optional[list[Dict[str, Any]]] = None
     route: Optional[Dict[str, Any]] = None
     user: Optional[Dict[str, Any]] = None
 
@@ -96,16 +102,25 @@ class Action(BaseModel):
 
     @property
     def final_data(self) -> Any:
-        """Return the response payload shaped like :meth:`Routes.use` returns.
+        """Return the response payload for callers that need plain route data.
 
         If the action created an output asset, it's merged into the response
         under the asset-type key (e.g. ``{"dataset": {...}}``). Otherwise the
         raw ``response`` is returned unchanged. Useful for migrating callers
-        from :meth:`Routes.use` (dict return) to :meth:`Routes.execute`
-        (Action return) without changing downstream code.
+        that previously expected the deprecated :meth:`Routes.use` dict return.
         """
         response_data = self.response
-        if self.output_asset:
+        if self.output_assets:
+            if not isinstance(response_data, dict):
+                response_data = (
+                    {"_raw": response_data} if response_data is not None else {}
+                )
+            for output in self.output_assets:
+                name = output.get("name")
+                asset = output.get("asset") or output
+                if name and isinstance(asset, dict):
+                    response_data[name] = asset
+        elif self.output_asset:
             if not isinstance(response_data, dict):
                 response_data = (
                     {"_raw": response_data} if response_data is not None else {}

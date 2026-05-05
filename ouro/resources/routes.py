@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
 from typing import Any, Dict, List, Optional, Union
 
 from ouro._constants import DEFAULT_TIMEOUT
@@ -17,13 +18,23 @@ __all__ = ["Routes"]
 
 DEFAULT_POLL_INTERVAL = 10.0  # seconds
 DEFAULT_POLL_TIMEOUT = 600.0  # 10 minutes
+_COMPAT_INPUT_ASSET_METADATA_KEYS = {
+    "assetType",
+    "asset_type",
+    "bodyPath",
+    "body_path",
+}
 
 
 def _normalize_input_assets(
     input_assets: Optional[Dict[str, Any]] = None,
     assets: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Normalize ergonomic keyed asset inputs into the API config shape."""
+    """Normalize keyed asset IDs into the API config shape.
+
+    Prefer ``input_assets={"name": asset_id}``. Object values are kept for
+    compatibility with older or under-declared routes.
+    """
     raw = input_assets if input_assets is not None else assets
     if raw is None:
         return None
@@ -33,6 +44,16 @@ def _normalize_input_assets(
             normalized[name] = {"assetId": value}
         elif isinstance(value, dict):
             asset_id = value.get("assetId") or value.get("asset_id") or value.get("id")
+            metadata_keys = _COMPAT_INPUT_ASSET_METADATA_KEYS.intersection(value)
+            if metadata_keys:
+                warnings.warn(
+                    "Passing input_assets object metadata "
+                    f"({', '.join(sorted(metadata_keys))}) is deprecated. "
+                    "Declare asset type and body path on the route instead, "
+                    "and pass bare asset IDs from callers.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             normalized[name] = {"assetId": asset_id, **value} if asset_id else value
         else:
             raise ValueError(
@@ -47,6 +68,43 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _adaptive_poll_params(
+    route: Optional[Route],
+    poll_interval: Optional[float],
+    poll_timeout: Optional[float],
+) -> tuple[float, Optional[float]]:
+    """Resolve poll_interval / poll_timeout, preferring caller-supplied values
+    and falling back to per-route latency metrics from ``asset_metrics`` so
+    fast routes poll fast and slow routes poll slow.
+
+    Falls back to ``DEFAULT_POLL_INTERVAL`` / ``DEFAULT_POLL_TIMEOUT`` when
+    no metrics are available yet.
+    """
+    avg_completion_ms = None
+    p95_completion_ms = None
+    metrics = getattr(route, "metrics", None) if route is not None else None
+    if metrics is not None:
+        avg_completion_ms = getattr(metrics, "avg_completion_ms", None)
+        p95_completion_ms = getattr(metrics, "p95_completion_ms", None)
+
+    if poll_interval is None:
+        if avg_completion_ms:
+            # Aim for ~5 polls across the average duration, clamped to
+            # something humans-can-stand: at least 1s, at most 30s.
+            poll_interval = max(1.0, min(30.0, (avg_completion_ms / 1000.0) / 5.0))
+        else:
+            poll_interval = DEFAULT_POLL_INTERVAL
+
+    if poll_timeout is None:
+        if p95_completion_ms:
+            # 2x p95 covers the long tail without waiting forever.
+            poll_timeout = max(60.0, (p95_completion_ms / 1000.0) * 2.0)
+        else:
+            poll_timeout = DEFAULT_POLL_TIMEOUT
+
+    return poll_interval, poll_timeout
 
 
 def _route_failure_info(response: Any) -> Dict[str, Any]:
@@ -86,6 +144,31 @@ def _route_failure_info(response: Any) -> Dict[str, Any]:
         "retryable": retryable,
         "is_external": is_external,
     }
+
+
+def _raise_action_failure(action: Action) -> None:
+    failure = _route_failure_info(action.response)
+    error_cls = (
+        ExternalServiceError if failure["is_external"] else RouteExecutionError
+    )
+    kwargs = {
+        "action_id": str(action.id),
+        "status": action.status,
+        "response": action.response,
+        "retryable": failure["retryable"],
+    }
+    if error_cls is ExternalServiceError:
+        kwargs.update(
+            {
+                "status_code": failure["status_code"],
+                "service_url": failure["service_url"],
+                "code": failure["code"],
+            }
+        )
+    raise error_cls(
+        f"Action failed: {failure['message']}",
+        **kwargs,
+    )
 
 
 class Routes(SyncAPIResource):
@@ -275,30 +358,7 @@ class Routes(SyncAPIResource):
 
             if action.is_complete:
                 if raise_on_error and action.is_error:
-                    failure = _route_failure_info(action.response)
-                    error_cls = (
-                        ExternalServiceError
-                        if failure["is_external"]
-                        else RouteExecutionError
-                    )
-                    kwargs = {
-                        "action_id": str(action.id),
-                        "status": action.status,
-                        "response": action.response,
-                        "retryable": failure["retryable"],
-                    }
-                    if error_cls is ExternalServiceError:
-                        kwargs.update(
-                            {
-                                "status_code": failure["status_code"],
-                                "service_url": failure["service_url"],
-                                "code": failure["code"],
-                            }
-                        )
-                    raise error_cls(
-                        f"Action failed: {failure['message']}",
-                        **kwargs,
-                    )
+                    _raise_action_failure(action)
                 return action
 
             if timeout is not None:
@@ -325,9 +385,11 @@ class Routes(SyncAPIResource):
         input_assets: Optional[Dict[str, Any]] = None,
         assets: Optional[Dict[str, Any]] = None,
         *,
+        wait: bool = True,
         timeout: Optional[float] = None,
-        poll_interval: float = DEFAULT_POLL_INTERVAL,
-        poll_timeout: Optional[float] = DEFAULT_POLL_TIMEOUT,
+        poll_interval: Optional[float] = None,
+        poll_timeout: Optional[float] = None,
+        raise_on_error: bool = False,
         **kwargs,
     ) -> Action:
         """
@@ -338,10 +400,16 @@ class Routes(SyncAPIResource):
         can reference the action afterwards — e.g. to poll, log, or embed a route
         preview pinned to this action.
 
-        Handles both sync 200 and async 202 responses transparently: for 202 it
-        polls until the action reaches a terminal state (``success`` / ``error``
-        / ``timed-out``). For a dict return shaped like :meth:`use`, read
-        ``action.final_data``.
+        Handles both sync and async routes transparently. For routes declared
+        ``async`` (or any route returning HTTP 202), polls until terminal state
+        when ``wait=True``. When ``wait=False``, sends ``Prefer: respond-async``
+        so the backend returns the action handle immediately — useful for
+        long-running routes where you want to do something else and check back
+        later via :meth:`retrieve_action` / :meth:`poll_action`.
+
+        Polling cadence is adapted from the route's observed latency
+        (``avg_completion_ms`` / ``p95_completion_ms`` from ``asset_metrics``)
+        when ``poll_interval`` / ``poll_timeout`` are not explicitly set.
 
         Args:
             name_or_id: Route name ("entity_name/route_name") or UUID
@@ -349,9 +417,19 @@ class Routes(SyncAPIResource):
             query: Query parameters
             params: URL parameters
             output: Output configuration
+            input_assets: Mapping of route input names to Ouro asset IDs. Route
+                authors should declare asset type and body path metadata on the
+                route; caller-side object metadata is compatibility-only.
+            wait: If True (default), block until the action reaches a terminal
+                state. If False, send ``Prefer: respond-async`` and return
+                immediately with the in-progress action handle.
             timeout: HTTP request timeout in seconds for the initial call
-            poll_interval: Seconds between status checks while waiting (default: 10.0)
-            poll_timeout: Maximum seconds to wait for async completion (default: 600)
+            poll_interval: Seconds between status checks while waiting; if
+                None (default), derived from route's avg_completion_ms.
+            poll_timeout: Maximum seconds to wait for completion; if None
+                (default), derived from route's p95_completion_ms.
+            raise_on_error: If True, raise route execution exceptions for
+                terminal error actions instead of returning the errored Action.
             **kwargs: Additional keyword arguments to send to the route
 
         Raises:
@@ -374,13 +452,16 @@ class Routes(SyncAPIResource):
                 "input_assets": normalized_input_assets,
                 **kwargs,
             },
-            "async": False,
         }
         request_timeout = timeout or DEFAULT_TIMEOUT
+        # RFC 7240: signal "I don't want to block on this" so the backend
+        # returns the action handle the moment work is committed.
+        request_headers = {"Prefer": "respond-async"} if not wait else {}
         http_response = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",
             json=payload,
             timeout=request_timeout,
+            headers=request_headers,
         )
         try:
             envelope = self._handle_response(http_response, raw=True)
@@ -404,12 +485,17 @@ class Routes(SyncAPIResource):
                 f"Route returned 202 Accepted. Action ID: {action.id}, "
                 f"status: {action.status}"
             )
+            if not wait:
+                return action
+            effective_interval, effective_timeout = _adaptive_poll_params(
+                route, poll_interval, poll_timeout
+            )
             try:
                 return self.poll_action(
                     str(action.id),
-                    poll_interval=poll_interval,
-                    timeout=poll_timeout,
-                    raise_on_error=False,
+                    poll_interval=effective_interval,
+                    timeout=effective_timeout,
+                    raise_on_error=raise_on_error,
                 )
             except TimeoutError as exc:
                 # Attach the action id so callers can resume polling later.
@@ -445,7 +531,14 @@ class Routes(SyncAPIResource):
                 if obj_type and isinstance(side_effect.get(obj_type), dict):
                     action_kwargs["output_asset"] = side_effect[obj_type]
 
-            return Action(**action_kwargs, _ouro=self.ouro)
+            output_assets = metadata.get("outputAssets")
+            if output_assets and not action_kwargs.get("output_assets"):
+                action_kwargs["output_assets"] = output_assets
+
+            action = Action(**action_kwargs, _ouro=self.ouro)
+            if raise_on_error and action.is_error:
+                _raise_action_failure(action)
+            return action
 
         # Last-resort fallback: backend didn't return action metadata at all.
         # Surface an Action-shaped failure rather than a raw dict so callers can
@@ -467,16 +560,22 @@ class Routes(SyncAPIResource):
         *,
         timeout: Optional[float] = None,
         wait: bool = True,
-        poll_interval: float = DEFAULT_POLL_INTERVAL,
-        poll_timeout: Optional[float] = DEFAULT_POLL_TIMEOUT,
+        poll_interval: Optional[float] = None,
+        poll_timeout: Optional[float] = None,
         **kwargs,
     ) -> Union[Dict, Action]:
         """
+        Deprecated compatibility wrapper for :meth:`execute`.
+
         Use/execute a specific route by its name or ID.
         The route name should be in the format "entity_name/route_name".
 
         For routes that return 202 (async processing), this method will automatically
         poll for updates until the action completes, unless wait=False.
+
+        Polling cadence is adapted from the route's observed latency
+        (``avg_completion_ms`` / ``p95_completion_ms``) when ``poll_interval``
+        / ``poll_timeout`` are not explicitly set.
 
         For programmatic access to the full action (id, status, output asset),
         prefer :meth:`execute` — it always returns an :class:`Action`. Use
@@ -490,71 +589,29 @@ class Routes(SyncAPIResource):
             params: URL parameters
             output: Output configuration
             timeout: HTTP request timeout in seconds
-            wait: If True (default), wait for async routes to complete
-            poll_interval: Seconds between status checks when waiting (default: 10.0)
-            poll_timeout: Maximum seconds to wait for completion (default: 600)
+            wait: If True (default), wait for async routes to complete. If
+                False, sends ``Prefer: respond-async`` and returns the
+                in-progress :class:`Action` immediately.
+            poll_interval: Seconds between status checks while waiting; if
+                None (default), derived from route's avg_completion_ms.
+            poll_timeout: Maximum seconds to wait for completion; if None
+                (default), derived from route's p95_completion_ms.
             **kwargs: Additional keyword arguments to send to the route
         """
-        route_id = self._resolve_name_to_id(name_or_id, "route")
-        route = self.retrieve(route_id)
-        normalized_input_assets = _normalize_input_assets(input_assets, assets)
-
-        payload = {
-            "config": {
-                "body": body,
-                "query": query,
-                "parameters": params,
-                "params": params,
-                "output": output,
-                "input_assets": normalized_input_assets,
-                **kwargs,
-            },
-            "async": False,
-        }
-        request_timeout = timeout or DEFAULT_TIMEOUT
-        http_response = self.client.post(
-            f"/services/{route.parent_id}/routes/{route_id}/use",
-            json=payload,
-            timeout=request_timeout,
+        raise_on_error = kwargs.pop("raise_on_error", wait)
+        action = self.execute(
+            name_or_id,
+            body=body,
+            query=query,
+            params=params,
+            output=output,
+            input_assets=input_assets,
+            assets=assets,
+            wait=wait,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
+            raise_on_error=raise_on_error,
+            **kwargs,
         )
-
-        # Use raw=True because we need status_code and metadata beyond just "data"
-        response = self._handle_response(http_response, raw=True)
-
-        metadata = response.get("metadata") or {}
-        is_async = http_response.status_code == 202 or metadata.get(
-            "requiresPolling", False
-        )
-        action_data = response.get("action")
-
-        if is_async and action_data:
-            action = Action(**action_data, _ouro=self.ouro)
-            log.info(
-                f"Route returned 202 Accepted. Action ID: {action.id}, "
-                f"status: {action.status}"
-            )
-
-            if wait:
-                completed_action = self.poll_action(
-                    str(action.id),
-                    poll_interval=poll_interval,
-                    timeout=poll_timeout,
-                )
-                response_data = completed_action.response
-                if completed_action.output_asset:
-                    if not isinstance(response_data, dict):
-                        response_data = {"_raw": response_data} if response_data is not None else {}
-                    asset_type = completed_action.output_asset.get("asset_type")
-                    if asset_type:
-                        response_data[asset_type] = completed_action.output_asset
-                return response_data
-            else:
-                return action
-
-        data = response.get("data")
-        if isinstance(data, dict):
-            response_data = data.get("responseData")
-            if response_data is not None:
-                return response_data
-            return data
-        return data
+        return action if not wait else action.final_data

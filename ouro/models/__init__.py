@@ -14,7 +14,7 @@ from .action import Action, ActionLog
 from .file import File, FileData
 from .notification import Notification
 from .organization import Organization, OrganizationMembership
-from .service import Route, Service
+from .service import Route, RouteData, RouteMetrics, Service
 from .team import Team, TeamMember, TeamMembership
 
 __all__ = [
@@ -39,6 +39,8 @@ __all__ = [
     "OrganizationMembership",
     "Service",
     "Route",
+    "RouteData",
+    "RouteMetrics",
     "Team",
     "TeamMember",
     "TeamMembership",
