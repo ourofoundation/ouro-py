@@ -65,11 +65,16 @@ id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6" # penguins dataset
 # Retrieve a dataset
 dataset = ouro.datasets.retrieve(id)
 
-# Option 1: Load dataset's data as json using the table name
-data = ouro.datasets.load("penguins")
-
-# Option 2: Read dataset's data as a Pandas DataFrame
+# Read dataset's data as a Pandas DataFrame
 df = ouro.datasets.query(id)
+```
+
+### Run SQL against a dataset
+
+```python
+# Pass a SQL string as the 2nd arg to query(). Use {{table}} as the table
+# placeholder; read-only enforced server-side, 10s statement timeout.
+df = ouro.datasets.query(id, "SELECT species, count(*) AS n FROM {{table}} GROUP BY species")
 ```
 
 ### Update a dataset

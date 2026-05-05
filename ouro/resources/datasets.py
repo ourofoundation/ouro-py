@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -23,20 +22,11 @@ BATCH_INSERT_WARNING_THRESHOLD = 10_000
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 DatasetUploadMode = Literal["append", "overwrite", "upsert"]
 
-
-def to_safe_sql_table_name(name: str) -> str:
-    """Convert a name to a safe SQL table name (PostgreSQL 63-char limit).
-
-    Matches the TypeScript implementation in backend/src/lib/elements/datasets.ts
-    """
-    name = name.strip()
-    name = re.sub(r"[\s-]+", "_", name)
-    name = re.sub(r"[^a-zA-Z0-9_]", "", name)
-    if not re.match(r"^[a-zA-Z_]", name):
-        name = "_" + name
-    name = name.lower()
-    name = name[:63]
-    return name
+# Placeholder identifier for the CREATE TABLE we generate client-side. The
+# backend rewrites the table name to one derived from the dataset's UUID, and
+# uses the request's `name` field (not the parsed SQL name) as the dataset's
+# display-name candidate, so this identifier is purely a syntactic placeholder.
+_PLACEHOLDER_TABLE = "dataset"
 
 
 class Datasets(SyncAPIResource):
@@ -106,6 +96,13 @@ class Datasets(SyncAPIResource):
             log.debug("Could not verify dataset row count for %s: %s", id, exc)
             return False
 
+    def _require_dataset_payload(self, payload: Any, *, operation: str) -> Mapping:
+        if isinstance(payload, Mapping):
+            return payload
+        raise ValueError(
+            f"Dataset {operation} response did not include a dataset payload."
+        )
+
     def create(
         self,
         name: str,
@@ -123,15 +120,17 @@ class Datasets(SyncAPIResource):
         if df.empty or len(df.columns) == 0:
             raise ValueError("data must contain at least one row and one column.")
 
-        table_name = to_safe_sql_table_name(name)
-
         index_name = df.index.name
         if index_name:
             df.reset_index(inplace=True)
 
+        # The backend rewrites the table name to one derived from the dataset's
+        # UUID and uses the request's `name` field as the display-name
+        # candidate, so the identifier embedded here is just a syntactic
+        # placeholder to make the CREATE TABLE parseable.
         create_table_sql = pd.io.sql.get_schema(
             df,
-            name=table_name,
+            name=_PLACEHOLDER_TABLE,
             schema="datasets",
         )
 
@@ -147,7 +146,6 @@ class Datasets(SyncAPIResource):
         preview = self._serialize_dataframe(df.head(12))
         insert_data = self._serialize_dataframe(df)
         metadata = {
-            "table_name": table_name,
             "schema": "datasets",
             "columns": df.columns.tolist(),
         }
@@ -171,9 +169,15 @@ class Datasets(SyncAPIResource):
             "/datasets/create/from-schema",
             json={"dataset": body},
         )
-        response_data = self._handle_response(request)
+        response_body = self._handle_response(request, raw=True) or {}
+        response_data = (
+            response_body.get("data") if isinstance(response_body, Mapping) else None
+        )
+        create_ingested_rows = (
+            isinstance(response_body, Mapping) and "row_ingest" in response_body
+        )
 
-        created = Dataset(**response_data)
+        created = Dataset(**self._require_dataset_payload(response_data, operation="create"))
         if len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
                 f"Inserting {len(insert_data)} rows at once into {created.id}. "
@@ -183,7 +187,11 @@ class Datasets(SyncAPIResource):
         # Newer backends ingest rows atomically in the create request. Older
         # backends ignore ``rows`` and create only schema/preview, so keep the
         # explicit upload fallback until all deployments have the create support.
-        if insert_data and not self._dataset_has_rows(str(created.id)):
+        if (
+            insert_data
+            and not create_ingested_rows
+            and not self._dataset_has_rows(str(created.id))
+        ):
             upload_req = self.client.post(
                 f"/datasets/{created.id}/data",
                 json={"rows": insert_data, "mode": "append"},
@@ -216,36 +224,72 @@ class Datasets(SyncAPIResource):
     def query(
         self,
         id: str,
+        sql: Optional[str] = None,
+        *,
         limit: Optional[int] = None,
         offset: int = 0,
         with_pagination: bool = False,
     ) -> Union[pd.DataFrame, Dict[str, Any]]:
         """Query a dataset's data by its id.
 
-        By default (``limit=None``) this fetches every row via the backend's
-        paginated data endpoint and returns a single :class:`pandas.DataFrame`.
-        That's fine for small datasets and notebook use, but on large tables
-        it can be slow and memory-heavy.
+        Three modes:
 
-        When ``limit`` is provided, a single page is fetched server-side
-        (``GET /datasets/{id}/data?limit=&offset=``) — this is the path
-        agents and MCP tools should use.
+        1. **Full table** (default): fetches every row via the backend's
+           paginated data endpoint and returns a single
+           :class:`pandas.DataFrame`. Fine for notebooks and small tables;
+           slow on large ones.
+        2. **Paginated** (``limit`` set): fetch a single server-side page
+           (``GET /datasets/{id}/data?limit=&offset=``). Combine with
+           ``with_pagination=True`` to walk pages. Agents and MCP tools should
+           use this path.
+        3. **SQL** (``sql`` set): runs a read-only PostgreSQL query against
+           the dataset's table. Use ``{{table}}`` as a placeholder for the
+           fully-qualified table name. Read-only is enforced server-side and
+           queries time out after 10 seconds. Standard PostgreSQL syntax —
+           ``SELECT``, ``JOIN``, ``GROUP BY``, window functions, …
+           ``limit``/``offset``/``with_pagination`` are not supported in this
+           mode; include ``LIMIT``/``OFFSET`` directly in the SQL.
 
         Args:
             id: Dataset UUID.
-            limit: If set, fetch a single page of this size from the server.
-                If ``None`` (default), stream every row.
-            offset: Zero-based row offset (ignored when ``limit`` is ``None``).
-            with_pagination: If True (requires ``limit`` to be set), return
-                ``{"data": DataFrame, "pagination": {"hasMore": bool, ...}}``
-                so callers can page.
+            sql: Optional SQL query. Use ``{{table}}`` for the dataset table.
+            limit: Single-page row count for the paginated mode.
+            offset: Zero-based row offset for the paginated mode.
+            with_pagination: If True (requires ``limit``), return
+                ``{"data": DataFrame, "pagination": {"hasMore": bool, ...}}``.
 
         Returns:
             A DataFrame, or — when ``with_pagination=True`` — a dict with
             ``data`` (DataFrame) and ``pagination`` keys.
+
+        Examples:
+            >>> ouro.datasets.query(id)                           # all rows
+            >>> ouro.datasets.query(id, limit=100, offset=0)      # first page
+            >>> ouro.datasets.query(id, "SELECT count(*) FROM {{table}}")
+            >>> ouro.datasets.query(
+            ...     id,
+            ...     "SELECT species, AVG(weight) AS avg "
+            ...     "FROM {{table}} GROUP BY species ORDER BY avg DESC",
+            ... )
         """
         if not id:
             raise ValueError("Dataset id is required")
+
+        if sql is not None:
+            if not sql.strip():
+                raise ValueError("sql query is required when sql is provided.")
+            if limit is not None or offset != 0 or with_pagination:
+                raise ValueError(
+                    "limit/offset/with_pagination are not compatible with "
+                    "sql; include LIMIT/OFFSET in the SQL query instead."
+                )
+            request = self.client.post(
+                f"/datasets/{id}/query-custom",
+                json={"query": sql},
+            )
+            rows = self._handle_response(request) or []
+            return pd.DataFrame(rows)
+
         if with_pagination and limit is None:
             raise ValueError("with_pagination=True requires a limit.")
         if limit is not None and limit <= 0:
@@ -290,24 +334,6 @@ class Datasets(SyncAPIResource):
                 df[column_name] = df[column_name].dt.tz_localize(None)
                 df[column_name] = df[column_name].dt.date
         return df
-
-    def load(self, table_name: str) -> pd.DataFrame:
-        """Load a Dataset's data by its table name.
-
-        This resolves the dataset by metadata.table_name and then reads rows
-        via the backend's paginated dataset data endpoint.
-        """
-        matches = self.ouro.assets.search(
-            "",
-            asset_type="dataset",
-            metadata_filters={"table_name": table_name},
-            limit=1,
-            offset=0,
-        )
-        if not matches:
-            raise ValueError(f"Dataset table not found: {table_name}")
-        dataset_id = str(matches[0]["id"])
-        return pd.DataFrame(self._fetch_all_rows(dataset_id))
 
     def update(
         self,
@@ -363,7 +389,7 @@ class Datasets(SyncAPIResource):
                 f"Ingested {len(insert_data)} rows into dataset {id} using mode={data_mode}"
             )
 
-        return Dataset(**response_data)
+        return Dataset(**self._require_dataset_payload(response_data, operation="update"))
 
     def list_views(self, id: str) -> List[dict]:
         """List saved views (visualizations) for a dataset."""
