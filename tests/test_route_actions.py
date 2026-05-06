@@ -238,7 +238,7 @@ class TestRouteActions(unittest.TestCase):
 
         with self.assertWarnsRegex(
             DeprecationWarning,
-            "Declare asset type and body path on the route",
+            "Declare asset type on the route",
         ):
             Routes(ouro).execute(
                 "00000000-0000-0000-0000-000000000010",
@@ -246,7 +246,6 @@ class TestRouteActions(unittest.TestCase):
                     "structure": {
                         "assetId": "00000000-0000-0000-0000-000000000020",
                         "assetType": "file",
-                        "bodyPath": "inputs.structure",
                     }
                 },
             )
@@ -257,7 +256,6 @@ class TestRouteActions(unittest.TestCase):
                 "structure": {
                     "assetId": "00000000-0000-0000-0000-000000000020",
                     "assetType": "file",
-                    "bodyPath": "inputs.structure",
                 }
             },
         )

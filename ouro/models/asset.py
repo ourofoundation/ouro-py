@@ -57,6 +57,7 @@ class Asset(BaseModel):
     metadata: Optional[dict] = None
     monetization: Optional[str] = None
     price: Optional[float] = None
+    price_currency: Optional[str] = None
     preview: Optional[dict] = None
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None

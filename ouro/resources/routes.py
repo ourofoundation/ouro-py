@@ -21,8 +21,6 @@ DEFAULT_POLL_TIMEOUT = 600.0  # 10 minutes
 _COMPAT_INPUT_ASSET_METADATA_KEYS = {
     "assetType",
     "asset_type",
-    "bodyPath",
-    "body_path",
 }
 
 
@@ -49,7 +47,7 @@ def _normalize_input_assets(
                 warnings.warn(
                     "Passing input_assets object metadata "
                     f"({', '.join(sorted(metadata_keys))}) is deprecated. "
-                    "Declare asset type and body path on the route instead, "
+                    "Declare asset type on the route instead, "
                     "and pass bare asset IDs from callers.",
                     DeprecationWarning,
                     stacklevel=2,

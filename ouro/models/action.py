@@ -55,6 +55,8 @@ class Action(BaseModel):
     # gap between ``ack_at`` and ``finished_at`` is the out-of-band wait
     # time the upstream took to complete after acknowledging the request.
     ack_at: Optional[datetime] = None
+    # HTTP status code returned by the upstream service at ack time.
+    upstream_status_code: Optional[int] = None
     finished_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
 
@@ -65,6 +67,16 @@ class Action(BaseModel):
     output_assets: Optional[list[Dict[str, Any]]] = None
     route: Optional[Dict[str, Any]] = None
     user: Optional[Dict[str, Any]] = None
+    # Per-call billing record for monetized pay-per-use USD routes. NULL when
+    # the route is free, paid in BTC, or the caller doesn't have visibility
+    # into the charge. Shape: {id, total_cents, unit_cost_cents, quantity,
+    # cost_unit, status, stripe_invoice_id, created_at}.
+    usage_record: Optional[Dict[str, Any]] = None
+    # BTC charges produced by this action — buyer "route_usage" (negative
+    # sats) and seller "route_revenue" (positive sats). RLS filters to rows
+    # visible to the caller, so usually 0 or 1 row. Each row has
+    # {id, type, value, status, metadata, created_at}.
+    btc_charges: Optional[list[Dict[str, Any]]] = None
 
     _ouro: Optional["Ouro"] = None
 
