@@ -68,6 +68,7 @@ class SyncAPIResource:
                 error_msg or f"HTTP {response.status_code}",
                 response=response,
                 body=body,
+                status_override=self._envelope_status(body),
             )
 
         if isinstance(body, dict) and body.get("error"):
@@ -75,6 +76,7 @@ class SyncAPIResource:
                 self._extract_error_message(body["error"]) or "Unknown error",
                 response=response,
                 body=body,
+                status_override=self._envelope_status(body),
             )
 
         if raw:
@@ -89,6 +91,29 @@ class SyncAPIResource:
         if isinstance(body, dict):
             return body.get("data")
         return body
+
+    @staticmethod
+    def _envelope_status(body: Any) -> Optional[int]:
+        """Pull a semantic HTTP status from the response body envelope.
+
+        Some Ouro endpoints historically return 200 OK with the real
+        status carried inside ``body.error.status`` (or ``statusCode``).
+        Prefer that over the HTTP status when present so typed exceptions
+        — ``NotFoundError`` / ``PermissionDeniedError`` / etc. — still
+        surface to the caller.
+        """
+        if not isinstance(body, dict):
+            return None
+        error = body.get("error")
+        if not isinstance(error, dict):
+            return None
+        for key in ("status", "statusCode"):
+            value = error.get(key)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+        return None
 
     def _extract_error_message(self, error: Any) -> str:
         """Extract a readable message from string or structured error payloads."""

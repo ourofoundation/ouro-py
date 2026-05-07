@@ -279,23 +279,35 @@ class Ouro:
         *,
         body: object,
         response: httpx.Response,
+        status_override: int | None = None,
     ) -> APIStatusError:
+        """Map a status code to a typed exception.
+
+        ``status_override`` lets callers force the dispatch when the HTTP
+        status of the response and the semantic status carried in the body
+        envelope disagree. Specifically, the Ouro backend historically
+        returned 200 OK with ``{ data: null, error: ... }`` for failures;
+        when the body's error carries an explicit ``status`` field we
+        prefer it so clients still see ``NotFoundError`` /
+        ``PermissionDeniedError`` instead of a generic ``APIStatusError``.
+        """
+        status = status_override if status_override is not None else response.status_code
         data = body
-        if response.status_code == 400:
+        if status == 400:
             return BadRequestError(err_msg, response=response, body=data)
-        if response.status_code == 401:
+        if status == 401:
             return AuthenticationError(err_msg, response=response, body=data)
-        if response.status_code == 403:
+        if status == 403:
             return PermissionDeniedError(err_msg, response=response, body=data)
-        if response.status_code == 404:
+        if status == 404:
             return NotFoundError(err_msg, response=response, body=data)
-        if response.status_code == 409:
+        if status == 409:
             return ConflictError(err_msg, response=response, body=data)
-        if response.status_code == 422:
+        if status == 422:
             return UnprocessableEntityError(err_msg, response=response, body=data)
-        if response.status_code == 429:
+        if status == 429:
             return RateLimitError(err_msg, response=response, body=data)
-        if response.status_code >= 500:
+        if status >= 500:
             return InternalServerError(err_msg, response=response, body=data)
         return APIStatusError(err_msg, response=response, body=data)
 
