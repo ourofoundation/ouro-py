@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
-from ouro.models import Quest, QuestItem
+from ouro.models import Entry, Quest, QuestItem
 
 from .content import Content
 
@@ -61,7 +61,8 @@ class Quests(SyncAPIResource):
         Args:
             status: Quest lifecycle status ("draft", "open", "closed", "cancelled").
             items: List of task descriptions (strings) or dicts with item fields
-                   (description, expected_asset_type, reward_sats, etc.)
+                   (description, expected_asset_type, reward_currency,
+                   reward_amount, etc.).
         """
         quest = _strip_none(
             {
@@ -202,3 +203,81 @@ class Quests(SyncAPIResource):
             f"/quests/{quest_id}/items/{item_id}",
         )
         self._handle_response(request, raw=True)
+
+    # ── Quest Entry methods ──
+
+    def create_entry(
+        self,
+        quest_id: str,
+        *,
+        item_id: Optional[str] = None,
+        asset_id: Optional[str] = None,
+        asset_type: Optional[str] = None,
+        description: Optional[Union[str, Content, dict]] = None,
+    ) -> Entry:
+        """Submit an entry to a quest, optionally for a specific item."""
+        entry = _strip_none(
+            {
+                "item_id": item_id,
+                "asset_id": asset_id,
+                "asset_type": asset_type,
+                "description": _coerce_description(description),
+            }
+        )
+        request = self.client.post(
+            f"/quests/{quest_id}/entries/create",
+            json={"entry": entry},
+        )
+        return Entry(**self._handle_response(request))
+
+    def list_entries(
+        self,
+        quest_id: str,
+        *,
+        status: Optional[Literal["submitted", "accepted", "rejected"]] = None,
+        limit: int = 50,
+        offset: int = 0,
+        with_pagination: bool = False,
+    ) -> Union[List[Entry], dict]:
+        """List entries for a quest, optionally including pagination metadata."""
+        request = self.client.get(
+            f"/quests/{quest_id}/entries",
+            params=_strip_none(
+                {
+                    "status": status,
+                    "limit": limit,
+                    "offset": offset,
+                }
+            ),
+        )
+        if with_pagination:
+            result = self._handle_response(request, with_pagination=True) or {}
+            return {
+                "data": [Entry(**entry) for entry in result.get("data", [])],
+                "pagination": result.get("pagination", {}),
+            }
+
+        data = self._handle_response(request)
+        if isinstance(data, list):
+            return [Entry(**entry) for entry in data]
+        return []
+
+    def review_entry(
+        self,
+        quest_id: str,
+        entry_id: str,
+        *,
+        status: Literal["accepted", "rejected"],
+        review: Optional[Union[str, Content, dict]] = None,
+    ) -> Entry:
+        """Accept or reject a quest entry."""
+        request = self.client.put(
+            f"/quests/{quest_id}/entries/{entry_id}/review",
+            json=_strip_none(
+                {
+                    "status": status,
+                    "review": _coerce_description(review),
+                }
+            ),
+        )
+        return Entry(**self._handle_response(request))

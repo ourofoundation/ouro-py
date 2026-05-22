@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from ._base import DictCompatModel
 from .asset import Asset, DescriptionDict, TeamProfile
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ __all__ = [
     "Post",
     "Quest",
     "QuestDetails",
+    "Entry",
     "QuestItem",
     "QuestProgress",
     "Conversation",
@@ -64,13 +66,7 @@ class QuestDetails(BaseModel):
     id: Optional[UUID] = None
     type: Optional[Literal["closable", "continuous"]] = None
     status: Optional[Literal["draft", "open", "closed", "cancelled"]] = None
-    reward_xp: Optional[int] = 0
-    reward_currency: Optional[str] = "btc"
-    reward_sats: Optional[int] = 0
-    reward_usd_cents: Optional[int] = 0
     max_xp_per_contributor: Optional[int] = None
-    allowed_submission_type: Optional[str] = None
-    constraints: Optional[dict] = None
 
 
 class QuestItem(BaseModel):
@@ -89,11 +85,34 @@ class QuestItem(BaseModel):
     expected_asset_type: Optional[str] = None
     reward_xp: int = 0
     reward_currency: str = "btc"
-    reward_sats: int = 0
-    reward_usd_cents: int = 0
+    reward_amount: int = 0
     child_quest_id: Optional[UUID] = None
     completed_entry_id: Optional[UUID] = None
+    eval_route_id: Optional[UUID] = None
+    eval_score_path: Optional[str] = None
+    eval_pass_min: Optional[float] = None
+    eval_pass_max: Optional[float] = None
+    eval_input_key: Optional[str] = None
     notes: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Entry(DictCompatModel):
+    id: Optional[UUID] = None
+    quest_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    item_id: Optional[UUID] = None
+    asset_id: Optional[UUID] = None
+    asset_type: Optional[str] = None
+    description: Optional[dict] = None
+    review: Optional[dict] = None
+    status: Literal["submitted", "accepted", "rejected"] = "submitted"
+    reviewer_id: Optional[UUID] = None
+    reviewed_at: Optional[str] = None
+    eval_action_id: Optional[UUID] = None
+    eval_score: Optional[float] = None
+    eval_status: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
