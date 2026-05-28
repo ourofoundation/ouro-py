@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 
 from ouro._exceptions import InternalServerError
+from ouro.models import Entry
 from ouro.resources.quests import Quests
 
 
@@ -52,6 +53,90 @@ class _FakeOuro:
 
 
 class TestQuestEntries(unittest.TestCase):
+    def test_list_assigned_items_calls_assigned_items_endpoint(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": [
+                            {
+                                "id": "00000000-0000-0000-0000-000000000001",
+                                "quest_id": "00000000-0000-0000-0000-000000000002",
+                                "description": "Do the assigned work",
+                            }
+                        ],
+                        "pagination": {"hasMore": False},
+                    }
+                )
+            ]
+        )
+
+        result = Quests(ouro).list_assigned_items(
+            status=["pending", "in_progress"],
+            org_id="org-1",
+            team_id="team-1",
+            limit=5,
+            offset=10,
+        )
+
+        self.assertEqual(result[0]["description"], "Do the assigned work")
+        self.assertEqual(
+            ouro.client.requests[0],
+            {
+                "path": "/quests/assigned-items",
+                "params": {
+                    "limit": 5,
+                    "offset": 10,
+                    "status": "pending,in_progress",
+                    "org_id": "org-1",
+                    "team_id": "team-1",
+                },
+            },
+        )
+
+    def test_entry_model_accepts_empty_assets_list(self) -> None:
+        entry = Entry(id="00000000-0000-0000-0000-000000000001", assets=[])
+        self.assertIsNone(entry.assets)
+
+    def test_entry_model_preserves_keyed_submission_assets(self) -> None:
+        entry = Entry(
+            id="00000000-0000-0000-0000-000000000001",
+            assets={
+                "file": {
+                    "asset_id": "00000000-0000-0000-0000-000000000004",
+                    "asset_type": "file",
+                }
+            },
+            embedded_assets=[{"id": "00000000-0000-0000-0000-000000000005"}],
+        )
+        self.assertEqual(entry.assets["file"]["asset_type"], "file")
+        self.assertEqual(len(entry.embedded_assets), 1)
+
+    def test_create_entry_passes_assets_through_to_api(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "id": "00000000-0000-0000-0000-000000000001",
+                            "status": "submitted",
+                        }
+                    }
+                )
+            ]
+        )
+
+        Quests(ouro).create_entry(
+            "00000000-0000-0000-0000-000000000002",
+            item_id="00000000-0000-0000-0000-000000000003",
+            assets={"file": "00000000-0000-0000-0000-000000000004"},
+        )
+
+        self.assertEqual(
+            ouro.client.requests[0]["json"]["entry"]["assets"],
+            {"file": "00000000-0000-0000-0000-000000000004"},
+        )
+
     def test_create_entry_returns_entry_model(self) -> None:
         ouro = _FakeOuro(
             [
@@ -71,17 +156,13 @@ class TestQuestEntries(unittest.TestCase):
         entry = Quests(ouro).create_entry(
             "00000000-0000-0000-0000-000000000002",
             item_id="00000000-0000-0000-0000-000000000003",
-            asset_id="00000000-0000-0000-0000-000000000004",
-            asset_type="dataset",
+            assets={"artifact": "00000000-0000-0000-0000-000000000004"},
             description={"text": "done"},
         )
 
         self.assertEqual(entry.status, "submitted")
         self.assertEqual(entry.get("custom"), "value")
         self.assertEqual(entry["custom"], "value")
-        # Backend reads `req.body.entry`, so the SDK must wrap the payload.
-        # Regression: an earlier version sent the fields at the top level
-        # and the controller silently dropped them.
         self.assertEqual(
             ouro.client.requests[0],
             {
@@ -89,8 +170,7 @@ class TestQuestEntries(unittest.TestCase):
                 "json": {
                     "entry": {
                         "item_id": "00000000-0000-0000-0000-000000000003",
-                        "asset_id": "00000000-0000-0000-0000-000000000004",
-                        "asset_type": "dataset",
+                        "assets": {"artifact": "00000000-0000-0000-0000-000000000004"},
                         "description": {"text": "done"},
                     }
                 },
@@ -107,6 +187,13 @@ class TestQuestEntries(unittest.TestCase):
                                 "id": "00000000-0000-0000-0000-000000000001",
                                 "status": "accepted",
                                 "eval_status": "passed",
+                                "assets": {
+                                    "file": {
+                                        "asset_id": "00000000-0000-0000-0000-000000000004",
+                                        "asset_type": "file",
+                                    }
+                                },
+                                "embedded_assets": [],
                             }
                         ],
                         "pagination": {"hasMore": False, "limit": 5},
@@ -124,6 +211,7 @@ class TestQuestEntries(unittest.TestCase):
         )
 
         self.assertEqual(page["data"][0].eval_status, "passed")
+        self.assertEqual(page["data"][0].assets["file"]["asset_type"], "file")
         self.assertEqual(page["pagination"]["hasMore"], False)
         self.assertEqual(
             ouro.client.requests[0],

@@ -1,12 +1,52 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .asset import Asset
 
 if TYPE_CHECKING:
     from ouro import Ouro
     from ouro.models.action import Action
+
+
+RouteAssetType = Literal["file", "dataset", "post"]
+RouteInputFilter = Literal[
+    "audio",
+    "video",
+    "image",
+    "pdf",
+    "3d model",
+    "atomic structure",
+]
+
+
+class RouteInputAssetDeclaration(BaseModel):
+    """A single keyed declaration in ``routes.input_assets``.
+
+    Plural declarations are the canonical shape; legacy ``input_type`` and
+    ``input_file_*`` fields on the route stay in sync as primary
+    projections for older clients and indexing.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    asset_type: RouteAssetType
+    primary: Optional[bool] = None
+    input_filter: Optional[RouteInputFilter] = None
+    file_extensions: Optional[List[str]] = None
+    contains_file_extensions: Optional[List[str]] = None
+
+
+class RouteOutputAssetDeclaration(BaseModel):
+    """A single keyed declaration in ``routes.output_assets``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    asset_type: RouteAssetType
+    primary: Optional[bool] = None
+    file_extensions: Optional[List[str]] = None
+    contains_file_extensions: Optional[List[str]] = None
+
 
 class RouteData(BaseModel):
     description: Optional[str] = None
@@ -16,13 +56,17 @@ class RouteData(BaseModel):
     request_body: Optional[Dict] = {}
     responses: Optional[Dict] = None
     security: Optional[str] = None
-    input_assets: Optional[Dict[str, Dict[str, Any]]] = None
-    input_type: Optional[str] = None
-    input_filter: Optional[str] = None
+    # Canonical plural input declarations keyed by request body field name.
+    input_assets: Optional[Dict[str, RouteInputAssetDeclaration]] = None
+    # Legacy primary projection — kept synchronized with ``input_assets``.
+    input_type: Optional[RouteAssetType] = None
+    input_filter: Optional[RouteInputFilter] = None
     input_file_extension: Optional[str] = None
     input_file_extensions: Optional[List[str]] = None
-    output_type: Optional[str] = None
-    output_assets: Optional[Dict[str, Dict[str, Any]]] = None
+    # Legacy primary projection — kept synchronized with ``output_assets``.
+    output_type: Optional[RouteAssetType] = None
+    # Canonical plural output declarations keyed by response body field name.
+    output_assets: Optional[Dict[str, RouteOutputAssetDeclaration]] = None
     output_file_extension: Optional[str] = None
     rate_limit: Optional[int] = None
     # Author-declared execution model: 'sync' = upstream returns the result

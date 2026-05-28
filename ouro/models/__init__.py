@@ -1,7 +1,7 @@
-from typing import TYPE_CHECKING, List, Optional, Literal
+from typing import TYPE_CHECKING, Any, List, Optional, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ._base import DictCompatModel
 from .asset import Asset, DescriptionDict, TeamProfile
@@ -92,7 +92,8 @@ class QuestItem(BaseModel):
     eval_score_path: Optional[str] = None
     eval_pass_min: Optional[float] = None
     eval_pass_max: Optional[float] = None
-    eval_input_key: Optional[str] = None
+    submission_assets: Optional[dict] = None
+    eval_static_inputs: Optional[dict] = None
     notes: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -105,6 +106,9 @@ class Entry(DictCompatModel):
     item_id: Optional[UUID] = None
     asset_id: Optional[UUID] = None
     asset_type: Optional[str] = None
+    assets: Optional[dict] = None
+    embedded_assets: Optional[List[Any]] = None
+    users: Optional[List[Any]] = None
     description: Optional[dict] = None
     review: Optional[dict] = None
     status: Literal["submitted", "accepted", "rejected"] = "submitted"
@@ -113,8 +117,18 @@ class Entry(DictCompatModel):
     eval_action_id: Optional[UUID] = None
     eval_score: Optional[float] = None
     eval_status: Optional[str] = None
+    judge_signals: Optional[dict] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    @field_validator("assets", mode="before")
+    @classmethod
+    def _coerce_submission_assets(cls, value: Any) -> Any:
+        # Read responses only: `assets` is keyed submission refs (dict).
+        # Ignore mistaken [] from older list endpoints; embeds use embedded_assets.
+        if value is None or value == {} or isinstance(value, list):
+            return None
+        return value
 
 
 class QuestProgress(BaseModel):

@@ -46,6 +46,44 @@ class Quests(SyncAPIResource):
         )
         return [Quest(**item) for item in results]
 
+    def list_assigned_items(
+        self,
+        *,
+        status: Optional[Union[str, List[str]]] = None,
+        assignee_id: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        with_pagination: bool = False,
+    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
+        """List quest items assigned to a user.
+
+        Defaults to the authenticated user and actionable statuses
+        (``pending,in_progress``). Pass ``status="all"`` to include terminal
+        items.
+        """
+        params: Dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+        }
+        if status is not None:
+            params["status"] = ",".join(status) if isinstance(status, list) else status
+        if assignee_id:
+            params["assignee_id"] = assignee_id
+        if org_id:
+            params["org_id"] = org_id
+        if team_id:
+            params["team_id"] = team_id
+
+        request = self.client.get("/quests/assigned-items", params=params)
+        data = self._handle_response(request)
+        if with_pagination:
+            return data
+        if isinstance(data, dict):
+            return data.get("data") or []
+        return data or []
+
     def create(
         self,
         name: str,
@@ -59,6 +97,10 @@ class Quests(SyncAPIResource):
         """Create a new Quest with optional items.
 
         Args:
+            type: ``"closable"`` (default) or ``"continuous"``. Closable quests
+                allow one active entry per contributor per item (status
+                ``submitted`` or ``accepted``). Continuous quests allow unlimited
+                entries per item while the quest is open.
             status: Quest lifecycle status ("draft", "open", "closed", "cancelled").
             items: List of task descriptions (strings) or dicts with item fields
                    (description, expected_asset_type, reward_currency,
@@ -172,22 +214,20 @@ class Quests(SyncAPIResource):
         self,
         quest_id: str,
         item_id: str,
-        asset_id: Optional[str] = None,
-        asset_type: Optional[str] = None,
+        *,
+        assets: Optional[dict] = None,
         description: Optional[Union[str, Content, dict]] = None,
     ) -> dict:
         """Self-complete an item. Creates an auto-accepted entry and marks item done.
 
         Args:
-            asset_id: Optional produced asset to link.
-            asset_type: Asset type (required if asset_id is set).
+            assets: Optional keyed submission inputs (e.g. ``{"file": "<uuid>"}``).
             description: Markdown, Content, or raw content dict describing what
                          was done, tried, and learned.
         """
         body = _strip_none(
             {
-                "asset_id": asset_id,
-                "asset_type": asset_type,
+                "assets": assets,
                 "description": _coerce_description(description),
             }
         )
@@ -210,17 +250,32 @@ class Quests(SyncAPIResource):
         self,
         quest_id: str,
         *,
-        item_id: Optional[str] = None,
-        asset_id: Optional[str] = None,
-        asset_type: Optional[str] = None,
+        item_id: str,
+        assets: Optional[dict] = None,
         description: Optional[Union[str, Content, dict]] = None,
     ) -> Entry:
-        """Submit an entry to a quest, optionally for a specific item."""
+        """Submit an entry to a quest item.
+
+        Pass ``item_id`` and, when attaching assets, ``assets`` keyed by submission
+        input name (e.g. ``{"file": "<uuid>"}``). The API resolves ``asset_type``.
+        Provide ``description`` with the contributor-facing explanation reviewers
+        should use alongside deterministic judge signals. Private assets stay
+        private until the author accepts the entry.
+
+        **Submission limits** depend on the quest ``type`` (see ``create``):
+
+        - **closable** — at most one active entry per ``(item_id, caller)`` while
+          status is ``submitted`` or ``accepted``. Submit again only after rejection.
+        - **continuous** — no per-user cap; each call creates a new entry.
+
+        Raises an API error if a closable quest already has an active entry for
+        the same item, or if any submitted asset is already on another active
+        entry for this quest.
+        """
         entry = _strip_none(
             {
                 "item_id": item_id,
-                "asset_id": asset_id,
-                "asset_type": asset_type,
+                "assets": assets,
                 "description": _coerce_description(description),
             }
         )
