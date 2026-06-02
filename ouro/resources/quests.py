@@ -220,6 +220,9 @@ class Quests(SyncAPIResource):
     ) -> dict:
         """Self-complete an item. Creates an auto-accepted entry and marks item done.
 
+        The quest must be ``open``; draft, closed, and cancelled quests do not
+        accept entry-producing actions.
+
         Args:
             assets: Optional keyed submission inputs (e.g. ``{"file": "<uuid>"}``).
             description: Markdown, Content, or raw content dict describing what
@@ -255,6 +258,9 @@ class Quests(SyncAPIResource):
         description: Optional[Union[str, Content, dict]] = None,
     ) -> Entry:
         """Submit an entry to a quest item.
+
+        The quest must be ``open``. Draft quests are configuration-only and
+        reject submissions until the owner publishes them.
 
         Pass ``item_id`` and, when attaching assets, ``assets`` keyed by submission
         input name (e.g. ``{"file": "<uuid>"}``). The API resolves ``asset_type``.

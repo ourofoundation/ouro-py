@@ -59,6 +59,10 @@ class _FakeClient:
             )
         return _FakeResponse({"data": {"inserted": len(json.get("rows", []))}, "error": None})
 
+    def put(self, path: str, json=None):
+        self.requests.append({"method": "PUT", "path": path, "json": json})
+        return _FakeResponse({"data": self.create_data, "error": None})
+
     def get(self, path: str, params=None):
         self.requests.append({"method": "GET", "path": path, "params": params})
         if path.endswith("/stats"):
@@ -173,6 +177,139 @@ class TestDatasetsCreate(unittest.TestCase):
                 name="sample",
                 visibility="private",
                 data=[{"sample": "alpha", "value": 1}],
+            )
+
+
+class TestDatasetAssetRefs(unittest.TestCase):
+    def test_create_sends_asset_refs_without_client_side_fk_ddl(self) -> None:
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
+        )
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="refs",
+            visibility="private",
+            data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564", "score": 1}],
+            asset_refs={"file_id": "file"},
+        )
+
+        body = ouro.client.requests[0]["json"]["dataset"]
+        self.assertNotIn("REFERENCES public.assets", body["schema"])
+        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
+        self.assertEqual(
+            body["metadata"]["asset_refs"], {"file_id": {"asset_type": "file"}}
+        )
+
+    def test_create_treats_asset_refs_keys_as_promoted_columns(self) -> None:
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
+        )
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="refs",
+            visibility="private",
+            data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564"}],
+            asset_refs={"file_id": {"asset_type": "file"}},
+        )
+
+        body = ouro.client.requests[0]["json"]["dataset"]
+        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
+
+    def test_create_raises_for_unknown_asset_ref_column(self) -> None:
+        datasets = Datasets(_FakeOuro(stats_count=0))
+        with self.assertRaisesRegex(ValueError, "not present in data"):
+            datasets.create(
+                name="refs",
+                visibility="private",
+                data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564"}],
+                asset_refs={"missing_col": {"asset_type": "file"}},
+            )
+
+    def test_update_passes_asset_refs(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        datasets.update(
+            "019df875-7957-7888-888f-f8140ff62564",
+            asset_refs={"file_id": "file"},
+        )
+
+        put_request = next(
+            r for r in ouro.client.requests if r["method"] == "PUT"
+        )
+        body = put_request["json"]["dataset"]
+        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
+        self.assertEqual(
+            body["metadata"]["asset_refs"], {"file_id": {"asset_type": "file"}}
+        )
+
+
+class _ResolveFakeClient(_FakeClient):
+    def get(self, path: str, params=None):
+        self.requests.append({"method": "GET", "path": path, "params": params})
+        if path.endswith("/stats"):
+            return _FakeResponse({"data": {"count": self.stats_count}, "error": None})
+        if path.endswith("/data"):
+            body = {
+                "data": [{"file_id": "019df875-7957-7888-888f-f8140ff62564"}],
+                "pagination": {"hasMore": False},
+                "error": None,
+            }
+            if params and params.get("resolve_asset_refs"):
+                body["resolved_asset_refs"] = {
+                    "file_id": {
+                        "019df875-7957-7888-888f-f8140ff62564": {
+                            "asset_id": "019df875-7957-7888-888f-f8140ff62564",
+                            "asset_type": "file",
+                            "name": "sample.cif",
+                            "web_url": "https://ouro.foundation/files/a/sample-cif",
+                        }
+                    }
+                }
+            return _FakeResponse(body)
+        return _FakeResponse({"data": [], "error": None})
+
+
+class _ResolveFakeOuro(_FakeOuro):
+    def __init__(self) -> None:
+        super().__init__(stats_count=1)
+        self.client = _ResolveFakeClient(stats_count=1)
+
+
+class TestDatasetQueryResolveAssetRefs(unittest.TestCase):
+    def test_query_resolve_asset_refs_passes_param_and_returns_sidecar(self) -> None:
+        ouro = _ResolveFakeOuro()
+        datasets = Datasets(ouro)
+
+        result = datasets.query(
+            "019df875-7957-7888-888f-f8140ff62564",
+            limit=100,
+            resolve_asset_refs=True,
+        )
+
+        data_request = next(
+            r for r in ouro.client.requests if r["path"].endswith("/data")
+        )
+        self.assertEqual(data_request["params"]["resolve_asset_refs"], "true")
+        self.assertIn("resolved_asset_refs", result)
+        self.assertEqual(
+            result["resolved_asset_refs"]["file_id"][
+                "019df875-7957-7888-888f-f8140ff62564"
+            ]["name"],
+            "sample.cif",
+        )
+
+    def test_query_resolve_asset_refs_rejected_with_sql(self) -> None:
+        datasets = Datasets(_SqlFakeOuro([]))
+        with self.assertRaisesRegex(ValueError, "only supported for the paginated"):
+            datasets.query(
+                "019df875-7957-7888-888f-f8140ff62564",
+                "SELECT * FROM {{table}}",
+                resolve_asset_refs=True,
             )
 
 

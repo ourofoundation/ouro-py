@@ -103,6 +103,33 @@ class Datasets(SyncAPIResource):
             f"Dataset {operation} response did not include a dataset payload."
         )
 
+    @staticmethod
+    def _normalize_asset_refs(
+        asset_refs: Optional[Mapping[str, Any]],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Coerce a column->asset-ref declaration into the wire shape.
+
+        Accepts either ``{"file_id": "file"}`` (shorthand) or
+        ``{"file_id": {"asset_type": "file"}}``.
+        """
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for column, hint in (asset_refs or {}).items():
+            if hint is None:
+                normalized[column] = {}
+            elif isinstance(hint, str):
+                normalized[column] = {"asset_type": hint}
+            elif isinstance(hint, Mapping):
+                entry: Dict[str, Any] = {}
+                if hint.get("asset_type") is not None:
+                    entry["asset_type"] = hint["asset_type"]
+                normalized[column] = entry
+            else:
+                raise ValueError(
+                    "asset_refs values must be a string asset type or a "
+                    "mapping like {'asset_type': 'file'}."
+                )
+        return normalized
+
     def create(
         self,
         name: str,
@@ -111,9 +138,17 @@ class Datasets(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
+        asset_refs: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ) -> Dataset:
-        """Create a new Dataset from tabular rows."""
+        """Create a new Dataset from tabular rows.
+
+        Args:
+            asset_refs: Columns that hold Ouro asset ids, keyed by column name.
+                Each backend-promoted column gets a real Postgres foreign key
+                to public.assets(id) with ON DELETE SET NULL. Values may be
+                ``{"asset_type": "file"}`` or the shorthand ``"file"``.
+        """
         df = self._coerce_dataframe(data, parameter_name="data")
         if df is None:
             raise ValueError("data is required for dataset creation.")
@@ -123,6 +158,14 @@ class Datasets(SyncAPIResource):
         index_name = df.index.name
         if index_name:
             df.reset_index(inplace=True)
+
+        normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        ref_columns = list(normalized_asset_refs)
+        missing = [c for c in ref_columns if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"asset_refs columns not present in data: {', '.join(missing)}"
+            )
 
         # The backend rewrites the table name to one derived from the dataset's
         # UUID and uses the request's `name` field as the display-name
@@ -145,10 +188,12 @@ class Datasets(SyncAPIResource):
 
         preview = self._serialize_dataframe(df.head(12))
         insert_data = self._serialize_dataframe(df)
-        metadata = {
+        metadata: Dict[str, Any] = {
             "schema": "datasets",
             "columns": df.columns.tolist(),
         }
+        if normalized_asset_refs:
+            metadata["asset_refs"] = normalized_asset_refs
 
         body = _strip_none({
             "name": name,
@@ -162,6 +207,7 @@ class Datasets(SyncAPIResource):
             "asset_type": "dataset",
             "preview": preview,
             "rows": insert_data,
+            "asset_refs": normalized_asset_refs or None,
             "metadata": metadata,
         })
 
@@ -229,6 +275,7 @@ class Datasets(SyncAPIResource):
         limit: Optional[int] = None,
         offset: int = 0,
         with_pagination: bool = False,
+        resolve_asset_refs: bool = False,
     ) -> Union[pd.DataFrame, Dict[str, Any]]:
         """Query a dataset's data by its id.
 
@@ -283,6 +330,11 @@ class Datasets(SyncAPIResource):
                     "limit/offset/with_pagination are not compatible with "
                     "sql; include LIMIT/OFFSET in the SQL query instead."
                 )
+            if resolve_asset_refs:
+                raise ValueError(
+                    "resolve_asset_refs is only supported for the paginated "
+                    "(non-sql) query path."
+                )
             request = self.client.post(
                 f"/datasets/{id}/query-custom",
                 json={"query": sql},
@@ -297,22 +349,33 @@ class Datasets(SyncAPIResource):
         if offset < 0:
             raise ValueError("offset must be non-negative.")
 
+        resolved_asset_refs: Optional[Dict[str, Any]] = None
         if limit is None:
             rows = self._fetch_all_rows(id)
             pagination: Dict[str, Any] = {"hasMore": False, "offset": 0, "limit": len(rows)}
         else:
+            params: Dict[str, Any] = {"limit": limit, "offset": offset}
+            if resolve_asset_refs:
+                params["resolve_asset_refs"] = "true"
             request = self.client.get(
                 f"/datasets/{id}/data",
-                params={"limit": limit, "offset": offset},
+                params=params,
             )
             payload = self._handle_response(request, raw=True) or {}
             rows = payload.get("data") or []
             pagination = payload.get("pagination") or {"hasMore": False}
+            resolved_asset_refs = payload.get("resolved_asset_refs")
 
         df = self._coerce_schema_dtypes(pd.DataFrame(rows), id)
 
-        if with_pagination:
-            return {"data": df, "pagination": pagination}
+        # resolve_asset_refs returns a sidecar map (column -> uuid -> resolved
+        # asset), so force a dict return when requested to carry it alongside
+        # the raw rows.
+        if with_pagination or resolve_asset_refs:
+            result: Dict[str, Any] = {"data": df, "pagination": pagination}
+            if resolve_asset_refs:
+                result["resolved_asset_refs"] = resolved_asset_refs or {}
+            return result
         return df
 
     def _coerce_schema_dtypes(self, df: pd.DataFrame, id: str) -> pd.DataFrame:
@@ -346,6 +409,7 @@ class Datasets(SyncAPIResource):
         data_mode: DatasetUploadMode = "append",
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        asset_refs: Optional[Mapping[str, Any]] = None,
         **kwargs,
     ) -> Dataset:
         """Update a dataset by its id.
@@ -354,9 +418,20 @@ class Datasets(SyncAPIResource):
         - "append": add new rows
         - "overwrite": replace existing rows
         - "upsert": merge by id conflict target
+
+        Args:
+            asset_refs: Promote existing columns to asset references by adding
+                a real FK to public.assets(id) (ON DELETE SET NULL). Every
+                value in each column must already be a valid asset id or NULL.
+                Values may be ``{"asset_type": "file"}`` or ``"file"``.
         """
         if data_mode not in {"append", "overwrite", "upsert"}:
             raise ValueError("data_mode must be one of: append, overwrite, upsert.")
+
+        normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        metadata = kwargs.pop("metadata", None)
+        if normalized_asset_refs:
+            metadata = {**(metadata or {}), "asset_refs": normalized_asset_refs}
 
         body = _strip_none({
             "name": name,
@@ -365,6 +440,8 @@ class Datasets(SyncAPIResource):
             "price": price,
             "description": _coerce_description(description),
             "preview": preview,
+            "asset_refs": normalized_asset_refs or None,
+            "metadata": metadata,
             **kwargs,
         })
 

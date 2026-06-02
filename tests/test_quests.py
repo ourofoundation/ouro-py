@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 
-from ouro._exceptions import InternalServerError
+from ouro._exceptions import ConflictError, InternalServerError
 from ouro.models import Entry
 from ouro.resources.quests import Quests
 
@@ -49,6 +49,9 @@ class _FakeOuro:
         )
 
     def _make_status_error(self, err_msg: str, *, body, response, status_override=None):
+        status = status_override if status_override is not None else response.status_code
+        if status == 409:
+            return ConflictError(err_msg, response=response, body=body)
         return InternalServerError(err_msg, response=response, body=body)
 
 
@@ -176,6 +179,34 @@ class TestQuestEntries(unittest.TestCase):
                 },
             },
         )
+
+    def test_create_entry_surfaces_draft_quest_conflict(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": None,
+                        "error": {
+                            "message": (
+                                "Quest is still a draft and is not accepting entries"
+                            ),
+                            "status": 409,
+                            "code": "quest_draft_not_accepting_entries",
+                        },
+                    },
+                    status_code=409,
+                )
+            ]
+        )
+
+        with self.assertRaises(ConflictError) as ctx:
+            Quests(ouro).create_entry(
+                "00000000-0000-0000-0000-000000000002",
+                item_id="00000000-0000-0000-0000-000000000003",
+                description={"text": "done"},
+            )
+
+        self.assertIn("draft", str(ctx.exception))
 
     def test_list_entries_returns_pagination_envelope(self) -> None:
         ouro = _FakeOuro(

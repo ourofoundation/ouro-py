@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, List, Optional, Literal
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -169,9 +169,16 @@ class Conversation(Asset):
         return self._messages
 
 
+class DatasetAssetRef(BaseModel):
+    # Per-column declaration for dataset asset-reference columns. The backend
+    # adds the FK to public.assets(id); asset_type refines display/validation.
+    asset_type: Optional[str] = None
+
+
 class DatasetMetadata(BaseModel):
     table_name: str
     columns: List[str]
+    asset_refs: Optional[Dict[str, DatasetAssetRef]] = None
 
 
 class Dataset(Asset):
