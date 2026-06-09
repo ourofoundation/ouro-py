@@ -248,6 +248,59 @@ class TestDatasetAssetRefs(unittest.TestCase):
         )
 
 
+class TestDatasetEnumColumns(unittest.TestCase):
+    def test_create_sends_enum_columns_without_client_side_check_ddl(self) -> None:
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={"row_ingest": {"inserted": 2, "skipped": 0}},
+        )
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="statuses",
+            visibility="private",
+            data=[{"status": "todo"}, {"status": "done"}],
+            enum_columns={"status": ["todo", "done"]},
+        )
+
+        body = ouro.client.requests[0]["json"]["dataset"]
+        self.assertNotIn("CHECK", body["schema"])
+        self.assertEqual(body["enum_columns"], {"status": {"values": ["todo", "done"]}})
+        self.assertEqual(
+            body["metadata"]["enum_columns"],
+            {"status": {"values": ["todo", "done"]}},
+        )
+
+    def test_create_raises_for_unknown_enum_column(self) -> None:
+        datasets = Datasets(_FakeOuro(stats_count=0))
+        with self.assertRaisesRegex(ValueError, "not present in data"):
+            datasets.create(
+                name="statuses",
+                visibility="private",
+                data=[{"status": "todo"}],
+                enum_columns={"missing": ["todo", "done"]},
+            )
+
+    def test_update_passes_enum_columns(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        datasets.update(
+            "019df875-7957-7888-888f-f8140ff62564",
+            enum_columns={"status": {"values": ["todo", "done"]}},
+        )
+
+        put_request = next(
+            r for r in ouro.client.requests if r["method"] == "PUT"
+        )
+        body = put_request["json"]["dataset"]
+        self.assertEqual(body["enum_columns"], {"status": {"values": ["todo", "done"]}})
+        self.assertEqual(
+            body["metadata"]["enum_columns"],
+            {"status": {"values": ["todo", "done"]}},
+        )
+
+
 class _ResolveFakeClient(_FakeClient):
     def get(self, path: str, params=None):
         self.requests.append({"method": "GET", "path": path, "params": params})

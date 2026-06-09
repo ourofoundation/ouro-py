@@ -21,6 +21,7 @@ __all__ = ["Datasets"]
 BATCH_INSERT_WARNING_THRESHOLD = 10_000
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 DatasetUploadMode = Literal["append", "overwrite", "upsert"]
+DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
 
 # Placeholder identifier for the CREATE TABLE we generate client-side. The
 # backend rewrites the table name to one derived from the dataset's UUID, and
@@ -130,6 +131,47 @@ class Datasets(SyncAPIResource):
                 )
         return normalized
 
+    @staticmethod
+    def _normalize_enum_columns(
+        enum_columns: Optional[DatasetEnumInput],
+    ) -> Dict[str, Dict[str, list[str]]]:
+        """Coerce a column->enum declaration into the wire shape.
+
+        Accepts either ``{"status": ["todo", "done"]}`` (shorthand) or
+        ``{"status": {"values": ["todo", "done"]}}``.
+        """
+        normalized: Dict[str, Dict[str, list[str]]] = {}
+        for column, declaration in (enum_columns or {}).items():
+            if isinstance(declaration, Mapping):
+                raw_values = declaration.get("values")
+            else:
+                raw_values = declaration
+
+            if not isinstance(raw_values, Sequence) or isinstance(
+                raw_values, (str, bytes, bytearray)
+            ):
+                raise ValueError(
+                    "enum_columns values must be a list of strings or a "
+                    "mapping like {'values': ['todo', 'done']}."
+                )
+
+            values: list[str] = []
+            seen: set[str] = set()
+            for raw in raw_values:
+                if not isinstance(raw, str):
+                    raise ValueError("enum_columns values must contain only strings.")
+                value = raw.strip()
+                if not value:
+                    raise ValueError("enum_columns values must not contain empty strings.")
+                if value not in seen:
+                    seen.add(value)
+                    values.append(value)
+
+            if not values:
+                raise ValueError("enum_columns values must not be empty.")
+            normalized[str(column)] = {"values": values}
+        return normalized
+
     def create(
         self,
         name: str,
@@ -139,6 +181,7 @@ class Datasets(SyncAPIResource):
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
         asset_refs: Optional[Mapping[str, Any]] = None,
+        enum_columns: Optional[DatasetEnumInput] = None,
         **kwargs,
     ) -> Dataset:
         """Create a new Dataset from tabular rows.
@@ -148,6 +191,10 @@ class Datasets(SyncAPIResource):
                 Each backend-promoted column gets a real Postgres foreign key
                 to public.assets(id) with ON DELETE SET NULL. Values may be
                 ``{"asset_type": "file"}`` or the shorthand ``"file"``.
+            enum_columns: Columns with a closed set of string values. Values
+                may be ``{"values": ["todo", "done"]}`` or the shorthand
+                ``["todo", "done"]``. The backend stores a CHECK constraint
+                and surfaces the values in dataset schema reads.
         """
         df = self._coerce_dataframe(data, parameter_name="data")
         if df is None:
@@ -160,11 +207,13 @@ class Datasets(SyncAPIResource):
             df.reset_index(inplace=True)
 
         normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        normalized_enum_columns = self._normalize_enum_columns(enum_columns)
         ref_columns = list(normalized_asset_refs)
-        missing = [c for c in ref_columns if c not in df.columns]
+        enum_columns_list = list(normalized_enum_columns)
+        missing = [c for c in ref_columns + enum_columns_list if c not in df.columns]
         if missing:
             raise ValueError(
-                f"asset_refs columns not present in data: {', '.join(missing)}"
+                f"declared dataset columns not present in data: {', '.join(missing)}"
             )
 
         # The backend rewrites the table name to one derived from the dataset's
@@ -194,6 +243,8 @@ class Datasets(SyncAPIResource):
         }
         if normalized_asset_refs:
             metadata["asset_refs"] = normalized_asset_refs
+        if normalized_enum_columns:
+            metadata["enum_columns"] = normalized_enum_columns
 
         body = _strip_none({
             "name": name,
@@ -208,6 +259,7 @@ class Datasets(SyncAPIResource):
             "preview": preview,
             "rows": insert_data,
             "asset_refs": normalized_asset_refs or None,
+            "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
         })
 
@@ -410,6 +462,7 @@ class Datasets(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         asset_refs: Optional[Mapping[str, Any]] = None,
+        enum_columns: Optional[DatasetEnumInput] = None,
         **kwargs,
     ) -> Dataset:
         """Update a dataset by its id.
@@ -424,14 +477,19 @@ class Datasets(SyncAPIResource):
                 a real FK to public.assets(id) (ON DELETE SET NULL). Every
                 value in each column must already be a valid asset id or NULL.
                 Values may be ``{"asset_type": "file"}`` or ``"file"``.
+            enum_columns: Promote existing columns to enum columns by adding
+                a CHECK constraint and schema metadata.
         """
         if data_mode not in {"append", "overwrite", "upsert"}:
             raise ValueError("data_mode must be one of: append, overwrite, upsert.")
 
         normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        normalized_enum_columns = self._normalize_enum_columns(enum_columns)
         metadata = kwargs.pop("metadata", None)
         if normalized_asset_refs:
             metadata = {**(metadata or {}), "asset_refs": normalized_asset_refs}
+        if normalized_enum_columns:
+            metadata = {**(metadata or {}), "enum_columns": normalized_enum_columns}
 
         body = _strip_none({
             "name": name,
@@ -441,6 +499,7 @@ class Datasets(SyncAPIResource):
             "description": _coerce_description(description),
             "preview": preview,
             "asset_refs": normalized_asset_refs or None,
+            "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
             **kwargs,
         })
