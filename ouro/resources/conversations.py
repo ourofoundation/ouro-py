@@ -19,15 +19,25 @@ class Messages(SyncAPIResource):
         json = kwargs.get("json")
         text = kwargs.get("text")
         user_id = kwargs.get("user_id")
-        message = _strip_none({
-            "json": json,
-            "text": text,
-            "user_id": user_id,
-            **kwargs,
-        })
+        message = _strip_none(
+            {
+                "json": json,
+                "text": text,
+                "user_id": user_id,
+                **kwargs,
+            }
+        )
 
         request = self.client.post(
             f"/conversations/{conversation_id}/messages/create",
+            json={"message": message},
+        )
+        return self._handle_response(request)
+
+    def update(self, conversation_id: str, message_id: str, **kwargs) -> dict:
+        message = _strip_none(kwargs)
+        request = self.client.patch(
+            f"/conversations/{conversation_id}/messages/{message_id}",
             json={"message": message},
         )
         return self._handle_response(request)
@@ -111,14 +121,16 @@ class Conversations(SyncAPIResource):
         **kwargs,
     ) -> Conversation:
         """Create a conversation with the specified member user IDs."""
-        conversation = _strip_none({
-            "name": name,
-            "summary": summary,
-            "org_id": org_id,
-            "team_id": team_id,
-            "metadata": {"members": member_user_ids},
-            **kwargs,
-        })
+        conversation = _strip_none(
+            {
+                "name": name,
+                "summary": summary,
+                "org_id": org_id,
+                "team_id": team_id,
+                "metadata": {"members": member_user_ids},
+                **kwargs,
+            }
+        )
 
         request = self.client.post(
             "/conversations/create",

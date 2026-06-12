@@ -10,14 +10,20 @@ if TYPE_CHECKING:
 
 
 def _coerce_description(
-    description: Optional[Union[str, "Content"]],
-) -> Optional[Union[str, dict]]:
-    """Convert a Content instance to its dict form; pass strings/None through."""
+    description: Optional[Union[str, dict, "Content"]],
+) -> Optional[dict]:
+    """Normalize a description to the API's rich {json, text} shape.
+
+    Accepts a Content instance, a plain string (converted to a simple
+    paragraph doc), or an already-shaped dict.
+    """
     from ouro.resources.content import Content
 
-    if isinstance(description, Content):
-        return description.to_dict()
-    return description
+    if description is None or isinstance(description, dict):
+        return description
+    if isinstance(description, str):
+        description = Content(text=description)
+    return description.to_dict()
 
 
 def _strip_none(d: dict) -> dict:

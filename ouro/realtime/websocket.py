@@ -165,6 +165,8 @@ class OuroWebSocket:
         message_id: str,
         user_id: Optional[str] = None,
         event_type: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
     ):
         self.join_conversation(conversation_id)
         data: dict = {
@@ -174,6 +176,10 @@ class OuroWebSocket:
         }
         if event_type:
             data["type"] = event_type
+        if turn_id is not None:
+            data["turn_id"] = turn_id
+        if seq is not None:
+            data["seq"] = seq
         return self.emit(
             "llm-response",
             {
@@ -190,6 +196,8 @@ class OuroWebSocket:
         content: str,
         message_id: str,
         user_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
     ):
         return self.emit_llm_response(
             conversation_id=conversation_id,
@@ -197,6 +205,72 @@ class OuroWebSocket:
             message_id=message_id,
             user_id=user_id,
             event_type="reasoning",
+            turn_id=turn_id,
+            seq=seq,
+        )
+
+    def emit_subagent_start(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        subagent_name: str,
+        user_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
+    ):
+        self.join_conversation(conversation_id)
+        data: dict = {
+            "content": subagent_name,
+            "id": message_id,
+            "user_id": user_id or str(self.ouro.user.id),
+            "type": "subagent-start",
+            "subagentName": subagent_name,
+        }
+        if turn_id is not None:
+            data["turn_id"] = turn_id
+        if seq is not None:
+            data["seq"] = seq
+        return self.emit(
+            "llm-response",
+            {
+                "user_id": user_id or str(self.ouro.user.id),
+                "conversation_id": conversation_id,
+                "data": data,
+            },
+        )
+
+    def emit_subagent_step(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        subagent_name: str,
+        detail: str,
+        user_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
+    ):
+        self.join_conversation(conversation_id)
+        data: dict = {
+            "content": detail,
+            "id": message_id,
+            "user_id": user_id or str(self.ouro.user.id),
+            "type": "subagent-step",
+            "subagentName": subagent_name,
+            "detail": detail,
+        }
+        if turn_id is not None:
+            data["turn_id"] = turn_id
+        if seq is not None:
+            data["seq"] = seq
+        return self.emit(
+            "llm-response",
+            {
+                "user_id": user_id or str(self.ouro.user.id),
+                "conversation_id": conversation_id,
+                "data": data,
+            },
         )
 
     def emit_tool_start(
@@ -208,6 +282,8 @@ class OuroWebSocket:
         tool_call_id: str,
         input_data: Optional[dict] = None,
         user_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
     ):
         self.join_conversation(conversation_id)
         data: dict = {
@@ -218,6 +294,10 @@ class OuroWebSocket:
             "toolName": tool_name,
             "toolCallId": tool_call_id,
         }
+        if turn_id is not None:
+            data["turn_id"] = turn_id
+        if seq is not None:
+            data["seq"] = seq
         if input_data is not None:
             data["input"] = input_data
         return self.emit(
@@ -237,6 +317,8 @@ class OuroWebSocket:
         tool_call_id: str,
         output_data: Optional[dict] = None,
         user_id: Optional[str] = None,
+        turn_id: Optional[str] = None,
+        seq: Optional[int] = None,
     ):
         self.join_conversation(conversation_id)
         data: dict = {
@@ -246,6 +328,10 @@ class OuroWebSocket:
             "type": "tool-result",
             "toolCallId": tool_call_id,
         }
+        if turn_id is not None:
+            data["turn_id"] = turn_id
+        if seq is not None:
+            data["seq"] = seq
         if output_data is not None:
             data["output"] = output_data
         return self.emit(

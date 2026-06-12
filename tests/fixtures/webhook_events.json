@@ -8,5 +8,6 @@
   "action",
   "asset.deleted",
   "new-conversation",
-  "new-message"
+  "new-message",
+  "interrupt"
 ]

@@ -90,9 +90,13 @@ class Teams(SyncAPIResource):
         data = self._handle_response(request) or []
         return [Team.model_validate(t) for t in data]
 
-    def retrieve(self, id: str) -> Team:
-        """Retrieve a team by ID, including members and metrics."""
-        request = self.client.get(f"/teams/{id}")
+    def retrieve(self, id: str, *, include_members: bool = False) -> Team:
+        """Retrieve a team by ID with organization policy fields and metrics.
+
+        Set ``include_members=True`` to also fetch the member roster.
+        """
+        params = {"include_members": "true"} if include_members else None
+        request = self.client.get(f"/teams/{id}", params=params)
         return Team.model_validate(self._handle_response(request) or {})
 
     def join(self, id: str) -> dict:

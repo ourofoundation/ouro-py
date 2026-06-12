@@ -28,6 +28,7 @@ WEBHOOK_EVENT_TYPES: Tuple[str, ...] = (
     "asset.deleted",
     "new-conversation",
     "new-message",
+    "interrupt",
 )
 
 WebhookEventName = Literal[
@@ -41,6 +42,7 @@ WebhookEventName = Literal[
     "asset.deleted",
     "new-conversation",
     "new-message",
+    "interrupt",
 ]
 
 
