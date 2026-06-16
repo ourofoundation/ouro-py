@@ -179,9 +179,58 @@ class TestDatasetsCreate(unittest.TestCase):
                 data=[{"sample": "alpha", "value": 1}],
             )
 
+    def test_create_surfaces_partial_ingest_warning(self) -> None:
+        warning = {
+            "message": "1 rows were skipped because a reference value was missing.",
+            "refs": {
+                "missing_count": 1,
+                "type_mismatch_count": 0,
+                "malformed_count": 0,
+                "skipped_row_count": 1,
+                "columns": [
+                    {
+                        "column": "run_id",
+                        "kind": "action",
+                        "missing": ["00000000-0000-0000-0000-000000000099"],
+                    }
+                ],
+            },
+        }
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={
+                "row_ingest": {"inserted": 1, "skipped": 1},
+                "warning": warning,
+            },
+        )
+        datasets = Datasets(ouro)
 
-class TestDatasetAssetRefs(unittest.TestCase):
-    def test_create_sends_asset_refs_without_client_side_fk_ddl(self) -> None:
+        created = datasets.create(
+            name="sample",
+            visibility="private",
+            data=[{"run_id": "00000000-0000-0000-0000-000000000099"}],
+        )
+
+        self.assertEqual(
+            getattr(created, "row_ingest"), {"inserted": 1, "skipped": 1}
+        )
+        self.assertEqual(getattr(created, "ingest_warning"), warning)
+
+    def test_update_surfaces_row_ingest_from_data_upload(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        updated = datasets.update(
+            "019df875-7957-7888-888f-f8140ff62564",
+            data=[{"sample": "alpha", "value": 1}, {"sample": "beta", "value": 2}],
+        )
+
+        # The fake /data endpoint echoes inserted=len(rows) under `data`.
+        self.assertEqual(getattr(updated, "row_ingest"), {"inserted": 2})
+
+
+class TestDatasetRefs(unittest.TestCase):
+    def test_create_sends_refs_without_client_side_fk_ddl(self) -> None:
         ouro = _FakeOuro(
             stats_count=0,
             create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
@@ -192,17 +241,20 @@ class TestDatasetAssetRefs(unittest.TestCase):
             name="refs",
             visibility="private",
             data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564", "score": 1}],
-            asset_refs={"file_id": "file"},
+            refs={"file_id": "file"},
         )
 
         body = ouro.client.requests[0]["json"]["dataset"]
         self.assertNotIn("REFERENCES public.assets", body["schema"])
-        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
         self.assertEqual(
-            body["metadata"]["asset_refs"], {"file_id": {"asset_type": "file"}}
+            body["refs"], {"file_id": {"kind": "asset", "asset_type": "file"}}
+        )
+        self.assertEqual(
+            body["metadata"]["refs"],
+            {"file_id": {"kind": "asset", "asset_type": "file"}},
         )
 
-    def test_create_treats_asset_refs_keys_as_promoted_columns(self) -> None:
+    def test_create_normalizes_action_and_asset_ref_shorthands(self) -> None:
         ouro = _FakeOuro(
             stats_count=0,
             create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
@@ -212,40 +264,56 @@ class TestDatasetAssetRefs(unittest.TestCase):
         datasets.create(
             name="refs",
             visibility="private",
-            data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564"}],
-            asset_refs={"file_id": {"asset_type": "file"}},
+            data=[
+                {
+                    "file_id": "019df875-7957-7888-888f-f8140ff62564",
+                    "run_id": "019df875-7957-7888-888f-f8140ff62565",
+                }
+            ],
+            refs={
+                "file_id": {"kind": "asset", "asset_type": "file"},
+                "run_id": "action",
+            },
         )
 
         body = ouro.client.requests[0]["json"]["dataset"]
-        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
+        self.assertEqual(
+            body["refs"],
+            {
+                "file_id": {"kind": "asset", "asset_type": "file"},
+                "run_id": {"kind": "action"},
+            },
+        )
 
-    def test_create_raises_for_unknown_asset_ref_column(self) -> None:
+    def test_create_raises_for_unknown_ref_column(self) -> None:
         datasets = Datasets(_FakeOuro(stats_count=0))
         with self.assertRaisesRegex(ValueError, "not present in data"):
             datasets.create(
                 name="refs",
                 visibility="private",
                 data=[{"file_id": "019df875-7957-7888-888f-f8140ff62564"}],
-                asset_refs={"missing_col": {"asset_type": "file"}},
+                refs={"missing_col": {"kind": "asset", "asset_type": "file"}},
             )
 
-    def test_update_passes_asset_refs(self) -> None:
+    def test_update_passes_refs(self) -> None:
         ouro = _FakeOuro(stats_count=0)
         datasets = Datasets(ouro)
 
         datasets.update(
             "019df875-7957-7888-888f-f8140ff62564",
-            asset_refs={"file_id": "file"},
+            refs={"file_id": "file", "run_id": {"kind": "action"}},
         )
 
         put_request = next(
             r for r in ouro.client.requests if r["method"] == "PUT"
         )
         body = put_request["json"]["dataset"]
-        self.assertEqual(body["asset_refs"], {"file_id": {"asset_type": "file"}})
-        self.assertEqual(
-            body["metadata"]["asset_refs"], {"file_id": {"asset_type": "file"}}
-        )
+        expected = {
+            "file_id": {"kind": "asset", "asset_type": "file"},
+            "run_id": {"kind": "action"},
+        }
+        self.assertEqual(body["refs"], expected)
+        self.assertEqual(body["metadata"]["refs"], expected)
 
 
 class TestDatasetEnumColumns(unittest.TestCase):
@@ -312,11 +380,12 @@ class _ResolveFakeClient(_FakeClient):
                 "pagination": {"hasMore": False},
                 "error": None,
             }
-            if params and params.get("resolve_asset_refs"):
-                body["resolved_asset_refs"] = {
+            if params and params.get("resolve_refs"):
+                body["resolved_refs"] = {
                     "file_id": {
                         "019df875-7957-7888-888f-f8140ff62564": {
-                            "asset_id": "019df875-7957-7888-888f-f8140ff62564",
+                            "kind": "asset",
+                            "id": "019df875-7957-7888-888f-f8140ff62564",
                             "asset_type": "file",
                             "name": "sample.cif",
                             "web_url": "https://ouro.foundation/files/a/sample-cif",
@@ -333,36 +402,36 @@ class _ResolveFakeOuro(_FakeOuro):
         self.client = _ResolveFakeClient(stats_count=1)
 
 
-class TestDatasetQueryResolveAssetRefs(unittest.TestCase):
-    def test_query_resolve_asset_refs_passes_param_and_returns_sidecar(self) -> None:
+class TestDatasetQueryResolveRefs(unittest.TestCase):
+    def test_query_resolve_refs_passes_param_and_returns_sidecar(self) -> None:
         ouro = _ResolveFakeOuro()
         datasets = Datasets(ouro)
 
         result = datasets.query(
             "019df875-7957-7888-888f-f8140ff62564",
             limit=100,
-            resolve_asset_refs=True,
+            resolve_refs=True,
         )
 
         data_request = next(
             r for r in ouro.client.requests if r["path"].endswith("/data")
         )
-        self.assertEqual(data_request["params"]["resolve_asset_refs"], "true")
-        self.assertIn("resolved_asset_refs", result)
+        self.assertEqual(data_request["params"]["resolve_refs"], "true")
+        self.assertIn("resolved_refs", result)
         self.assertEqual(
-            result["resolved_asset_refs"]["file_id"][
+            result["resolved_refs"]["file_id"][
                 "019df875-7957-7888-888f-f8140ff62564"
             ]["name"],
             "sample.cif",
         )
 
-    def test_query_resolve_asset_refs_rejected_with_sql(self) -> None:
+    def test_query_resolve_refs_rejected_with_sql(self) -> None:
         datasets = Datasets(_SqlFakeOuro([]))
         with self.assertRaisesRegex(ValueError, "only supported for the paginated"):
             datasets.query(
                 "019df875-7957-7888-888f-f8140ff62564",
                 "SELECT * FROM {{table}}",
-                resolve_asset_refs=True,
+                resolve_refs=True,
             )
 
 

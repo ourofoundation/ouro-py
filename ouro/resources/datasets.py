@@ -30,6 +30,35 @@ DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
 _PLACEHOLDER_TABLE = "dataset"
 
 
+def _attach_ingest(dataset: Dataset, body: Any) -> Dataset:
+    """Stash row-ingest stats and any partial-success warning from a write
+    response onto the returned model.
+
+    Reference columns are FK-enforced, so an ingest can land some rows and skip
+    others (bad/missing ref ids). The backend reports this as ``row_ingest``
+    ({inserted, skipped}) plus a structured ``warning`` listing the offending
+    ids. The Dataset model rejects unknown fields, so expose them out-of-band
+    (the same approach Action uses for ``_ouro``).
+    """
+    if not isinstance(body, Mapping):
+        return dataset
+    row_ingest = body.get("row_ingest")
+    if row_ingest is None:
+        # The /data endpoint reports stats under `data`; create-from-schema
+        # reports them under `row_ingest`.
+        data = body.get("data")
+        if isinstance(data, Mapping) and "inserted" in data:
+            row_ingest = {
+                k: data[k] for k in ("inserted", "skipped", "mode") if k in data
+            }
+    if row_ingest is not None:
+        object.__setattr__(dataset, "row_ingest", row_ingest)
+    warning = body.get("warning")
+    if warning is not None:
+        object.__setattr__(dataset, "ingest_warning", warning)
+    return dataset
+
+
 class Datasets(SyncAPIResource):
     def list(
         self,
@@ -105,29 +134,42 @@ class Datasets(SyncAPIResource):
         )
 
     @staticmethod
-    def _normalize_asset_refs(
-        asset_refs: Optional[Mapping[str, Any]],
+    def _normalize_refs(
+        refs: Optional[Mapping[str, Any]],
     ) -> Dict[str, Dict[str, Any]]:
-        """Coerce a column->asset-ref declaration into the wire shape.
+        """Coerce a column->reference declaration into the wire shape.
 
-        Accepts either ``{"file_id": "file"}`` (shorthand) or
-        ``{"file_id": {"asset_type": "file"}}``.
+        Each value selects a reference kind and (for assets) an optional target
+        type. Accepted forms, keyed by column name:
+
+        - ``"action"`` / ``"asset"`` — kind only.
+        - ``"file"`` (any other string) — shorthand for an asset reference with
+          that target type, i.e. ``{"kind": "asset", "asset_type": "file"}``.
+        - ``{"kind": "action"}`` or ``{"kind": "asset", "asset_type": "file"}``.
+        - ``{"asset_type": "file"}`` / ``None`` — kind defaults to ``"asset"``.
         """
         normalized: Dict[str, Dict[str, Any]] = {}
-        for column, hint in (asset_refs or {}).items():
+        for column, hint in (refs or {}).items():
             if hint is None:
-                normalized[column] = {}
+                normalized[str(column)] = {"kind": "asset"}
             elif isinstance(hint, str):
-                normalized[column] = {"asset_type": hint}
+                if hint in ("asset", "action"):
+                    normalized[str(column)] = {"kind": hint}
+                else:
+                    normalized[str(column)] = {"kind": "asset", "asset_type": hint}
             elif isinstance(hint, Mapping):
-                entry: Dict[str, Any] = {}
-                if hint.get("asset_type") is not None:
+                kind = hint.get("kind", "asset")
+                if kind not in ("asset", "action"):
+                    raise ValueError("refs kind must be 'asset' or 'action'.")
+                entry: Dict[str, Any] = {"kind": kind}
+                if kind == "asset" and hint.get("asset_type") is not None:
                     entry["asset_type"] = hint["asset_type"]
-                normalized[column] = entry
+                normalized[str(column)] = entry
             else:
                 raise ValueError(
-                    "asset_refs values must be a string asset type or a "
-                    "mapping like {'asset_type': 'file'}."
+                    "refs values must be a kind string ('asset'/'action'), an "
+                    "asset target type string, or a mapping like "
+                    "{'kind': 'asset', 'asset_type': 'file'}."
                 )
         return normalized
 
@@ -180,17 +222,21 @@ class Datasets(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
-        asset_refs: Optional[Mapping[str, Any]] = None,
+        refs: Optional[Mapping[str, Any]] = None,
         enum_columns: Optional[DatasetEnumInput] = None,
         **kwargs,
     ) -> Dataset:
         """Create a new Dataset from tabular rows.
 
         Args:
-            asset_refs: Columns that hold Ouro asset ids, keyed by column name.
-                Each backend-promoted column gets a real Postgres foreign key
-                to public.assets(id) with ON DELETE SET NULL. Values may be
-                ``{"asset_type": "file"}`` or the shorthand ``"file"``.
+            refs: Columns that hold Ouro object ids, keyed by column name. Each
+                backend-promoted column gets a real Postgres foreign key (ON
+                DELETE SET NULL) to the table for its kind: ``"asset"`` ->
+                public.assets(id), ``"action"`` -> public.actions(id). Values
+                may be a kind string (``"asset"``/``"action"``), an asset target
+                type (``"file"`` -> asset ref of that type), or a mapping like
+                ``{"kind": "asset", "asset_type": "file"}`` /
+                ``{"kind": "action"}``.
             enum_columns: Columns with a closed set of string values. Values
                 may be ``{"values": ["todo", "done"]}`` or the shorthand
                 ``["todo", "done"]``. The backend stores a CHECK constraint
@@ -206,9 +252,9 @@ class Datasets(SyncAPIResource):
         if index_name:
             df.reset_index(inplace=True)
 
-        normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        normalized_refs = self._normalize_refs(refs)
         normalized_enum_columns = self._normalize_enum_columns(enum_columns)
-        ref_columns = list(normalized_asset_refs)
+        ref_columns = list(normalized_refs)
         enum_columns_list = list(normalized_enum_columns)
         missing = [c for c in ref_columns + enum_columns_list if c not in df.columns]
         if missing:
@@ -241,8 +287,8 @@ class Datasets(SyncAPIResource):
             "schema": "datasets",
             "columns": df.columns.tolist(),
         }
-        if normalized_asset_refs:
-            metadata["asset_refs"] = normalized_asset_refs
+        if normalized_refs:
+            metadata["refs"] = normalized_refs
         if normalized_enum_columns:
             metadata["enum_columns"] = normalized_enum_columns
 
@@ -258,7 +304,7 @@ class Datasets(SyncAPIResource):
             "asset_type": "dataset",
             "preview": preview,
             "rows": insert_data,
-            "asset_refs": normalized_asset_refs or None,
+            "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
         })
@@ -276,6 +322,7 @@ class Datasets(SyncAPIResource):
         )
 
         created = Dataset(**self._require_dataset_payload(response_data, operation="create"))
+        _attach_ingest(created, response_body)
         if len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
                 f"Inserting {len(insert_data)} rows at once into {created.id}. "
@@ -294,7 +341,7 @@ class Datasets(SyncAPIResource):
                 f"/datasets/{created.id}/data",
                 json={"rows": insert_data, "mode": "append"},
             )
-            self._handle_response(upload_req, raw=True)
+            _attach_ingest(created, self._handle_response(upload_req, raw=True) or {})
 
         log.info(f"Inserted {len(insert_data)} rows into dataset {created.id}")
         return created
@@ -327,7 +374,7 @@ class Datasets(SyncAPIResource):
         limit: Optional[int] = None,
         offset: int = 0,
         with_pagination: bool = False,
-        resolve_asset_refs: bool = False,
+        resolve_refs: bool = False,
     ) -> Union[pd.DataFrame, Dict[str, Any]]:
         """Query a dataset's data by its id.
 
@@ -382,9 +429,9 @@ class Datasets(SyncAPIResource):
                     "limit/offset/with_pagination are not compatible with "
                     "sql; include LIMIT/OFFSET in the SQL query instead."
                 )
-            if resolve_asset_refs:
+            if resolve_refs:
                 raise ValueError(
-                    "resolve_asset_refs is only supported for the paginated "
+                    "resolve_refs is only supported for the paginated "
                     "(non-sql) query path."
                 )
             request = self.client.post(
@@ -401,14 +448,14 @@ class Datasets(SyncAPIResource):
         if offset < 0:
             raise ValueError("offset must be non-negative.")
 
-        resolved_asset_refs: Optional[Dict[str, Any]] = None
+        resolved_refs: Optional[Dict[str, Any]] = None
         if limit is None:
             rows = self._fetch_all_rows(id)
             pagination: Dict[str, Any] = {"hasMore": False, "offset": 0, "limit": len(rows)}
         else:
             params: Dict[str, Any] = {"limit": limit, "offset": offset}
-            if resolve_asset_refs:
-                params["resolve_asset_refs"] = "true"
+            if resolve_refs:
+                params["resolve_refs"] = "true"
             request = self.client.get(
                 f"/datasets/{id}/data",
                 params=params,
@@ -416,17 +463,17 @@ class Datasets(SyncAPIResource):
             payload = self._handle_response(request, raw=True) or {}
             rows = payload.get("data") or []
             pagination = payload.get("pagination") or {"hasMore": False}
-            resolved_asset_refs = payload.get("resolved_asset_refs")
+            resolved_refs = payload.get("resolved_refs")
 
         df = self._coerce_schema_dtypes(pd.DataFrame(rows), id)
 
-        # resolve_asset_refs returns a sidecar map (column -> uuid -> resolved
-        # asset), so force a dict return when requested to carry it alongside
-        # the raw rows.
-        if with_pagination or resolve_asset_refs:
+        # resolve_refs returns a sidecar map (column -> uuid -> resolved
+        # reference), so force a dict return when requested to carry it
+        # alongside the raw rows.
+        if with_pagination or resolve_refs:
             result: Dict[str, Any] = {"data": df, "pagination": pagination}
-            if resolve_asset_refs:
-                result["resolved_asset_refs"] = resolved_asset_refs or {}
+            if resolve_refs:
+                result["resolved_refs"] = resolved_refs or {}
             return result
         return df
 
@@ -461,7 +508,7 @@ class Datasets(SyncAPIResource):
         data_mode: DatasetUploadMode = "append",
         monetization: Optional[str] = None,
         price: Optional[float] = None,
-        asset_refs: Optional[Mapping[str, Any]] = None,
+        refs: Optional[Mapping[str, Any]] = None,
         enum_columns: Optional[DatasetEnumInput] = None,
         **kwargs,
     ) -> Dataset:
@@ -473,21 +520,24 @@ class Datasets(SyncAPIResource):
         - "upsert": merge by id conflict target
 
         Args:
-            asset_refs: Promote existing columns to asset references by adding
-                a real FK to public.assets(id) (ON DELETE SET NULL). Every
-                value in each column must already be a valid asset id or NULL.
-                Values may be ``{"asset_type": "file"}`` or ``"file"``.
+            refs: Promote existing columns to references by adding a real FK (ON
+                DELETE SET NULL) to public.assets(id) ("asset" kind) or
+                public.actions(id) ("action" kind). Every value in each column
+                must already be a valid id of that kind or NULL. Values may be a
+                kind string, an asset target type, or a mapping like
+                ``{"kind": "asset", "asset_type": "file"}`` /
+                ``{"kind": "action"}``.
             enum_columns: Promote existing columns to enum columns by adding
                 a CHECK constraint and schema metadata.
         """
         if data_mode not in {"append", "overwrite", "upsert"}:
             raise ValueError("data_mode must be one of: append, overwrite, upsert.")
 
-        normalized_asset_refs = self._normalize_asset_refs(asset_refs)
+        normalized_refs = self._normalize_refs(refs)
         normalized_enum_columns = self._normalize_enum_columns(enum_columns)
         metadata = kwargs.pop("metadata", None)
-        if normalized_asset_refs:
-            metadata = {**(metadata or {}), "asset_refs": normalized_asset_refs}
+        if normalized_refs:
+            metadata = {**(metadata or {}), "refs": normalized_refs}
         if normalized_enum_columns:
             metadata = {**(metadata or {}), "enum_columns": normalized_enum_columns}
 
@@ -498,7 +548,7 @@ class Datasets(SyncAPIResource):
             "price": price,
             "description": _coerce_description(description),
             "preview": preview,
-            "asset_refs": normalized_asset_refs or None,
+            "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
             **kwargs,
@@ -514,18 +564,22 @@ class Datasets(SyncAPIResource):
         if df is not None and (df.empty or len(df.columns) == 0):
             raise ValueError("data must contain at least one row and one column.")
 
+        upload_body: Any = None
         if df is not None:
             insert_data = self._serialize_dataframe(df)
             upload_req = self.client.post(
                 f"/datasets/{id}/data",
                 json={"rows": insert_data, "mode": data_mode},
             )
-            self._handle_response(upload_req, raw=True)
+            upload_body = self._handle_response(upload_req, raw=True) or {}
             log.info(
                 f"Ingested {len(insert_data)} rows into dataset {id} using mode={data_mode}"
             )
 
-        return Dataset(**self._require_dataset_payload(response_data, operation="update"))
+        updated = Dataset(
+            **self._require_dataset_payload(response_data, operation="update")
+        )
+        return _attach_ingest(updated, upload_body)
 
     def list_views(self, id: str) -> List[dict]:
         """List saved views (visualizations) for a dataset."""

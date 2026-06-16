@@ -169,16 +169,18 @@ class Conversation(Asset):
         return self._messages
 
 
-class DatasetAssetRef(BaseModel):
-    # Per-column declaration for dataset asset-reference columns. The backend
-    # adds the FK to public.assets(id); asset_type refines display/validation.
+class DatasetRef(BaseModel):
+    # Per-column declaration for dataset reference columns. The backend adds the
+    # FK to the table named by `kind` (public.assets or public.actions);
+    # asset_type refines display/validation for the "asset" kind only.
+    kind: Literal["asset", "action"] = "asset"
     asset_type: Optional[str] = None
 
 
 class DatasetMetadata(BaseModel):
     table_name: str
     columns: List[str]
-    asset_refs: Optional[Dict[str, DatasetAssetRef]] = None
+    refs: Optional[Dict[str, DatasetRef]] = None
 
 
 class Dataset(Asset):
