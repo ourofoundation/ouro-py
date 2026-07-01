@@ -474,5 +474,100 @@ class TestDatasetsQuerySql(unittest.TestCase):
             datasets.query("019df875-7957-7888-888f-f8140ff62564", "   ")
 
 
+class _ColumnFakeClient:
+    """Records column DDL requests and returns the backend's envelope shape."""
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def post(self, path: str, json=None):
+        self.requests.append({"method": "POST", "path": path, "json": json})
+        return _FakeResponse({"data": {"name": json.get("name")}, "error": None})
+
+    def patch(self, path: str, json=None):
+        self.requests.append({"method": "PATCH", "path": path, "json": json})
+        name = json.get("newName") or path.rsplit("/", 1)[-1]
+        return _FakeResponse({"data": {"name": name}, "error": None})
+
+    def delete(self, path: str):
+        self.requests.append({"method": "DELETE", "path": path})
+        return _FakeResponse({"data": {"dropped": path.rsplit("/", 1)[-1]}, "error": None})
+
+
+class _ColumnFakeOuro:
+    def __init__(self) -> None:
+        self.client = _ColumnFakeClient()
+        self.websocket = None
+
+    def _make_status_error(self, message: str, *, response, body):
+        return RuntimeError(message)
+
+
+DATASET_ID = "019df875-7957-7888-888f-f8140ff62564"
+
+
+class TestDatasetColumnOps(unittest.TestCase):
+    def test_add_column_defaults_to_text(self) -> None:
+        ouro = _ColumnFakeOuro()
+        Datasets(ouro).add_column(DATASET_ID, "  priority  ")
+
+        request = ouro.client.requests[0]
+        self.assertEqual(request["method"], "POST")
+        self.assertEqual(request["path"], f"/datasets/{DATASET_ID}/columns")
+        self.assertEqual(
+            request["json"],
+            {"name": "priority", "type": "text", "nullable": True},
+        )
+
+    def test_add_column_with_enum_values_sets_enum_type(self) -> None:
+        ouro = _ColumnFakeOuro()
+        Datasets(ouro).add_column(
+            DATASET_ID, "status", enum_values=["todo", "todo", " done "]
+        )
+
+        body = ouro.client.requests[0]["json"]
+        self.assertEqual(body["type"], "enum")
+        self.assertEqual(body["enumValues"], ["todo", "done"])
+
+    def test_update_column_renames_and_sets_enum(self) -> None:
+        ouro = _ColumnFakeOuro()
+        Datasets(ouro).update_column(
+            DATASET_ID,
+            "status",
+            new_name="state",
+            enum_values=["open", "closed"],
+        )
+
+        request = ouro.client.requests[0]
+        self.assertEqual(request["method"], "PATCH")
+        self.assertEqual(request["path"], f"/datasets/{DATASET_ID}/columns/status")
+        self.assertEqual(
+            request["json"],
+            {"newName": "state", "enumValues": ["open", "closed"]},
+        )
+
+    def test_update_column_requires_a_change(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Provide new_name"):
+            Datasets(_ColumnFakeOuro()).update_column(DATASET_ID, "status")
+
+    def test_update_column_url_encodes_name(self) -> None:
+        ouro = _ColumnFakeOuro()
+        Datasets(ouro).update_column(DATASET_ID, "first name", type="text")
+
+        self.assertEqual(
+            ouro.client.requests[0]["path"],
+            f"/datasets/{DATASET_ID}/columns/first%20name",
+        )
+
+    def test_drop_column(self) -> None:
+        ouro = _ColumnFakeOuro()
+        result = Datasets(ouro).drop_column(DATASET_ID, "scratch")
+
+        request = ouro.client.requests[0]
+        self.assertEqual(request["method"], "DELETE")
+        self.assertEqual(request["path"], f"/datasets/{DATASET_ID}/columns/scratch")
+        self.assertEqual(result, {"dropped": "scratch"})
+
+
 if __name__ == "__main__":
     unittest.main()

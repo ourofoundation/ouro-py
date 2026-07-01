@@ -101,7 +101,6 @@ view = ouro.datasets.create_view(
     "3d82308b-0747-45e4-8045-c8f7d2f6c0a6",
     name="Age Distribution",
     sql_query="select age, count(*) as total from {{table}} group by age order by age",
-    engine_type="recharts_json",
     config={
         "type": "bar",
         "xAxis": {"dataKey": "age", "type": "category"},

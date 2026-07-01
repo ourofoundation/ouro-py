@@ -5,6 +5,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from typing import Any, Dict, List, Literal, Optional, Union
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -174,7 +175,38 @@ class Datasets(SyncAPIResource):
         return normalized
 
     @staticmethod
+    def _normalize_enum_value_list(
+        values: Optional[Sequence[str]],
+        *,
+        parameter_name: str = "enum_values",
+    ) -> Optional[list[str]]:
+        """Strip, de-duplicate, and validate a flat list of enum values."""
+        if values is None:
+            return None
+        if not isinstance(values, Sequence) or isinstance(
+            values, (str, bytes, bytearray)
+        ):
+            raise ValueError(f"{parameter_name} must be a list of strings.")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            if not isinstance(raw, str):
+                raise ValueError(f"{parameter_name} must contain only strings.")
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"{parameter_name} must not contain empty strings.")
+            if value not in seen:
+                seen.add(value)
+                normalized.append(value)
+
+        if not normalized:
+            raise ValueError(f"{parameter_name} must not be empty.")
+        return normalized
+
+    @classmethod
     def _normalize_enum_columns(
+        cls,
         enum_columns: Optional[DatasetEnumInput],
     ) -> Dict[str, Dict[str, list[str]]]:
         """Coerce a column->enum declaration into the wire shape.
@@ -184,33 +216,20 @@ class Datasets(SyncAPIResource):
         """
         normalized: Dict[str, Dict[str, list[str]]] = {}
         for column, declaration in (enum_columns or {}).items():
-            if isinstance(declaration, Mapping):
-                raw_values = declaration.get("values")
-            else:
-                raw_values = declaration
-
-            if not isinstance(raw_values, Sequence) or isinstance(
-                raw_values, (str, bytes, bytearray)
-            ):
+            raw_values = (
+                declaration.get("values")
+                if isinstance(declaration, Mapping)
+                else declaration
+            )
+            try:
+                values = cls._normalize_enum_value_list(raw_values)
+            except ValueError:
+                values = None
+            if values is None:
                 raise ValueError(
                     "enum_columns values must be a list of strings or a "
                     "mapping like {'values': ['todo', 'done']}."
                 )
-
-            values: list[str] = []
-            seen: set[str] = set()
-            for raw in raw_values:
-                if not isinstance(raw, str):
-                    raise ValueError("enum_columns values must contain only strings.")
-                value = raw.strip()
-                if not value:
-                    raise ValueError("enum_columns values must not contain empty strings.")
-                if value not in seen:
-                    seen.add(value)
-                    values.append(value)
-
-            if not values:
-                raise ValueError("enum_columns values must not be empty.")
             normalized[str(column)] = {"values": values}
         return normalized
 
@@ -581,6 +600,88 @@ class Datasets(SyncAPIResource):
         )
         return _attach_ingest(updated, upload_body)
 
+    def add_column(
+        self,
+        id: str,
+        name: str,
+        *,
+        type: str = "text",
+        nullable: bool = True,
+        label: Optional[str] = None,
+        enum_values: Optional[Sequence[str]] = None,
+    ) -> dict:
+        """Add a column to an existing dataset's table.
+
+        Args:
+            type: SQL-ish column type ("text", "numeric", "boolean",
+                "timestamptz", …). Pass ``enum_values`` (or ``type="enum"``)
+                for a categorical column.
+            enum_values: Allowed values for a categorical column. Supplying
+                them sets ``type`` to ``"enum"`` and adds a CHECK constraint;
+                the column reads back as ``semantic_type: "enum"``.
+        """
+        column_name = (name or "").strip()
+        if not column_name:
+            raise ValueError("name is required.")
+        normalized_values = self._normalize_enum_value_list(enum_values)
+        if normalized_values is not None:
+            type = "enum"
+        body = _strip_none(
+            {
+                "name": column_name,
+                "type": type,
+                "nullable": nullable,
+                "label": label,
+                "enumValues": normalized_values,
+            }
+        )
+        request = self.client.post(f"/datasets/{id}/columns", json=body)
+        return self._handle_response(request)
+
+    def update_column(
+        self,
+        id: str,
+        column: str,
+        *,
+        new_name: Optional[str] = None,
+        type: Optional[str] = None,
+        label: Optional[str] = None,
+        enum_values: Optional[Sequence[str]] = None,
+    ) -> dict:
+        """Rename a column, change its type, and/or set its enum values.
+
+        Provide at least one of ``new_name``, ``type``, ``label``, or
+        ``enum_values``. Setting ``enum_values`` (or ``type="enum"``) makes the
+        column categorical; existing values must be null or in the list.
+        """
+        normalized_values = self._normalize_enum_value_list(enum_values)
+        renamed = new_name.strip() if isinstance(new_name, str) else None
+        body = _strip_none(
+            {
+                "newName": renamed,
+                "type": type,
+                "label": label,
+                "enumValues": normalized_values,
+            }
+        )
+        if not body:
+            raise ValueError(
+                "Provide new_name, type, label, and/or enum_values to update "
+                "the column."
+            )
+        request = self.client.patch(
+            f"/datasets/{id}/columns/{quote(str(column), safe='')}",
+            json=body,
+        )
+        return self._handle_response(request)
+
+    def drop_column(self, id: str, column: str) -> dict:
+        """Drop a column from an existing dataset's table."""
+        request = self.client.delete(
+            f"/datasets/{id}/columns/{quote(str(column), safe='')}"
+        )
+        return self._handle_response(request)
+
     def list_views(self, id: str) -> List[dict]:
         """List saved views (visualizations) for a dataset."""
         request = self.client.get(f"/datasets/{id}/visualizations")
@@ -592,17 +693,19 @@ class Datasets(SyncAPIResource):
         name: str,
         description: Optional[str] = None,
         sql_query: Optional[str] = None,
-        engine_type: str = "auto",
         config: Optional[dict] = None,
         prompt: Optional[str] = None,
     ) -> dict:
-        """Create a saved view (visualization) for a dataset."""
+        """Create a saved view (visualization) for a dataset.
+
+        A view is a ``(sql_query, config)`` pair: it runs the SQL and renders the
+        chart config. Provide both, or pass ``prompt`` to have them generated.
+        """
         body = _strip_none(
             {
                 "name": name,
                 "description": description,
                 "sql_query": sql_query,
-                "engine_type": engine_type,
                 "config": config,
                 "prompt": prompt,
             }
@@ -617,7 +720,6 @@ class Datasets(SyncAPIResource):
         name: Optional[str] = None,
         description: Optional[str] = None,
         sql_query: Optional[str] = None,
-        engine_type: Optional[str] = None,
         config: Optional[dict] = None,
         prompt: Optional[str] = None,
     ) -> dict:
@@ -627,7 +729,6 @@ class Datasets(SyncAPIResource):
                 "name": name,
                 "description": description,
                 "sql_query": sql_query,
-                "engine_type": engine_type,
                 "config": config,
                 "prompt": prompt,
             }
