@@ -95,6 +95,9 @@ class QuestItem(BaseModel):
     submission_assets: Optional[dict] = None
     eval_static_inputs: Optional[dict] = None
     notes: Optional[str] = None
+    waiting_on: Optional[str] = None
+    waiting_until: Optional[str] = None
+    waiting_check_every: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
