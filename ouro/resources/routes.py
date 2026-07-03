@@ -7,9 +7,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from ouro._constants import DEFAULT_TIMEOUT
 from ouro._exceptions import APIStatusError, ExternalServiceError, RouteExecutionError
-from ouro._resource import SyncAPIResource, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import Action, ActionLog, Route
 from ouro.utils import is_valid_uuid
+
+from .content import Content
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -228,21 +230,123 @@ class Routes(SyncAPIResource):
         request = self.client.get(f"/routes/{route_id}")
         return Route(**self._handle_response(request), _ouro=self.ouro)
 
-    def update(self, id: str, **kwargs) -> Route:
-        """Update a route."""
-        route = self.retrieve(id)
-        service_id = route.parent_id
-        request = self.client.put(
-            f"/services/{service_id}/routes/{route.id}",
-            json=kwargs,
+    def create(
+        self,
+        service_id: str,
+        method: str,
+        path: str,
+        name: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
+        visibility: Optional[str] = None,
+        parameters: Optional[List[Dict[str, Any]]] = None,
+        request_body: Optional[Dict[str, Any]] = None,
+        input_assets: Optional[Dict[str, Any]] = None,
+        output_assets: Optional[Dict[str, Any]] = None,
+        execution_mode: Optional[str] = None,
+        monetization: Optional[str] = None,
+        price: Optional[float] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        **kwargs,
+    ) -> Route:
+        """Create a new route on a service.
+
+        ``method`` + ``path`` must be unique within the service. ``org_id``,
+        ``team_id``, and ``visibility`` default to the parent service's values
+        when omitted. ``input_assets`` / ``output_assets`` are keyed asset
+        declarations, e.g. ``{"structure": {"asset_type": "file"}}``.
+        ``execution_mode`` is ``"sync"`` (default) or ``"async"``.
+        """
+        if org_id is None or team_id is None or visibility is None:
+            service = self.ouro.services.retrieve(service_id)
+            if org_id is None and service.org_id:
+                org_id = str(service.org_id)
+            if team_id is None and service.team_id:
+                team_id = str(service.team_id)
+            if visibility is None:
+                visibility = service.visibility
+
+        route = _strip_none(
+            {
+                "method": method,
+                "path": path,
+                "name": name,
+                "description": _coerce_description(description),
+                "visibility": visibility,
+                "parameters": parameters,
+                "request_body": request_body,
+                "input_assets": input_assets,
+                "output_assets": output_assets,
+                "execution_mode": execution_mode,
+                "monetization": monetization,
+                "price": price,
+                "org_id": org_id,
+                "team_id": team_id,
+                **kwargs,
+                "source": "api",
+                "asset_type": "route",
+            }
+        )
+
+        request = self.client.post(
+            f"/services/{service_id}/routes/create",
+            json={"route": route},
         )
         return Route(**self._handle_response(request), _ouro=self.ouro)
 
-    def create(self, service_id: str, **kwargs) -> Route:
-        """Create a new route for a service."""
-        request = self.client.post(
-            f"/services/{service_id}/routes/create",
-            json=kwargs,
+    def update(
+        self,
+        id: str,
+        method: Optional[str] = None,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[Union[str, "Content"]] = None,
+        visibility: Optional[str] = None,
+        parameters: Optional[List[Dict[str, Any]]] = None,
+        request_body: Optional[Dict[str, Any]] = None,
+        input_assets: Optional[Dict[str, Any]] = None,
+        output_assets: Optional[Dict[str, Any]] = None,
+        execution_mode: Optional[str] = None,
+        monetization: Optional[str] = None,
+        price: Optional[float] = None,
+        **kwargs,
+    ) -> Route:
+        """Update a route by its ID or ``"entity_name/route_name"`` identifier.
+
+        Only the fields you pass are changed. The backend re-derives the
+        route's display name from ``name`` (or ``method``/``path``), so the
+        current name is preserved when ``name`` is omitted.
+        """
+        existing = self.retrieve(id)
+        service_id = existing.parent_id
+
+        route = _strip_none(
+            {
+                "id": str(existing.id),
+                "method": method,
+                "path": path,
+                "name": name,
+                "description": _coerce_description(description),
+                "visibility": visibility,
+                "parameters": parameters,
+                "request_body": request_body,
+                "input_assets": input_assets,
+                "output_assets": output_assets,
+                "execution_mode": execution_mode,
+                "monetization": monetization,
+                "price": price,
+                **kwargs,
+            }
+        )
+        # The backend recomputes the display name (and URL slug) on every
+        # update, defaulting to "{method} {path}" when name is absent; carry the
+        # existing name forward so metadata-only updates don't rename the route.
+        if "name" not in route:
+            route["name"] = existing.name
+
+        request = self.client.put(
+            f"/services/{service_id}/routes/{existing.id}",
+            json={"route": route},
         )
         return Route(**self._handle_response(request), _ouro=self.ouro)
 

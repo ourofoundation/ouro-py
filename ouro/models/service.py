@@ -14,8 +14,11 @@ if TYPE_CHECKING:
 
 class ServiceMetadata(BaseModel):
     base_url: str
-    spec_path: str
     authentication: str
+    version: Optional[str] = None
+    spec_path: Optional[str] = None
+    spec_url: Optional[str] = None
+    auth_url: Optional[str] = None
 
 
 class Service(Asset):
