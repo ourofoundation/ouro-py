@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx
 
 from ouro._exceptions import ConflictError, InternalServerError
-from ouro.models import Entry
+from ouro.models import Entry, Quest, QuestItem
 from ouro.resources.quests import Quests
 
 
@@ -53,6 +53,68 @@ class _FakeOuro:
         if status == 409:
             return ConflictError(err_msg, response=response, body=body)
         return InternalServerError(err_msg, response=response, body=body)
+
+
+class TestQuestItems(unittest.TestCase):
+    def test_quest_item_preserves_waiting_metadata(self) -> None:
+        item = QuestItem(
+            id="00000000-0000-0000-0000-000000000001",
+            quest_id="00000000-0000-0000-0000-000000000002",
+            description="Wait for reply",
+            status="in_progress",
+            waiting_on="reply from authors",
+            waiting_until="2026-07-10T00:00:00Z",
+            waiting_check_every="1d",
+        )
+        self.assertEqual(item.waiting_on, "reply from authors")
+        self.assertEqual(item.waiting_until, "2026-07-10T00:00:00Z")
+        self.assertEqual(item.waiting_check_every, "1d")
+        dumped = item.model_dump(mode="json")
+        self.assertEqual(dumped["waiting_on"], "reply from authors")
+        self.assertEqual(dumped["waiting_until"], "2026-07-10T00:00:00Z")
+        self.assertEqual(dumped["waiting_check_every"], "1d")
+
+    def test_retrieve_preserves_waiting_metadata_on_nested_items(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "id": "00000000-0000-0000-0000-000000000010",
+                            "name": "Owned quest",
+                            "user_id": "00000000-0000-0000-0000-000000000003",
+                            "org_id": "00000000-0000-0000-0000-000000000011",
+                            "team_id": "00000000-0000-0000-0000-000000000012",
+                            "visibility": "private",
+                            "asset_type": "quest",
+                            "created_at": "2026-07-01T00:00:00Z",
+                            "last_updated": "2026-07-01T00:00:00Z",
+                            "items": [
+                                {
+                                    "id": "00000000-0000-0000-0000-000000000001",
+                                    "quest_id": "00000000-0000-0000-0000-000000000010",
+                                    "description": "Wait for reply",
+                                    "status": "in_progress",
+                                    "waiting_on": "reply from authors",
+                                    "waiting_until": "2026-07-10T00:00:00Z",
+                                    "waiting_check_every": "1d",
+                                }
+                            ],
+                        }
+                    }
+                )
+            ]
+        )
+
+        quest = Quests(ouro).retrieve("00000000-0000-0000-0000-000000000010")
+
+        self.assertIsInstance(quest, Quest)
+        self.assertEqual(len(quest.items or []), 1)
+        item = quest.items[0]
+        self.assertIsInstance(item, QuestItem)
+        self.assertEqual(item.waiting_on, "reply from authors")
+        self.assertEqual(item.waiting_until, "2026-07-10T00:00:00Z")
+        self.assertEqual(item.waiting_check_every, "1d")
 
 
 class TestQuestEntries(unittest.TestCase):
