@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 from urllib.parse import unquote
+from uuid import UUID
 
 from ouro._exceptions import NotFoundError
 from ouro._resource import SyncAPIResource
@@ -243,6 +244,28 @@ class Assets(SyncAPIResource):
             "content_type": content_type,
             "bytes": bytes_written,
         }
+
+    def share(
+        self,
+        id: str,
+        user_id: Union[UUID, str],
+        role: Literal["read", "write", "admin"] = "read",
+    ) -> None:
+        """Grant a user direct permission on an asset.
+
+        Caller must be an admin on the asset. Mentions and links do not grant
+        access — private assets stay invisible until shared.
+        """
+        request = self.client.put(
+            f"/assets/{id}/share",
+            json={
+                "permission": {
+                    "user": {"user_id": str(user_id)},
+                    "role": role,
+                }
+            },
+        )
+        self._handle_response(request)
 
     def counts(self, id: str) -> dict:
         """Fetch engagement counts (views, comments, reactions, downloads) for an asset."""

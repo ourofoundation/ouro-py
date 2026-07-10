@@ -452,8 +452,4 @@ class Files(SyncAPIResource):
         role: Literal["read", "write", "admin"] = "read",
     ) -> None:
         """Share a file with another user."""
-        request = self.client.put(
-            f"/elements/common/{file_id}/share",
-            json={"permission": {"user": {"user_id": str(user_id)}, "role": role}},
-        )
-        self._handle_response(request)
+        self.ouro.assets.share(file_id, user_id, role=role)
