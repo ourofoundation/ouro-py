@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from urllib.parse import unquote
 from uuid import UUID
 
@@ -270,6 +270,27 @@ class Assets(SyncAPIResource):
     def counts(self, id: str) -> dict:
         """Fetch engagement counts (views, comments, reactions, downloads) for an asset."""
         request = self.client.get(f"/assets/{id}/counts")
+        return self._handle_response(request) or {}
+
+    def impact(
+        self,
+        ids: list[str] | str,
+        *,
+        since: Optional[str] = None,
+    ) -> dict:
+        """Batch impact metrics for one or more assets.
+
+        Returns external-vs-self engagement, bot-filtered quality views, and
+        quest provenance when available.
+        """
+        if isinstance(ids, str):
+            id_list = [ids]
+        else:
+            id_list = [str(i) for i in ids if i]
+        params: Dict[str, Any] = {"ids": ",".join(id_list)}
+        if since:
+            params["since"] = since
+        request = self.client.get("/assets/impact", params=params)
         return self._handle_response(request) or {}
 
     def connections(self, id: str) -> List[dict]:

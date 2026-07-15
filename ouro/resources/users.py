@@ -33,3 +33,26 @@ class Users(SyncAPIResource):
             params={"query": query, **kwargs},
         )
         return self._handle_response(request) or []
+
+    def impact(
+        self,
+        name_or_id: str,
+        *,
+        since: Optional[str] = None,
+        limit: Optional[int] = None,
+        asset_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Engagement / outcome impact for a user's assets.
+
+        Includes external-vs-self comments/reactions and bot-filtered quality
+        views. Pass ``asset_ids`` to scope the rollup to specific assets.
+        """
+        params: Dict[str, Any] = {}
+        if since:
+            params["since"] = since
+        if limit is not None:
+            params["limit"] = limit
+        if asset_ids:
+            params["asset_ids"] = ",".join(str(a) for a in asset_ids if a)
+        request = self.client.get(f"/users/{name_or_id}/impact", params=params)
+        return self._handle_response(request) or {}
