@@ -251,20 +251,21 @@ class Routes(SyncAPIResource):
     ) -> Route:
         """Create a new route on a service.
 
-        ``method`` + ``path`` must be unique within the service. ``org_id``,
-        ``team_id``, and ``visibility`` default to the parent service's values
-        when omitted. ``input_assets`` / ``output_assets`` are keyed asset
+        ``method`` + ``path`` must be unique within the service. ``org_id``
+        and ``team_id`` default to the parent service's values when omitted.
+        ``visibility`` defaults to ``"inherit"`` so the route tracks the
+        service. ``input_assets`` / ``output_assets`` are keyed asset
         declarations, e.g. ``{"structure": {"asset_type": "file"}}``.
         ``execution_mode`` is ``"sync"`` (default) or ``"async"``.
         """
-        if org_id is None or team_id is None or visibility is None:
+        if visibility is None:
+            visibility = "inherit"
+        if org_id is None or team_id is None:
             service = self.ouro.services.retrieve(service_id)
             if org_id is None and service.org_id:
                 org_id = str(service.org_id)
             if team_id is None and service.team_id:
                 team_id = str(service.team_id)
-            if visibility is None:
-                visibility = service.visibility
 
         route = _strip_none(
             {
