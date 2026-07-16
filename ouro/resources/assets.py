@@ -8,8 +8,8 @@ from urllib.parse import unquote
 from uuid import UUID
 
 from ouro._exceptions import NotFoundError
-from ouro._resource import SyncAPIResource
-from ouro.models import Asset, Comment, Dataset, File, Post, Quest, Route, Service
+from ouro._resource import SyncAPIResource, _strip_none
+from ouro.models import Action, Asset, Comment, Dataset, File, Post, Quest, Route, Service
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -358,10 +358,78 @@ class Assets(SyncAPIResource):
         request = self.client.get(f"/assets/{id}/connections")
         return self._handle_response(request) or []
 
-    def creation_actions(self, id: str) -> Optional[dict]:
-        """Fetch the creation-action provenance for an asset (which route created it, with what inputs)."""
-        request = self.client.get(f"/assets/{id}/creation-actions")
-        return self._handle_response(request)
+    def actions(
+        self,
+        id: str,
+        *,
+        role: Literal["input", "output", "both"] = "both",
+        status: Optional[str] = None,
+        side_effects: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """List route actions linked to an asset.
+
+        Args:
+            id: Asset UUID.
+            role:
+                - ``"input"``: actions that used this asset as an input
+                - ``"output"``: the action that produced this asset (if any)
+                - ``"both"`` (default): both directions in one call
+            status: Optional filter for input-side actions
+                (``queued`` / ``in-progress`` / ``success`` / ``error`` /
+                ``timed-out``).
+            side_effects: Optional filter for input-side actions.
+
+        Returns:
+            Always ``{"created_by": Action | None, "as_input": list[Action]}``.
+            Unused sides are ``None`` / ``[]`` when ``role`` is narrowed.
+        """
+        if role not in {"input", "output", "both"}:
+            raise ValueError(
+                f"role must be 'input', 'output', or 'both'; got {role!r}"
+            )
+
+        params = _strip_none(
+            {
+                "role": role,
+                "status": status,
+                "side_effects": (
+                    None
+                    if side_effects is None
+                    else ("true" if side_effects else "false")
+                ),
+            }
+        )
+        request = self.client.get(f"/assets/{id}/actions", params=params)
+        raw = self._handle_response(request)
+
+        created_by: Optional[Action] = None
+        as_input: List[Action] = []
+
+        if role == "input":
+            rows = raw or []
+            if not isinstance(rows, list):
+                raise TypeError(
+                    f"Expected list for role=input, got {type(rows).__name__}"
+                )
+            as_input = [Action(**item, _ouro=self.ouro) for item in rows]
+        elif role == "output":
+            if raw is not None:
+                created_by = Action(**raw, _ouro=self.ouro)
+        else:
+            envelope = raw or {}
+            if not isinstance(envelope, dict):
+                raise TypeError(
+                    f"Expected dict for role=both, got {type(envelope).__name__}"
+                )
+            created_raw = envelope.get("created_by")
+            if created_raw is not None:
+                created_by = Action(**created_raw, _ouro=self.ouro)
+            as_input = [
+                Action(**item, _ouro=self.ouro)
+                for item in (envelope.get("as_input") or [])
+            ]
+
+        return {"created_by": created_by, "as_input": as_input}
 
     def tags(self, id: str) -> List[dict]:
         """Fetch tags attached to an asset."""
