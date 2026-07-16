@@ -553,9 +553,25 @@ class Datasets(SyncAPIResource):
         return self._handle_response(request)
 
     def schema(self, id: str) -> List[dict]:
-        """Retrieve a dataset's column schema."""
+        """Retrieve a dataset's column schema.
+
+        Each field includes Postgres keys (``column_name``, ``data_type``) and
+        agent-friendly aliases (``name``, ``type``). Prefer either pair.
+        """
         request = self.client.get(f"/datasets/{id}/schema")
-        return self._handle_response(request)
+        fields = self._handle_response(request) or []
+        if not isinstance(fields, list):
+            return fields
+        # Belt-and-suspenders for older backends that only return Postgres keys.
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if "name" not in field and field.get("column_name") is not None:
+                field["name"] = field["column_name"]
+            if "type" not in field and field.get("data_type") is not None:
+                field["type"] = field["data_type"]
+        return fields
+
 
     def query(
         self,
@@ -936,21 +952,44 @@ class Datasets(SyncAPIResource):
         self._handle_response(request)
 
     def _serialize_dataframe(self, data: pd.DataFrame) -> List[dict]:
-        """Make a DataFrame serializable for JSON insertion."""
+        """Make a DataFrame serializable for JSON insertion.
+
+        Serialize row-wise after ``to_dict``. Mapping over a float64 column and
+        returning ``None`` for NaNs is not enough — pandas re-coerces those
+        ``None``s back to ``NaN`` because of the column dtype, which then breaks
+        ``json.dumps`` / httpx (``Out of range float values are not JSON
+        compliant``).
+        """
 
         def serialize_value(val: Any):
-            if pd.isna(val) or val == "":
-                return None
-            elif isinstance(val, (date, datetime, time)):
+            try:
+                if val is None or val is pd.NA:
+                    return None
+                if isinstance(val, (float, np.floating)) and (
+                    np.isnan(val) or np.isinf(val)
+                ):
+                    return None
+                if isinstance(val, str) and val == "":
+                    return None
+            except (TypeError, ValueError):
+                pass
+
+            if isinstance(val, (date, datetime, time)):
                 return val.isoformat()
-            elif isinstance(val, (np.integer, np.floating)):
-                return val.item()
-            elif isinstance(val, (list, dict)):
-                return json.dumps(val)
+            if isinstance(val, (np.bool_, bool)):
+                return bool(val)
+            if isinstance(val, (np.integer, int)) and not isinstance(val, bool):
+                return int(val)
+            if isinstance(val, (np.floating, float)) and not isinstance(val, bool):
+                fval = float(val)
+                if not np.isfinite(fval):
+                    return None
+                return fval
+            if isinstance(val, (list, dict)):
+                return val
             return str(val)
 
-        clean = data.copy()
-        clean = clean.map(serialize_value)
-        clean = clean.to_dict(orient="records")
-
-        return clean
+        return [
+            {key: serialize_value(value) for key, value in row.items()}
+            for row in data.to_dict(orient="records")
+        ]

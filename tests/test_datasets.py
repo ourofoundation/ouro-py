@@ -199,7 +199,7 @@ class TestDatasetsCreate(unittest.TestCase):
         self.assertEqual(create_request["path"], "/datasets/create/from-schema")
         self.assertEqual(
             create_request["json"]["dataset"]["rows"],
-            [{"sample": "alpha", "value": "1"}, {"sample": "beta", "value": "2"}],
+            [{"sample": "alpha", "value": 1}, {"sample": "beta", "value": 2}],
         )
         self.assertFalse(
             any(request["path"].endswith("/data") for request in ouro.client.requests)
@@ -224,7 +224,7 @@ class TestDatasetsCreate(unittest.TestCase):
         self.assertEqual(len(data_uploads), 1)
         self.assertEqual(
             data_uploads[0]["json"],
-            {"rows": [{"sample": "alpha", "value": "1"}], "mode": "append"},
+            {"rows": [{"sample": "alpha", "value": 1}], "mode": "append"},
         )
 
     def test_create_raises_clear_error_when_response_has_no_dataset(self) -> None:
@@ -721,6 +721,32 @@ class TestDatasetColumnOps(unittest.TestCase):
         self.assertEqual(request["method"], "DELETE")
         self.assertEqual(request["path"], f"/datasets/{DATASET_ID}/columns/scratch")
         self.assertEqual(result, {"dropped": "scratch"})
+
+
+class TestSerializeDataframe(unittest.TestCase):
+    def test_nan_and_inf_become_null(self) -> None:
+        import math
+
+        df = pd.DataFrame(
+            {
+                "value": [1.0, float("nan"), float("inf"), -float("inf")],
+                "label": ["a", "b", "c", "d"],
+            }
+        )
+        rows = Datasets.__new__(Datasets)._serialize_dataframe(df)
+        self.assertEqual(rows[0]["value"], 1.0)
+        self.assertIsNone(rows[1]["value"])
+        self.assertIsNone(rows[2]["value"])
+        self.assertIsNone(rows[3]["value"])
+        # Must be JSON-serializable (no NaN leakage).
+        json_module.dumps(rows)
+        self.assertFalse(
+            any(
+                isinstance(r["value"], float) and math.isnan(r["value"])
+                for r in rows
+                if r["value"] is not None
+            )
+        )
 
 
 if __name__ == "__main__":

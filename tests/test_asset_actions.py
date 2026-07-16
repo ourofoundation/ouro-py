@@ -60,7 +60,7 @@ class _FakeOuro:
 
 
 class TestAssetActions(unittest.TestCase):
-    def test_actions_role_both_normalizes_envelope(self) -> None:
+    def test_actions_role_both_auto_paginates(self) -> None:
         ouro = _FakeOuro(
             [
                 _FakeResponse(
@@ -72,7 +72,12 @@ class TestAssetActions(unittest.TestCase):
                                     id="00000000-0000-0000-0000-000000000004"
                                 )
                             ],
-                        }
+                        },
+                        "pagination": {
+                            "offset": 0,
+                            "limit": 200,
+                            "hasMore": False,
+                        },
                     }
                 )
             ]
@@ -90,21 +95,64 @@ class TestAssetActions(unittest.TestCase):
             ouro.client.requests[0],
             {
                 "path": f"/assets/{ASSET_ID}/actions",
-                "params": {"role": "both"},
+                "params": {
+                    "role": "both",
+                    "include_response": "false",
+                    "limit": 200,
+                    "offset": 0,
+                },
             },
         )
 
-    def test_actions_role_input_wraps_list(self) -> None:
+    def test_actions_role_input_single_page(self) -> None:
         ouro = _FakeOuro(
-            [_FakeResponse({"data": [_action_payload()]})]
+            [
+                _FakeResponse(
+                    {
+                        "data": [_action_payload()],
+                        "pagination": {
+                            "offset": 0,
+                            "limit": 20,
+                            "hasMore": False,
+                        },
+                    }
+                )
+            ]
         )
-        result = Assets(ouro).actions(ASSET_ID, role="input", status="success")
+        result = Assets(ouro).actions(
+            ASSET_ID, role="input", status="success", limit=20
+        )
 
         self.assertIsNone(result["created_by"])
         self.assertEqual(len(result["as_input"]), 1)
         self.assertEqual(
             ouro.client.requests[0]["params"],
-            {"role": "input", "status": "success"},
+            {
+                "role": "input",
+                "status": "success",
+                "include_response": "false",
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+
+    def test_actions_include_response(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": [_action_payload(response={"e_above_hull": 0.1})],
+                        "pagination": {"hasMore": False},
+                    }
+                )
+            ]
+        )
+        result = Assets(ouro).actions(
+            ASSET_ID, role="input", include_response=True, limit=50
+        )
+        self.assertEqual(len(result["as_input"]), 1)
+        self.assertEqual(
+            ouro.client.requests[0]["params"]["include_response"], "true"
         )
 
     def test_actions_role_output_wraps_singular(self) -> None:
@@ -115,7 +163,7 @@ class TestAssetActions(unittest.TestCase):
         self.assertEqual(result["as_input"], [])
         self.assertEqual(
             ouro.client.requests[0]["params"],
-            {"role": "output"},
+            {"role": "output", "include_response": "false"},
         )
 
     def test_actions_role_output_null(self) -> None:

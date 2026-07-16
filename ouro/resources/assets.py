@@ -365,6 +365,9 @@ class Assets(SyncAPIResource):
         role: Literal["input", "output", "both"] = "both",
         status: Optional[str] = None,
         side_effects: Optional[bool] = None,
+        include_response: bool = False,
+        limit: Optional[int] = None,
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """List route actions linked to an asset.
 
@@ -378,58 +381,128 @@ class Assets(SyncAPIResource):
                 (``queued`` / ``in-progress`` / ``success`` / ``error`` /
                 ``timed-out``).
             side_effects: Optional filter for input-side actions.
+            include_response: When ``True``, include each action's
+                ``response`` / ``metadata`` payloads (needed for calculated
+                properties). Defaults to ``False`` for compact browsing.
+            limit: Max as_input actions per request (server max 200). When
+                ``None`` (default), pages through until exhausted.
+            offset: Pagination offset for as_input (ignored when ``limit``
+                is ``None`` and auto-paging).
 
         Returns:
             Always ``{"created_by": Action | None, "as_input": list[Action]}``.
             Unused sides are ``None`` / ``[]`` when ``role`` is narrowed.
+            When ``limit`` is set, may also include ``pagination``.
         """
         if role not in {"input", "output", "both"}:
             raise ValueError(
                 f"role must be 'input', 'output', or 'both'; got {role!r}"
             )
 
-        params = _strip_none(
-            {
-                "role": role,
-                "status": status,
-                "side_effects": (
-                    None
-                    if side_effects is None
-                    else ("true" if side_effects else "false")
+        def _params(
+            *,
+            req_role: str,
+            page_limit: Optional[int],
+            page_offset: int,
+        ) -> Dict[str, Any]:
+            return _strip_none(
+                {
+                    "role": req_role,
+                    "status": status,
+                    "side_effects": (
+                        None
+                        if side_effects is None
+                        else ("true" if side_effects else "false")
+                    ),
+                    "include_response": "true" if include_response else "false",
+                    "limit": page_limit,
+                    "offset": page_offset if page_limit is not None else None,
+                }
+            )
+
+        def _wrap_actions(rows: List[dict]) -> List[Action]:
+            return [Action(**item, _ouro=self.ouro) for item in rows]
+
+        def _parse_page(
+            envelope: dict, *, req_role: str
+        ) -> tuple[Optional[Action], List[dict], Optional[dict]]:
+            pagination = envelope.get("pagination")
+            data = envelope.get("data")
+            created: Optional[Action] = None
+            rows: List[dict] = []
+            if req_role == "input":
+                rows = list(data or []) if isinstance(data, list) else []
+            elif req_role == "both":
+                if isinstance(data, dict):
+                    created_raw = data.get("created_by")
+                    if created_raw is not None:
+                        created = Action(**created_raw, _ouro=self.ouro)
+                    rows = list(data.get("as_input") or [])
+            elif req_role == "output" and data is not None:
+                created = Action(**data, _ouro=self.ouro)
+            return created, rows, pagination
+
+        # Single-page (or output-only) path.
+        if role == "output" or limit is not None:
+            request = self.client.get(
+                f"/assets/{id}/actions",
+                params=_params(
+                    req_role=role, page_limit=limit, page_offset=offset
                 ),
-            }
-        )
-        request = self.client.get(f"/assets/{id}/actions", params=params)
-        raw = self._handle_response(request)
-
-        created_by: Optional[Action] = None
-        as_input: List[Action] = []
-
-        if role == "input":
-            rows = raw or []
-            if not isinstance(rows, list):
-                raise TypeError(
-                    f"Expected list for role=input, got {type(rows).__name__}"
+            )
+            if role == "output":
+                raw = self._handle_response(request)
+                created_by = (
+                    Action(**raw, _ouro=self.ouro) if raw is not None else None
                 )
-            as_input = [Action(**item, _ouro=self.ouro) for item in rows]
-        elif role == "output":
-            if raw is not None:
-                created_by = Action(**raw, _ouro=self.ouro)
-        else:
-            envelope = raw or {}
+                return {"created_by": created_by, "as_input": []}
+
+            envelope = self._handle_response(request, with_pagination=True) or {}
             if not isinstance(envelope, dict):
-                raise TypeError(
-                    f"Expected dict for role=both, got {type(envelope).__name__}"
-                )
-            created_raw = envelope.get("created_by")
-            if created_raw is not None:
-                created_by = Action(**created_raw, _ouro=self.ouro)
-            as_input = [
-                Action(**item, _ouro=self.ouro)
-                for item in (envelope.get("as_input") or [])
-            ]
+                return {"created_by": None, "as_input": []}
+            created_by, rows, pagination = _parse_page(envelope, req_role=role)
+            result: Dict[str, Any] = {
+                "created_by": created_by,
+                "as_input": _wrap_actions(rows),
+            }
+            if pagination is not None:
+                result["pagination"] = pagination
+            return result
 
-        return {"created_by": created_by, "as_input": as_input}
+        # Auto-paginate as_input (limit=None).
+        page_size = 200
+        page_offset = 0
+        created_by = None
+        as_input_rows: List[dict] = []
+        req_role = role
+        while True:
+            request = self.client.get(
+                f"/assets/{id}/actions",
+                params=_params(
+                    req_role=req_role,
+                    page_limit=page_size,
+                    page_offset=page_offset,
+                ),
+            )
+            envelope = self._handle_response(request, with_pagination=True) or {}
+            if not isinstance(envelope, dict):
+                break
+            page_created, page_rows, pagination = _parse_page(
+                envelope, req_role=req_role
+            )
+            if created_by is None and page_created is not None:
+                created_by = page_created
+            as_input_rows.extend(page_rows)
+            if not (pagination or {}).get("hasMore"):
+                break
+            page_offset += page_size
+            req_role = "input"
+
+        return {
+            "created_by": created_by,
+            "as_input": _wrap_actions(as_input_rows),
+        }
+
 
     def tags(self, id: str) -> List[dict]:
         """Fetch tags attached to an asset."""
