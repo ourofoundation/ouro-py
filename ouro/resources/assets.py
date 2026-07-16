@@ -61,6 +61,10 @@ def _resolve_download_path(
     return target
 
 
+# Server-enforced maximum page size for /search/assets.
+SEARCH_PAGE_MAX = 200
+
+
 class Assets(SyncAPIResource):
     def search(
         self,
@@ -75,6 +79,12 @@ class Assets(SyncAPIResource):
         When ``query`` is omitted or empty, returns recent assets (browse mode)
         sorted by creation date.  Passing a UUID as the query looks up that
         single asset directly.
+
+        Pagination is transparent: the server caps each request at 200 results,
+        so ``limit`` values above 200 — or ``limit=None`` for *all* matches —
+        are fulfilled by paginating internally. For exhaustive collection use
+        browse mode (empty ``query``); semantic search caps its candidate pool
+        and cannot enumerate everything.
 
         Keyword arguments (all optional):
             asset_type:  "dataset", "post", "file", "service", "route", "quest"
@@ -93,18 +103,68 @@ class Assets(SyncAPIResource):
                          "recent" when browsing.
             time_window: "day" | "week" | "month" | "all"
                          Only used when sort="popular". Default: "month".
-            limit:  page size (default 20, max 200)
+            limit:  max results to return (default 20). Values above 200
+                    paginate internally; ``None`` fetches all matches.
             offset: pagination offset (default 0)
 
         Returns a list of asset dicts, or a dict with ``data`` and
         ``pagination`` keys when ``with_pagination=True``.
         """
+        limit = kwargs.pop("limit", 20)
+        offset = int(kwargs.pop("offset", 0))
+
+        if limit is not None and limit <= SEARCH_PAGE_MAX:
+            return self._search_page(
+                query, limit, offset, with_pagination, dict(kwargs)
+            )
+
+        # limit=None (all matches) or limit > server page cap: paginate.
+        collected: List[dict] = []
+        last_pagination: Optional[dict] = None
+        while True:
+            remaining = None if limit is None else limit - len(collected)
+            page_limit = (
+                SEARCH_PAGE_MAX
+                if remaining is None
+                else min(remaining, SEARCH_PAGE_MAX)
+            )
+            page = self._search_page(
+                query, page_limit, offset, True, dict(kwargs)
+            )
+            data = page.get("data") or []
+            collected.extend(data)
+            last_pagination = page.get("pagination")
+
+            has_more = bool((last_pagination or {}).get("hasMore"))
+            done = (
+                not data
+                or not has_more
+                or (limit is not None and len(collected) >= limit)
+            )
+            if done:
+                break
+            offset += len(data)
+
+        if limit is not None:
+            collected = collected[:limit]
+
+        if with_pagination:
+            return {"data": collected, "pagination": last_pagination}
+        return collected
+
+    def _search_page(
+        self,
+        query: str,
+        limit: int,
+        offset: int,
+        with_pagination: bool,
+        kwargs: dict,
+    ) -> Union[List[dict], dict]:
+        """Fetch a single page from /search/assets."""
         params: dict[str, Any] = {}
         if query:
             params["query"] = query
 
-        limit = kwargs.pop("limit", 20)
-        offset = kwargs.pop("offset", 0)
         params["limit"] = limit
         params["offset"] = offset
 

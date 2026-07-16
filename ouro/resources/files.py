@@ -110,6 +110,35 @@ def _infer_partial_metadata(
     return resolved_type, ext, metadata
 
 
+def _normalize_extension(
+    extension: Optional[Union[str, List[str]]],
+) -> Optional[Union[str, List[str]]]:
+    """Strip leading dots from extension filter values."""
+    if extension is None:
+        return None
+    if isinstance(extension, list):
+        cleaned = [ext.lstrip(".").lower() for ext in extension if ext]
+        return cleaned or None
+    cleaned = extension.lstrip(".").lower()
+    return cleaned or None
+
+
+def _merge_file_metadata_filters(
+    *,
+    extension: Optional[Union[str, List[str]]] = None,
+    file_type: Optional[str] = None,
+    metadata_filters: Optional[dict] = None,
+) -> Optional[dict]:
+    """Merge first-class file filters into ``metadata_filters`` for assets.search."""
+    merged: dict = dict(metadata_filters or {})
+    normalized = _normalize_extension(extension)
+    if normalized is not None:
+        merged["extension"] = normalized
+    if file_type:
+        merged["file_type"] = file_type
+    return merged or None
+
+
 class Files(SyncAPIResource):
     @staticmethod
     def partial_from_bytes(
@@ -217,18 +246,25 @@ class Files(SyncAPIResource):
         team_id: Optional[str] = None,
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
+        extension: Optional[Union[str, List[str]]] = None,
+        file_type: Optional[str] = None,
         **kwargs: Any,
     ) -> List[File]:
         """List files, optionally filtered by search query and scope.
+
+        Prefer :meth:`search` when you need pagination metadata or file-specific
+        filters (``extension``, ``file_type``). This method is a thin wrapper
+        that returns only the page of ``File`` objects.
 
         Args:
             sort: "relevant" | "recent" | "popular" | "updated"
             time_window: For sort="popular": "day" | "week" | "month" | "all".
                          Default: "month".
+            extension: File extension filter, e.g. ``"cif"`` or ``["cif", "xyz"]``.
+            file_type: File category filter: ``"image"`` | ``"video"`` | ``"audio"`` | ``"pdf"``.
         """
-        results = self.ouro.assets.search(
+        return self.search(
             query=query,
-            asset_type="file",
             limit=limit,
             offset=offset,
             scope=scope,
@@ -236,9 +272,122 @@ class Files(SyncAPIResource):
             team_id=team_id,
             sort=sort,
             time_window=time_window,
+            extension=extension,
+            file_type=file_type,
+            with_pagination=False,
             **kwargs,
         )
-        return [File(**item, _ouro=self.ouro) for item in results]
+
+    def search(
+        self,
+        query: str = "",
+        *,
+        extension: Optional[Union[str, List[str]]] = None,
+        file_type: Optional[str] = None,
+        limit: Optional[int] = 20,
+        offset: int = 0,
+        scope: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        visibility: Optional[str] = None,
+        sort: Optional[str] = None,
+        time_window: Optional[str] = None,
+        metadata_filters: Optional[dict] = None,
+        with_pagination: bool = False,
+        **kwargs: Any,
+    ) -> Union[List[File], dict]:
+        """Search or browse file assets with file-specific filters.
+
+        Always scopes to ``asset_type="file"``. Use ``extension`` to find CIFs
+        and other typed files without hand-building ``metadata_filters``.
+
+        Pagination is transparent: ``limit`` values above the 200-per-request
+        server cap — or ``limit=None`` for *all* matches — are fulfilled by
+        paginating internally. Use browse mode (empty ``query``) for exhaustive
+        collection; semantic search caps its candidate pool.
+
+        Examples::
+
+            # Every CIF file visible to you
+            cifs = ouro.files.search(extension="cif", scope="all", limit=None)
+
+            # First page of a team, with pagination metadata
+            page = ouro.files.search(
+                extension="cif",
+                team_id=pm_team_id,
+                scope="all",
+                limit=100,
+                with_pagination=True,
+            )
+            files, pagination = page["data"], page["pagination"]
+
+        Args:
+            query: Hybrid search query, or empty to browse by recency.
+            extension: File extension without a leading dot, e.g. ``"cif"``,
+                ``"csv"``. Pass a list to match any of several extensions.
+            file_type: Category filter: ``"image"`` | ``"video"`` | ``"audio"`` | ``"pdf"``.
+            limit: Max results (default 20). Values above 200 paginate
+                internally; ``None`` fetches all matches.
+            offset: Pagination offset.
+            scope: ``"personal"`` | ``"org"`` | ``"global"`` | ``"all"``.
+            org_id / team_id / user_id / visibility: Standard asset filters.
+            sort: ``"relevant"`` | ``"recent"`` | ``"popular"`` | ``"updated"``.
+            time_window: For ``sort="popular"``: ``"day"`` | ``"week"`` | ``"month"`` | ``"all"``.
+            metadata_filters: Extra metadata key/value filters (merged with
+                ``extension`` / ``file_type``; those kwargs win on conflict).
+            with_pagination: When ``True``, return
+                ``{"data": list[File], "pagination": ...}`` instead of a bare list.
+
+        Returns:
+            ``list[File]``, or a pagination dict when ``with_pagination=True``.
+        """
+        merged = _merge_file_metadata_filters(
+            extension=extension,
+            file_type=file_type,
+            metadata_filters=metadata_filters,
+        )
+        # Do not let callers override asset_type away from file.
+        kwargs.pop("asset_type", None)
+
+        # assets.search packs any present filter keys into JSON — omit Nones so
+        # we don't send {"org_id": null, ...} which the API treats as no matches.
+        search_kwargs: dict[str, Any] = {
+            "asset_type": "file",
+            "limit": limit,
+            "offset": offset,
+            "with_pagination": with_pagination,
+            **kwargs,
+        }
+        if scope is not None:
+            search_kwargs["scope"] = scope
+        if org_id is not None:
+            search_kwargs["org_id"] = org_id
+        if team_id is not None:
+            search_kwargs["team_id"] = team_id
+        if user_id is not None:
+            search_kwargs["user_id"] = user_id
+        if visibility is not None:
+            search_kwargs["visibility"] = visibility
+        if sort is not None:
+            search_kwargs["sort"] = sort
+        if time_window is not None:
+            search_kwargs["time_window"] = time_window
+        if merged is not None:
+            search_kwargs["metadata_filters"] = merged
+
+        results = self.ouro.assets.search(query=query, **search_kwargs)
+
+        if with_pagination:
+            if not isinstance(results, dict):
+                return {"data": [], "pagination": None}
+            data = results.get("data") or []
+            return {
+                "data": [File(**item, _ouro=self.ouro) for item in data],
+                "pagination": results.get("pagination"),
+            }
+
+        return [File(**item, _ouro=self.ouro) for item in (results or [])]
 
     def create(
         self,

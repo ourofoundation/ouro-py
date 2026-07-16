@@ -21,6 +21,8 @@ class FileMetadata(BaseModel):
     bucket: Literal["public-files", "files"]
     id: Optional[UUID] = None
     fullPath: Optional[str] = None
+    extension: Optional[str] = None
+    mimeType: Optional[str] = None
 
 
 class InProgressFileMetadata(BaseModel):
