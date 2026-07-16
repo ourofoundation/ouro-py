@@ -7,8 +7,10 @@ from datetime import date, datetime, time
 from typing import Any, Dict, List, Literal, Optional, Union
 from urllib.parse import quote
 
+import httpx
 import numpy as np
 import pandas as pd
+from ouro._exceptions import APIStatusError
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
 from ouro.models import Dataset
 
@@ -20,6 +22,7 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Datasets"]
 
 BATCH_INSERT_WARNING_THRESHOLD = 10_000
+DATASET_UPLOAD_TARGET_BYTES = 1_000_000
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 DatasetUploadMode = Literal["append", "overwrite", "upsert"]
 DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
@@ -133,6 +136,152 @@ class Datasets(SyncAPIResource):
         raise ValueError(
             f"Dataset {operation} response did not include a dataset payload."
         )
+
+    @staticmethod
+    def _json_size_bytes(payload: Any) -> int:
+        """Estimate the compact UTF-8 JSON request size."""
+        return len(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+
+    @staticmethod
+    def _is_payload_too_large(exc: Exception) -> bool:
+        if isinstance(exc, APIStatusError):
+            return exc.status_code == 413
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == 413
+        return False
+
+    @classmethod
+    def _iter_row_batches(
+        cls,
+        rows: list[dict],
+        mode: DatasetUploadMode,
+        *,
+        max_bytes: int = DATASET_UPLOAD_TARGET_BYTES,
+    ):
+        """Yield row batches whose serialized upload envelope fits the target."""
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive.")
+
+        batch: list[dict] = []
+        for row in rows:
+            candidate = [*batch, row]
+            payload = {"rows": candidate, "mode": mode}
+            if batch and cls._json_size_bytes(payload) > max_bytes:
+                yield batch
+                batch = [row]
+            else:
+                batch = candidate
+        if batch:
+            yield batch
+
+    @staticmethod
+    def _merge_warnings(
+        current: Optional[Mapping[str, Any]],
+        incoming: Optional[Mapping[str, Any]],
+    ) -> Optional[dict]:
+        """Merge per-request warnings while retaining the existing shape."""
+        if not current:
+            return dict(incoming) if incoming else None
+        if not incoming:
+            return dict(current)
+
+        merged = dict(current)
+        messages = [
+            value
+            for value in (current.get("message"), incoming.get("message"))
+            if value
+        ]
+        if messages:
+            merged["message"] = " ".join(messages)
+        if "rows" in current or "rows" in incoming:
+            merged["rows"] = [
+                *(current.get("rows") or []),
+                *(incoming.get("rows") or []),
+            ][:10]
+        if "ignored_columns" in current or "ignored_columns" in incoming:
+            counts: dict[str, int] = {}
+            for item in [
+                *(current.get("ignored_columns") or []),
+                *(incoming.get("ignored_columns") or []),
+            ]:
+                if isinstance(item, Mapping) and item.get("column") is not None:
+                    column = str(item["column"])
+                    counts[column] = counts.get(column, 0) + int(item.get("count") or 0)
+            merged["ignored_columns"] = [
+                {"column": column, "count": count}
+                for column, count in list(counts.items())[:20]
+            ]
+        if isinstance(current.get("refs"), Mapping) or isinstance(
+            incoming.get("refs"), Mapping
+        ):
+            refs = dict(current.get("refs") or {})
+            for key, value in (incoming.get("refs") or {}).items():
+                if isinstance(value, (int, float)) and isinstance(
+                    refs.get(key), (int, float)
+                ):
+                    refs[key] += value
+                elif key == "columns":
+                    refs[key] = [*(refs.get(key) or []), *(value or [])]
+                else:
+                    refs[key] = value
+            merged["refs"] = refs
+        return merged
+
+    def _upload_rows(
+        self,
+        id: str,
+        rows: list[dict],
+        mode: DatasetUploadMode,
+        *,
+        max_bytes: int = DATASET_UPLOAD_TARGET_BYTES,
+    ) -> dict:
+        """Upload rows in byte-bounded requests, shrinking batches after a 413."""
+        batches = list(self._iter_row_batches(rows, mode, max_bytes=max_bytes))
+        aggregate: dict[str, Any] = {
+            "row_ingest": {"inserted": 0, "skipped": 0, "mode": mode},
+            "warning": None,
+        }
+
+        first_successful_batch = True
+        while batches:
+            batch = batches.pop(0)
+            if mode == "overwrite":
+                request_mode: DatasetUploadMode = (
+                    "overwrite" if first_successful_batch else "append"
+                )
+            else:
+                request_mode = mode
+            try:
+                request = self.client.post(
+                    f"/datasets/{id}/data",
+                    json={"rows": batch, "mode": request_mode},
+                )
+                body = self._handle_response(request, raw=True) or {}
+            except (APIStatusError, httpx.HTTPStatusError) as exc:
+                if not self._is_payload_too_large(exc) or len(batch) == 1:
+                    raise
+                midpoint = len(batch) // 2
+                batches[0:0] = [batch[:midpoint], batch[midpoint:]]
+                continue
+
+            first_successful_batch = False
+            response_data = body.get("data") if isinstance(body, Mapping) else None
+            ingest = body.get("row_ingest") if isinstance(body, Mapping) else None
+            if ingest is None and isinstance(response_data, Mapping):
+                ingest = response_data
+            if isinstance(ingest, Mapping):
+                aggregate["row_ingest"]["inserted"] += int(ingest.get("inserted") or 0)
+                aggregate["row_ingest"]["skipped"] += int(ingest.get("skipped") or 0)
+            warning = body.get("warning") if isinstance(body, Mapping) else None
+            aggregate["warning"] = self._merge_warnings(aggregate["warning"], warning)
+
+        if aggregate["warning"] is None:
+            aggregate.pop("warning")
+        return aggregate
 
     @staticmethod
     def _normalize_refs(
@@ -311,7 +460,7 @@ class Datasets(SyncAPIResource):
         if normalized_enum_columns:
             metadata["enum_columns"] = normalized_enum_columns
 
-        body = _strip_none({
+        base_body = _strip_none({
             "name": name,
             "visibility": visibility,
             "monetization": monetization,
@@ -322,31 +471,54 @@ class Datasets(SyncAPIResource):
             "source": "api",
             "asset_type": "dataset",
             "preview": preview,
-            "rows": insert_data,
             "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
         })
+        inline_body = {**base_body, "rows": insert_data}
+        inline_create = self._json_size_bytes({"dataset": inline_body}) <= DATASET_UPLOAD_TARGET_BYTES
+        body = inline_body if inline_create else base_body
 
-        request = self.client.post(
-            "/datasets/create/from-schema",
-            json={"dataset": body},
-        )
+        try:
+            request = self.client.post(
+                "/datasets/create/from-schema",
+                json={"dataset": body},
+            )
+        except (APIStatusError, httpx.HTTPStatusError) as exc:
+            if not inline_create or not self._is_payload_too_large(exc):
+                raise
+            inline_create = False
+            body = base_body
+            request = self.client.post(
+                "/datasets/create/from-schema",
+                json={"dataset": body},
+            )
         response_body = self._handle_response(request, raw=True) or {}
         response_data = (
             response_body.get("data") if isinstance(response_body, Mapping) else None
         )
-        create_ingested_rows = (
-            isinstance(response_body, Mapping) and "row_ingest" in response_body
+        create_ingest = (
+            response_body.get("row_ingest")
+            if isinstance(response_body, Mapping)
+            else None
         )
+        create_ingested_rows = isinstance(create_ingest, Mapping)
 
         created = Dataset(**self._require_dataset_payload(response_data, operation="create"))
         _attach_ingest(created, response_body)
-        if len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
+        if inline_create and len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
                 f"Inserting {len(insert_data)} rows at once into {created.id}. "
                 "Consider batching for very large datasets."
             )
+
+        if not inline_create:
+            _attach_ingest(
+                created,
+                self._upload_rows(str(created.id), insert_data, "append"),
+            )
+            log.info(f"Inserted {len(insert_data)} rows into dataset {created.id}")
+            return created
 
         # Newer backends ingest rows atomically in the create request. Older
         # backends ignore ``rows`` and create only schema/preview, so keep the
@@ -586,11 +758,10 @@ class Datasets(SyncAPIResource):
         upload_body: Any = None
         if df is not None:
             insert_data = self._serialize_dataframe(df)
-            upload_req = self.client.post(
-                f"/datasets/{id}/data",
-                json={"rows": insert_data, "mode": data_mode},
-            )
-            upload_body = self._handle_response(upload_req, raw=True) or {}
+            if data_mode == "overwrite":
+                upload_body = self._upload_rows(id, insert_data, "overwrite")
+            else:
+                upload_body = self._upload_rows(id, insert_data, data_mode)
             log.info(
                 f"Ingested {len(insert_data)} rows into dataset {id} using mode={data_mode}"
             )

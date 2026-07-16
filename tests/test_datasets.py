@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json as json_module
 import unittest
+from unittest.mock import patch
 
+import httpx
 import pandas as pd
 
+from ouro._exceptions import APIStatusError
 from ouro.resources.datasets import Datasets
 
 
@@ -113,6 +117,63 @@ class _FakeOuro:
         return RuntimeError(message)
 
 
+class _ChunkingFakeClient(_FakeClient):
+    def __init__(
+        self,
+        reject_above_bytes: int,
+        *,
+        reject_as_http_error: bool = False,
+        reject_create_rows: bool = False,
+    ) -> None:
+        super().__init__(stats_count=0)
+        self.reject_above_bytes = reject_above_bytes
+        self.reject_as_http_error = reject_as_http_error
+        self.reject_create_rows = reject_create_rows
+
+    def post(self, path: str, json=None):
+        force_reject = (
+            path == "/datasets/create/from-schema"
+            and self.reject_create_rows
+            and "rows" in (json or {}).get("dataset", {})
+        )
+        too_large = path.endswith("/data")
+        if force_reject or too_large:
+            payload_size = len(
+                json_module.dumps(json, separators=(",", ":")).encode("utf-8")
+            )
+            if force_reject or payload_size > self.reject_above_bytes:
+                if force_reject:
+                    self.requests.append(
+                        {"method": "POST", "path": path, "json": json}
+                    )
+                request = httpx.Request("POST", f"https://api.test{path}")
+                response = httpx.Response(413, request=request)
+                if self.reject_as_http_error:
+                    raise httpx.HTTPStatusError(
+                        "request too large", request=request, response=response
+                    )
+                raise APIStatusError(
+                    "request too large", response=response, body={"error": "413"}
+                )
+        return super().post(path, json=json)
+
+
+class _ChunkingFakeOuro(_FakeOuro):
+    def __init__(
+        self,
+        reject_above_bytes: int,
+        *,
+        reject_as_http_error: bool = False,
+        reject_create_rows: bool = False,
+    ) -> None:
+        self.client = _ChunkingFakeClient(
+            reject_above_bytes,
+            reject_as_http_error=reject_as_http_error,
+            reject_create_rows=reject_create_rows,
+        )
+        self.websocket = None
+
+
 class TestDatasetsCreate(unittest.TestCase):
     def test_create_sends_rows_in_schema_request_and_skips_fallback_when_backend_ingests(self) -> None:
         ouro = _FakeOuro(
@@ -216,6 +277,48 @@ class TestDatasetsCreate(unittest.TestCase):
         )
         self.assertEqual(getattr(created, "ingest_warning"), warning)
 
+    def test_large_create_uses_schema_then_chunked_upload(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        with patch("ouro.resources.datasets.DATASET_UPLOAD_TARGET_BYTES", 100):
+            datasets.create(
+                name="large",
+                visibility="private",
+                data=[{"sample": "alpha"}, {"sample": "beta"}],
+            )
+
+        self.assertEqual(
+            [request["path"] for request in ouro.client.requests],
+            ["/datasets/create/from-schema", f"/datasets/{DATASET_RESPONSE['id']}/data"],
+        )
+        self.assertNotIn(
+            "rows", ouro.client.requests[0]["json"]["dataset"]
+        )
+        self.assertEqual(
+            ouro.client.requests[1]["json"]["rows"],
+            [{"sample": "alpha"}, {"sample": "beta"}],
+        )
+
+    def test_create_falls_back_to_schema_only_after_413(self) -> None:
+        ouro = _ChunkingFakeOuro(reject_above_bytes=1_000, reject_create_rows=True)
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="sample",
+            visibility="private",
+            data=[{"sample": "alpha"}],
+        )
+
+        create_requests = [
+            request
+            for request in ouro.client.requests
+            if request["path"] == "/datasets/create/from-schema"
+        ]
+        self.assertEqual(len(create_requests), 2)
+        self.assertIn("rows", create_requests[0]["json"]["dataset"])
+        self.assertNotIn("rows", create_requests[1]["json"]["dataset"])
+
     def test_update_surfaces_row_ingest_from_data_upload(self) -> None:
         ouro = _FakeOuro(stats_count=0)
         datasets = Datasets(ouro)
@@ -226,7 +329,58 @@ class TestDatasetsCreate(unittest.TestCase):
         )
 
         # The fake /data endpoint echoes inserted=len(rows) under `data`.
-        self.assertEqual(getattr(updated, "row_ingest"), {"inserted": 2})
+        self.assertEqual(
+            getattr(updated, "row_ingest"),
+            {"inserted": 2, "skipped": 0, "mode": "append"},
+        )
+
+
+class TestDatasetChunking(unittest.TestCase):
+    def test_upload_splits_batches_after_413(self) -> None:
+        ouro = _ChunkingFakeOuro(reject_above_bytes=70)
+        datasets = Datasets(ouro)
+        rows = [{"value": "a" * 20}, {"value": "b" * 20}]
+
+        result = datasets._upload_rows(
+            DATASET_RESPONSE["id"], rows, "append", max_bytes=1_000
+        )
+
+        uploads = [
+            request for request in ouro.client.requests if request["path"].endswith("/data")
+        ]
+        self.assertEqual([len(request["json"]["rows"]) for request in uploads], [1, 1])
+        self.assertEqual(result["row_ingest"]["inserted"], 2)
+
+    def test_upload_splits_batches_after_proxy_413(self) -> None:
+        ouro = _ChunkingFakeOuro(reject_above_bytes=70, reject_as_http_error=True)
+        datasets = Datasets(ouro)
+
+        result = datasets._upload_rows(
+            DATASET_RESPONSE["id"],
+            [{"value": "a" * 20}, {"value": "b" * 20}],
+            "append",
+            max_bytes=1_000,
+        )
+
+        self.assertEqual(result["row_ingest"]["inserted"], 2)
+
+    def test_overwrite_only_truncates_on_first_successful_batch(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        datasets._upload_rows(
+            DATASET_RESPONSE["id"],
+            [{"value": "a"}, {"value": "b"}],
+            "overwrite",
+            max_bytes=1,
+        )
+
+        uploads = [
+            request for request in ouro.client.requests if request["path"].endswith("/data")
+        ]
+        self.assertEqual(
+            [request["json"]["mode"] for request in uploads], ["overwrite", "append"]
+        )
 
 
 class TestDatasetRefs(unittest.TestCase):
