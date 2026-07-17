@@ -136,7 +136,7 @@ class Entry(DictCompatModel):
 
 class QuestProgress(BaseModel):
     total: int = 0
-    done: int = 0
+    resolved: int = 0
     remaining: int = 0
 
 
