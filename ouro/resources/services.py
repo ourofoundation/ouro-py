@@ -15,6 +15,53 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Services"]
 
 
+def _service_metadata(
+    *,
+    base_url: Optional[str] = None,
+    authentication: Optional[str] = None,
+    version: Optional[str] = None,
+    spec_path: Optional[str] = None,
+    spec_url: Optional[str] = None,
+    auth_url: Optional[str] = None,
+) -> dict:
+    return _strip_none(
+        {
+            "base_url": base_url,
+            "authentication": authentication,
+            "version": version,
+            "spec_path": spec_path,
+            "spec_url": spec_url,
+            "auth_url": auth_url,
+        }
+    )
+
+
+def _attribution_payload(
+    *,
+    originality: Optional[str] = None,
+    github_url: Optional[str] = None,
+    paper_url: Optional[str] = None,
+    doi_url: Optional[str] = None,
+    external_url: Optional[str] = None,
+    relation_type: Optional[str] = None,
+    citation: Optional[dict] = None,
+    doi: Optional[str] = None,
+) -> dict:
+    """Build assets.attribution — separate from type-specific metadata."""
+    return _strip_none(
+        {
+            "originality": originality,
+            "github_url": github_url,
+            "paper_url": paper_url,
+            "doi_url": doi_url,
+            "external_url": external_url,
+            "relation_type": relation_type,
+            "citation": citation,
+            "doi": doi,
+        }
+    )
+
+
 class Services(SyncAPIResource):
     @property
     def routes(self) -> Routes:
@@ -38,6 +85,13 @@ class Services(SyncAPIResource):
         auth_url: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        license_id: str = "MIT",
+        originality: Optional[str] = None,
+        github_url: Optional[str] = None,
+        paper_url: Optional[str] = None,
+        doi_url: Optional[str] = None,
+        external_url: Optional[str] = None,
+        relation_type: Optional[str] = None,
         **kwargs,
     ) -> Service:
         """Create a Service — an external API published as an Ouro asset.
@@ -48,16 +102,28 @@ class Services(SyncAPIResource):
         Pass ``spec_url`` (or ``spec_path`` for an already-uploaded file) to
         register the service from an OpenAPI spec — its routes are parsed and
         created automatically. Omit both to create a service with no routes yet.
+
+        Attribution (stored on ``attribution``, not ``metadata``): ``license_id``
+        (SPDX id, default MIT), ``originality`` (``original`` | ``derivative`` |
+        ``third-party``), optional ``github_url`` / ``paper_url`` / ``doi_url`` /
+        ``external_url``, and optional ``relation_type`` (DataCite relation to
+        the related paper).
         """
-        metadata = _strip_none(
-            {
-                "base_url": base_url,
-                "authentication": authentication,
-                "version": version,
-                "spec_path": spec_path,
-                "spec_url": spec_url,
-                "auth_url": auth_url,
-            }
+        metadata = _service_metadata(
+            base_url=base_url,
+            authentication=authentication,
+            version=version,
+            spec_path=spec_path,
+            spec_url=spec_url,
+            auth_url=auth_url,
+        )
+        attribution = _attribution_payload(
+            originality=originality,
+            github_url=github_url,
+            paper_url=paper_url,
+            doi_url=doi_url,
+            external_url=external_url,
+            relation_type=relation_type,
         )
         service = _strip_none(
             {
@@ -66,10 +132,12 @@ class Services(SyncAPIResource):
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
+                "license_id": license_id,
                 **kwargs,
                 "source": "api",
                 "asset_type": "service",
                 "metadata": metadata,
+                "attribution": attribution or None,
             }
         )
 
@@ -95,24 +163,36 @@ class Services(SyncAPIResource):
         auth_url: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        license_id: Optional[str] = None,
+        originality: Optional[str] = None,
+        github_url: Optional[str] = None,
+        paper_url: Optional[str] = None,
+        doi_url: Optional[str] = None,
+        external_url: Optional[str] = None,
+        relation_type: Optional[str] = None,
         **kwargs,
     ) -> Service:
         """Update a Service by its ID.
 
-        Metadata fields (``base_url``, ``authentication``, ...) are merged with
-        the service's existing metadata, so only pass what changes. Providing
-        ``spec_path`` or ``spec_url`` re-parses the OpenAPI spec and syncs the
-        service's routes.
+        Service config fields (``base_url``, ``authentication``, …) merge into
+        ``metadata``. Provenance fields merge into ``attribution``. Providing
+        ``spec_path`` or ``spec_url`` re-parses the OpenAPI spec and syncs routes.
         """
-        metadata = _strip_none(
-            {
-                "base_url": base_url,
-                "authentication": authentication,
-                "version": version,
-                "spec_path": spec_path,
-                "spec_url": spec_url,
-                "auth_url": auth_url,
-            }
+        metadata = _service_metadata(
+            base_url=base_url,
+            authentication=authentication,
+            version=version,
+            spec_path=spec_path,
+            spec_url=spec_url,
+            auth_url=auth_url,
+        )
+        attribution = _attribution_payload(
+            originality=originality,
+            github_url=github_url,
+            paper_url=paper_url,
+            doi_url=doi_url,
+            external_url=external_url,
+            relation_type=relation_type,
         )
         service = _strip_none(
             {
@@ -122,8 +202,10 @@ class Services(SyncAPIResource):
                 "visibility": visibility,
                 "monetization": monetization,
                 "price": price,
+                "license_id": license_id,
                 **kwargs,
                 "metadata": metadata or None,
+                "attribution": attribution or None,
             }
         )
         # The backend derives the URL slug from the name on every update, so

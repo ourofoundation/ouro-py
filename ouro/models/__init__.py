@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from ._base import DictCompatModel
-from .asset import Asset, DescriptionDict, TeamProfile
+from .asset import Asset, Attribution, Citation, DescriptionDict, TeamProfile
 
 if TYPE_CHECKING:
     from ouro.resources.conversations import ConversationMessages
@@ -22,6 +22,8 @@ __all__ = [
     "Action",
     "ActionLog",
     "Asset",
+    "Attribution",
+    "Citation",
     "DescriptionDict",
     "TeamProfile",
     "PostContent",
