@@ -11,7 +11,7 @@ import httpx
 import numpy as np
 import pandas as pd
 from ouro._exceptions import APIStatusError
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
 from ouro.models import Dataset
 
 from .content import Content
@@ -475,6 +475,7 @@ class Datasets(SyncAPIResource):
             "enum_columns": normalized_enum_columns or None,
             "metadata": metadata,
         })
+        base_body["attribution"] = _ensure_attribution(base_body.pop("attribution", None))
         inline_body = {**base_body, "rows": insert_data}
         inline_create = self._json_size_bytes({"dataset": inline_body}) <= DATASET_UPLOAD_TARGET_BYTES
         body = inline_body if inline_create else base_body

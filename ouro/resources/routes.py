@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from ouro._constants import DEFAULT_TIMEOUT
 from ouro._exceptions import APIStatusError, ExternalServiceError, RouteExecutionError
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
 from ouro.models import Action, ActionLog, Route
 from ouro.utils import is_valid_uuid
 
@@ -288,6 +288,7 @@ class Routes(SyncAPIResource):
                 "asset_type": "route",
             }
         )
+        route["attribution"] = _ensure_attribution(route.pop("attribution", None))
 
         request = self.client.post(
             f"/services/{service_id}/routes/create",

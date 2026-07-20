@@ -12,7 +12,7 @@ from ouro.utils import generate_uuid
 import httpx
 
 from ouro._exceptions import APIConnectionError, APIStatusError
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
 from ouro.models import File
 
 from .content import Content
@@ -416,6 +416,7 @@ class Files(SyncAPIResource):
             raise ValueError("file_name is required when using file_content.")
 
         has_upload = bool(file_path) or file_content is not None
+        attribution = kwargs.pop("attribution", None)
 
         if not has_upload:
             log.warning("No file data provided, creating a file stub. Update it later.")
@@ -472,6 +473,7 @@ class Files(SyncAPIResource):
             }
 
         file = _strip_none(file)
+        file["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post("/files/create", json={"file": file})
         data = self._handle_response(request)

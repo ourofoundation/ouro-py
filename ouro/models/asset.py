@@ -60,7 +60,7 @@ class Attribution(BaseModel):
     ``citation`` / ``doi_url``.
     """
 
-    originality: Optional[Literal["original", "derivative", "third-party"]] = None
+    originality: Optional[Literal["original", "derivative", "third-party"]] = "original"
     external_url: Optional[str] = None
     github_url: Optional[str] = None
     paper_url: Optional[str] = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-from ouro._resource import SyncAPIResource, _strip_none
+from ouro._resource import SyncAPIResource, _ensure_attribution, _strip_none
 from ouro.models import Conversation
 
 from .content import Content
@@ -130,6 +130,9 @@ class Conversations(SyncAPIResource):
                 "metadata": {"members": member_user_ids},
                 **kwargs,
             }
+        )
+        conversation["attribution"] = _ensure_attribution(
+            conversation.pop("attribution", None)
         )
 
         request = self.client.post(

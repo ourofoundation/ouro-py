@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from ouro.resources.content import Content
 
 
+DEFAULT_ATTRIBUTION = {"originality": "original"}
+
+
 def _coerce_description(
     description: Optional[Union[str, dict, "Content"]],
 ) -> Optional[dict]:
@@ -29,6 +32,85 @@ def _coerce_description(
 def _strip_none(d: dict) -> dict:
     """Return a copy of *d* with all None-valued keys removed."""
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _attribution_payload(
+    *,
+    originality: Optional[str] = None,
+    github_url: Optional[str] = None,
+    paper_url: Optional[str] = None,
+    doi_url: Optional[str] = None,
+    external_url: Optional[str] = None,
+    relation_type: Optional[str] = None,
+    citation: Optional[dict] = None,
+    doi: Optional[str] = None,
+) -> dict:
+    """Build assets.attribution — always includes originality (default: original).
+
+    Distinct from type-specific ``metadata``. Column is NOT NULL in the DB;
+    create payloads must never send null/omit in a way that becomes null.
+    """
+    payload = _strip_none(
+        {
+            "originality": originality,
+            "github_url": github_url,
+            "paper_url": paper_url,
+            "doi_url": doi_url,
+            "external_url": external_url,
+            "relation_type": relation_type,
+            "citation": citation,
+            "doi": doi,
+        }
+    )
+    if "originality" not in payload:
+        payload["originality"] = "original"
+    return payload
+
+
+def _ensure_attribution(value: Optional[dict] = None) -> dict:
+    """Normalize an attribution dict for create (default originality if missing)."""
+    if not value:
+        return dict(DEFAULT_ATTRIBUTION)
+    payload = _strip_none(dict(value))
+    if "originality" not in payload:
+        payload["originality"] = "original"
+    return payload
+
+
+def _optional_attribution_payload(
+    *,
+    originality: Optional[str] = None,
+    github_url: Optional[str] = None,
+    paper_url: Optional[str] = None,
+    doi_url: Optional[str] = None,
+    external_url: Optional[str] = None,
+    relation_type: Optional[str] = None,
+    citation: Optional[dict] = None,
+    doi: Optional[str] = None,
+) -> Optional[dict]:
+    """Build attribution only when at least one field was provided (for updates)."""
+    fields = (
+        originality,
+        github_url,
+        paper_url,
+        doi_url,
+        external_url,
+        relation_type,
+        citation,
+        doi,
+    )
+    if all(v is None for v in fields):
+        return None
+    return _attribution_payload(
+        originality=originality,
+        github_url=github_url,
+        paper_url=paper_url,
+        doi_url=doi_url,
+        external_url=external_url,
+        relation_type=relation_type,
+        citation=citation,
+        doi=doi,
+    )
 
 
 class SyncAPIResource:

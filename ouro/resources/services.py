@@ -3,7 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Union
 
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _attribution_payload,
+    _coerce_description,
+    _optional_attribution_payload,
+    _strip_none,
+)
 from ouro.models import Route, Service
 from ouro.resources.routes import Routes
 
@@ -32,32 +38,6 @@ def _service_metadata(
             "spec_path": spec_path,
             "spec_url": spec_url,
             "auth_url": auth_url,
-        }
-    )
-
-
-def _attribution_payload(
-    *,
-    originality: Optional[str] = None,
-    github_url: Optional[str] = None,
-    paper_url: Optional[str] = None,
-    doi_url: Optional[str] = None,
-    external_url: Optional[str] = None,
-    relation_type: Optional[str] = None,
-    citation: Optional[dict] = None,
-    doi: Optional[str] = None,
-) -> dict:
-    """Build assets.attribution — separate from type-specific metadata."""
-    return _strip_none(
-        {
-            "originality": originality,
-            "github_url": github_url,
-            "paper_url": paper_url,
-            "doi_url": doi_url,
-            "external_url": external_url,
-            "relation_type": relation_type,
-            "citation": citation,
-            "doi": doi,
         }
     )
 
@@ -105,9 +85,9 @@ class Services(SyncAPIResource):
 
         Attribution (stored on ``attribution``, not ``metadata``): ``license_id``
         (SPDX id, default MIT), ``originality`` (``original`` | ``derivative`` |
-        ``third-party``), optional ``github_url`` / ``paper_url`` / ``doi_url`` /
-        ``external_url``, and optional ``relation_type`` (DataCite relation to
-        the related paper).
+        ``third-party``, default ``original``), optional ``github_url`` /
+        ``paper_url`` / ``doi_url`` / ``external_url``, and optional
+        ``relation_type`` (DataCite relation to the related paper).
         """
         metadata = _service_metadata(
             base_url=base_url,
@@ -117,7 +97,7 @@ class Services(SyncAPIResource):
             spec_url=spec_url,
             auth_url=auth_url,
         )
-        attribution = _attribution_payload(
+        attribution = kwargs.pop("attribution", None) or _attribution_payload(
             originality=originality,
             github_url=github_url,
             paper_url=paper_url,
@@ -137,7 +117,7 @@ class Services(SyncAPIResource):
                 "source": "api",
                 "asset_type": "service",
                 "metadata": metadata,
-                "attribution": attribution or None,
+                "attribution": attribution,
             }
         )
 
@@ -186,7 +166,7 @@ class Services(SyncAPIResource):
             spec_url=spec_url,
             auth_url=auth_url,
         )
-        attribution = _attribution_payload(
+        attribution = kwargs.pop("attribution", None) or _optional_attribution_payload(
             originality=originality,
             github_url=github_url,
             paper_url=paper_url,
@@ -205,7 +185,7 @@ class Services(SyncAPIResource):
                 "license_id": license_id,
                 **kwargs,
                 "metadata": metadata or None,
-                "attribution": attribution or None,
+                "attribution": attribution,
             }
         )
         # The backend derives the URL slug from the name on every update, so

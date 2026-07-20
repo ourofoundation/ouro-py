@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
 from ouro.models import Post
 
 from .content import Content, Editor
@@ -120,6 +120,7 @@ class Posts(SyncAPIResource):
             content_path=content_path,
         )
 
+        attribution = kwargs.pop("attribution", None)
         post = _strip_none(
             {
                 "name": name,
@@ -132,6 +133,7 @@ class Posts(SyncAPIResource):
                 "asset_type": "post",
             }
         )
+        post["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post(
             "/posts/create",

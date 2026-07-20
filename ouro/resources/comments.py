@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from ouro._resource import SyncAPIResource, _strip_none
+from ouro._resource import SyncAPIResource, _ensure_attribution, _strip_none
 from ouro.models import Comment
 
 from .content import Content, Editor
@@ -30,12 +30,14 @@ class Comments(SyncAPIResource):
         **kwargs,
     ) -> Comment:
         """Create a new Comment."""
+        attribution = kwargs.pop("attribution", None)
         comment = _strip_none({
             **kwargs,
             "parent_id": parent_id,
             "source": "api",
             "asset_type": "comment",
         })
+        comment["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post(
             "/comments/create",

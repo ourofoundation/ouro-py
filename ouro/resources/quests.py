@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
+from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
 from ouro.models import Entry, Quest, QuestItem
 
 from .content import Content
@@ -122,6 +122,7 @@ class Quests(SyncAPIResource):
                 "source": "api",
             }
         )
+        quest["attribution"] = _ensure_attribution(quest.pop("attribution", None))
 
         request = self.client.post(
             "/quests/create",
