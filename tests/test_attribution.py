@@ -4,14 +4,68 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from inspect import signature
 from uuid import uuid4
 
+from ouro._resource import _ensure_attribution, _optional_attribution
 from ouro.models import Attribution, Citation, Service
 from ouro.models.asset import Asset
+from ouro.resources.comments import Comments
+from ouro.resources.conversations import Conversations
+from ouro.resources.datasets import Datasets
+from ouro.resources.files import Files
+from ouro.resources.posts import Posts
+from ouro.resources.quests import Quests
+from ouro.resources.routes import Routes
 from ouro.resources.services import _attribution_payload, _service_metadata
+from ouro.resources.services import Services
 
 
 class AttributionPayloadTests(unittest.TestCase):
+    def test_asset_write_methods_expose_top_level_license_and_attribution(self) -> None:
+        methods = (
+            Posts.create,
+            Posts.update,
+            Datasets.create,
+            Datasets.update,
+            Files.create,
+            Files.update,
+            Quests.create,
+            Quests.update,
+            Services.create,
+            Services.update,
+            Routes.create,
+            Routes.update,
+            Comments.create,
+            Comments.update,
+            Conversations.create,
+            Conversations.update,
+        )
+
+        for method in methods:
+            parameters = signature(method).parameters
+            self.assertIn("license_id", parameters, method.__qualname__)
+            self.assertIn("attribution", parameters, method.__qualname__)
+
+    def test_normalizes_attribution_models_for_create_and_update(self) -> None:
+        attribution = Attribution(
+            originality="derivative",
+            github_url="https://github.com/example/project",
+        )
+
+        expected = {
+            "originality": "derivative",
+            "github_url": "https://github.com/example/project",
+        }
+        self.assertEqual(_ensure_attribution(attribution), expected)
+        self.assertEqual(_optional_attribution(attribution), expected)
+
+    def test_update_attribution_does_not_add_create_defaults(self) -> None:
+        self.assertEqual(
+            _optional_attribution({"doi_url": "https://doi.org/10.1234/example"}),
+            {"doi_url": "https://doi.org/10.1234/example"},
+        )
+
     def test_service_metadata_excludes_attribution_fields(self) -> None:
         meta = _service_metadata(
             base_url="https://api.example.com",

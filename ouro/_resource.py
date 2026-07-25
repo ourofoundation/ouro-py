@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 import httpx
@@ -67,14 +68,30 @@ def _attribution_payload(
     return payload
 
 
-def _ensure_attribution(value: Optional[dict] = None) -> dict:
-    """Normalize an attribution dict for create (default originality if missing)."""
+def _attribution_dict(value: Any) -> dict:
+    """Convert an attribution mapping or Pydantic model to a JSON-ready dict."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    if isinstance(value, Mapping):
+        return _strip_none(dict(value))
+    raise TypeError("attribution must be a mapping or Attribution model")
+
+
+def _ensure_attribution(value: Any = None) -> dict:
+    """Normalize attribution for create, defaulting originality when absent."""
     if not value:
         return dict(DEFAULT_ATTRIBUTION)
-    payload = _strip_none(dict(value))
+    payload = _attribution_dict(value)
     if "originality" not in payload:
         payload["originality"] = "original"
     return payload
+
+
+def _optional_attribution(value: Any = None) -> Optional[dict]:
+    """Normalize attribution for update without adding create defaults."""
+    if value is None:
+        return None
+    return _attribution_dict(value)
 
 
 def _optional_attribution_payload(

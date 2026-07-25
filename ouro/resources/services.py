@@ -7,6 +7,8 @@ from ouro._resource import (
     SyncAPIResource,
     _attribution_payload,
     _coerce_description,
+    _ensure_attribution,
+    _optional_attribution,
     _optional_attribution_payload,
     _strip_none,
 )
@@ -66,6 +68,7 @@ class Services(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         license_id: str = "MIT",
+        attribution: Optional[dict] = None,
         originality: Optional[str] = None,
         github_url: Optional[str] = None,
         paper_url: Optional[str] = None,
@@ -97,14 +100,17 @@ class Services(SyncAPIResource):
             spec_url=spec_url,
             auth_url=auth_url,
         )
-        attribution = kwargs.pop("attribution", None) or _attribution_payload(
-            originality=originality,
-            github_url=github_url,
-            paper_url=paper_url,
-            doi_url=doi_url,
-            external_url=external_url,
-            relation_type=relation_type,
-        )
+        if attribution is not None:
+            attribution = _ensure_attribution(attribution)
+        else:
+            attribution = _attribution_payload(
+                originality=originality,
+                github_url=github_url,
+                paper_url=paper_url,
+                doi_url=doi_url,
+                external_url=external_url,
+                relation_type=relation_type,
+            )
         service = _strip_none(
             {
                 "name": name,
@@ -144,6 +150,7 @@ class Services(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         originality: Optional[str] = None,
         github_url: Optional[str] = None,
         paper_url: Optional[str] = None,
@@ -166,14 +173,17 @@ class Services(SyncAPIResource):
             spec_url=spec_url,
             auth_url=auth_url,
         )
-        attribution = kwargs.pop("attribution", None) or _optional_attribution_payload(
-            originality=originality,
-            github_url=github_url,
-            paper_url=paper_url,
-            doi_url=doi_url,
-            external_url=external_url,
-            relation_type=relation_type,
-        )
+        if attribution is not None:
+            attribution = _optional_attribution(attribution)
+        else:
+            attribution = _optional_attribution_payload(
+                originality=originality,
+                github_url=github_url,
+                paper_url=paper_url,
+                doi_url=doi_url,
+                external_url=external_url,
+                relation_type=relation_type,
+            )
         service = _strip_none(
             {
                 "id": str(id),

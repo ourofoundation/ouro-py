@@ -7,7 +7,13 @@ from typing import Any, Dict, List, Optional, Union
 
 from ouro._constants import DEFAULT_TIMEOUT
 from ouro._exceptions import APIStatusError, ExternalServiceError, RouteExecutionError
-from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _coerce_description,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import Action, ActionLog, Route
 from ouro.utils import is_valid_uuid
 
@@ -247,6 +253,8 @@ class Routes(SyncAPIResource):
         price: Optional[float] = None,
         org_id: Optional[str] = None,
         team_id: Optional[str] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Route:
         """Create a new route on a service.
@@ -283,12 +291,13 @@ class Routes(SyncAPIResource):
                 "price": price,
                 "org_id": org_id,
                 "team_id": team_id,
+                "license_id": license_id,
                 **kwargs,
                 "source": "api",
                 "asset_type": "route",
             }
         )
-        route["attribution"] = _ensure_attribution(route.pop("attribution", None))
+        route["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post(
             f"/services/{service_id}/routes/create",
@@ -311,6 +320,8 @@ class Routes(SyncAPIResource):
         execution_mode: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Route:
         """Update a route by its ID or ``"entity_name/route_name"`` identifier.
@@ -337,6 +348,8 @@ class Routes(SyncAPIResource):
                 "execution_mode": execution_mode,
                 "monetization": monetization,
                 "price": price,
+                "license_id": license_id,
+                "attribution": _optional_attribution(attribution),
                 **kwargs,
             }
         )

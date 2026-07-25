@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-from ouro._resource import SyncAPIResource, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import Conversation
 
 from .content import Content
@@ -118,6 +123,8 @@ class Conversations(SyncAPIResource):
         summary: Optional[str] = None,
         org_id: Optional[str] = None,
         team_id: Optional[str] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Conversation:
         """Create a conversation with the specified member user IDs."""
@@ -127,13 +134,12 @@ class Conversations(SyncAPIResource):
                 "summary": summary,
                 "org_id": org_id,
                 "team_id": team_id,
+                "license_id": license_id,
                 "metadata": {"members": member_user_ids},
                 **kwargs,
             }
         )
-        conversation["attribution"] = _ensure_attribution(
-            conversation.pop("attribution", None)
-        )
+        conversation["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post(
             "/conversations/create",
@@ -180,10 +186,21 @@ class Conversations(SyncAPIResource):
             for c in self._handle_response(request) or []
         ]
 
-    def update(self, conversation_id: str, **kwargs) -> Conversation:
+    def update(
+        self,
+        conversation_id: str,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
+        **kwargs,
+    ) -> Conversation:
         """Update a conversation."""
+        conversation = _strip_none({
+            "license_id": license_id,
+            "attribution": _optional_attribution(attribution),
+            **kwargs,
+        })
         request = self.client.put(
-            f"/conversations/{conversation_id}", json={"conversation": kwargs}
+            f"/conversations/{conversation_id}", json={"conversation": conversation}
         )
         return Conversation(**self._handle_response(request), _ouro=self.ouro)
 

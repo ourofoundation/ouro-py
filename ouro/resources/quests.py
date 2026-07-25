@@ -3,7 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _coerce_description,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import Entry, Quest, QuestItem
 
 from .content import Content
@@ -92,6 +98,8 @@ class Quests(SyncAPIResource):
         type: str = "closable",
         status: str = "open",
         items: Optional[List[Union[str, Dict]]] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Quest:
         """Create a new Quest with optional items.
@@ -118,11 +126,12 @@ class Quests(SyncAPIResource):
                     for i in (items or [])
                 ]
                 or None,
+                "license_id": license_id,
                 **kwargs,
                 "source": "api",
             }
         )
-        quest["attribution"] = _ensure_attribution(quest.pop("attribution", None))
+        quest["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post(
             "/quests/create",
@@ -143,6 +152,8 @@ class Quests(SyncAPIResource):
         visibility: Optional[str] = None,
         status: Optional[str] = None,
         type: Optional[str] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Quest:
         """Update a Quest by its id.
@@ -156,6 +167,8 @@ class Quests(SyncAPIResource):
                 "visibility": visibility,
                 "status": status,
                 "type": type,
+                "license_id": license_id,
+                "attribution": _optional_attribution(attribution),
                 **kwargs,
             }
         )

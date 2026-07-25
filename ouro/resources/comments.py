@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from ouro._resource import SyncAPIResource, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import Comment
 
 from .content import Content, Editor
@@ -27,11 +32,13 @@ class Comments(SyncAPIResource):
         self,
         content: "Content",
         parent_id: str,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Comment:
         """Create a new Comment."""
-        attribution = kwargs.pop("attribution", None)
         comment = _strip_none({
+            "license_id": license_id,
             **kwargs,
             "parent_id": parent_id,
             "source": "api",
@@ -66,10 +73,16 @@ class Comments(SyncAPIResource):
         self,
         id: str,
         content: Optional["Content"] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Comment:
         """Update a Comment by its id."""
-        comment = _strip_none({**kwargs})
+        comment = _strip_none({
+            "license_id": license_id,
+            "attribution": _optional_attribution(attribution),
+            **kwargs,
+        })
 
         request = self.client.put(
             f"/comments/{id}",

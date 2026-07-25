@@ -11,7 +11,13 @@ import httpx
 import numpy as np
 import pandas as pd
 from ouro._exceptions import APIStatusError
-from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _coerce_description,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import Dataset
 
 from .content import Content
@@ -392,6 +398,8 @@ class Datasets(SyncAPIResource):
         description: Optional[Union[str, "Content"]] = None,
         refs: Optional[Mapping[str, Any]] = None,
         enum_columns: Optional[DatasetEnumInput] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Dataset:
         """Create a new Dataset from tabular rows.
@@ -473,9 +481,10 @@ class Datasets(SyncAPIResource):
             "preview": preview,
             "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
+            "license_id": license_id,
             "metadata": metadata,
         })
-        base_body["attribution"] = _ensure_attribution(base_body.pop("attribution", None))
+        base_body["attribution"] = _ensure_attribution(attribution)
         inline_body = {**base_body, "rows": insert_data}
         inline_create = self._json_size_bytes({"dataset": inline_body}) <= DATASET_UPLOAD_TARGET_BYTES
         body = inline_body if inline_create else base_body
@@ -718,6 +727,8 @@ class Datasets(SyncAPIResource):
         price: Optional[float] = None,
         refs: Optional[Mapping[str, Any]] = None,
         enum_columns: Optional[DatasetEnumInput] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> Dataset:
         """Update a dataset by its id.
@@ -758,6 +769,8 @@ class Datasets(SyncAPIResource):
             "preview": preview,
             "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
+            "license_id": license_id,
+            "attribution": _optional_attribution(attribution),
             "metadata": metadata,
             **kwargs,
         })

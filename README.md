@@ -194,6 +194,52 @@ share them explicitly:
 ouro.assets.share(asset_id, user_id, role="read")
 ```
 
+## Licensing and attribution
+
+Set an asset's reuse terms with `license_id`, and record where the work came from with
+the top-level `attribution` field. These fields are consistent across asset types and separate
+from type-specific `metadata`:
+
+```python
+attribution = {
+    "originality": "derivative",
+    "github_url": "https://github.com/example/project",
+    "doi_url": "https://doi.org/10.1234/example",
+    "relation_type": "IsDerivedFrom",
+}
+
+dataset = ouro.datasets.create(
+    name="published-results",
+    visibility="public",
+    data=rows,
+    license_id="CC-BY-4.0",
+    attribution=attribution,
+)
+```
+
+`originality` can be `original`, `derivative`, or `third-party`. Attribution can also include
+`paper_url` and `external_url`. Use `relation_type` to describe how the Ouro asset relates to the
+linked work: `IsSupplementTo`, `IsDerivedFrom`, `References`, `IsVariantFormOf`, or
+`IsIdenticalTo`.
+
+Pass the same top-level fields when creating another asset type:
+
+```python
+service = ouro.services.create(
+    name="published-model-api",
+    base_url="https://api.example.com",
+    license_id="Apache-2.0",
+    attribution={
+        "originality": "third-party",
+        "github_url": "https://github.com/example/model",
+        "paper_url": "https://arxiv.org/abs/0000.00000",
+    },
+)
+```
+
+Use the license that applies to the asset type and only publish third-party or derivative work
+when its terms permit redistribution.
+
 ## Configuration
 
 | Variable | Default | Purpose |

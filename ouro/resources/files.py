@@ -12,7 +12,13 @@ from ouro.utils import generate_uuid
 import httpx
 
 from ouro._exceptions import APIConnectionError, APIStatusError
-from ouro._resource import SyncAPIResource, _coerce_description, _ensure_attribution, _strip_none
+from ouro._resource import (
+    SyncAPIResource,
+    _coerce_description,
+    _ensure_attribution,
+    _optional_attribution,
+    _strip_none,
+)
 from ouro.models import File
 
 from .content import Content
@@ -399,6 +405,8 @@ class Files(SyncAPIResource):
         monetization: Optional[str] = None,
         price: Optional[float] = None,
         description: Optional[Union[str, "Content"]] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> File:
         """Create a File.
@@ -416,8 +424,6 @@ class Files(SyncAPIResource):
             raise ValueError("file_name is required when using file_content.")
 
         has_upload = bool(file_path) or file_content is not None
-        attribution = kwargs.pop("attribution", None)
-
         if not has_upload:
             log.warning("No file data provided, creating a file stub. Update it later.")
             file = {
@@ -427,6 +433,7 @@ class Files(SyncAPIResource):
                 "monetization": monetization,
                 "price": price,
                 "description": _coerce_description(description),
+                "license_id": license_id,
                 **kwargs,
                 "asset_type": "file",
                 "state": "in-progress",
@@ -465,6 +472,7 @@ class Files(SyncAPIResource):
                 "monetization": monetization,
                 "price": price,
                 "description": _coerce_description(description),
+                "license_id": license_id,
                 **kwargs,
                 "source": "api",
                 "metadata": metadata,
@@ -523,6 +531,8 @@ class Files(SyncAPIResource):
         name: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
+        license_id: Optional[str] = None,
+        attribution: Optional[dict] = None,
         **kwargs,
     ) -> File:
         """Update a file by ID.
@@ -541,6 +551,8 @@ class Files(SyncAPIResource):
             "name": name,
             "description": _coerce_description(description),
             "visibility": visibility,
+            "license_id": license_id,
+            "attribution": _optional_attribution(attribution),
         })
         update_params.update(kwargs)
 
