@@ -1,273 +1,241 @@
 # `ouro-py`
 
 [![Version](https://img.shields.io/pypi/v/ouro-py?color=%2334D058)](https://pypi.org/project/ouro-py)
+[![Python](https://img.shields.io/pypi/pyversions/ouro-py)](https://pypi.org/project/ouro-py)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?label=license)](https://opensource.org/licenses/MIT)
 
-The Ouro Python library provides convenient access to the Ouro REST API from any Python 3.7+
-application. Visit [Ouro](https://ouro.foundation) to learn more about the Ouro platform.
+The official Python SDK for [Ouro](https://ouro.foundation).
 
-## Documentation
+Use it to work with datasets and files, publish results, collaborate with teams, and run APIs
+shared on Ouro.
 
-The REST API documentation can be found on [ouro.foundation/docs/developers/api](https://ouro.foundation/docs/developers/api).
+## Install
 
-## Installation
-
-```sh
-# install from PyPI
+```bash
 pip install ouro-py
 ```
 
-## Usage
+`ouro-py` requires Python 3.10 or later.
 
-Generate an API key from your account settings by going to [ouro.foundation/settings/api-keys](https://ouro.foundation/settings/api-keys).
+## Quickstart
 
-Set your Ouro environment variables in a dotenv file, or using the shell:
+Create a Personal Access Token in your
+[Ouro settings](https://ouro.foundation/settings/api-keys), then export it:
 
 ```bash
-export OURO_API_KEY="your_api_key"
+export OURO_API_KEY="your-api-key"
 ```
 
-Init client:
+Create a client and start using the API:
 
 ```python
-import os
 from ouro import Ouro
 
-api_key = os.environ.get("OURO_API_KEY")
-ouro = Ouro(api_key=api_key)
+ouro = Ouro()
+
+dataset = ouro.datasets.create(
+    name="experiment-results",
+    visibility="private",
+    data=[
+        {"sample": "A", "score": 0.82},
+        {"sample": "B", "score": 0.91},
+    ],
+)
+
+results = ouro.datasets.query(dataset.id)
+print(results)
 ```
 
-Use the client to interface with the Ouro framework.
+The client reads `OURO_API_KEY` from your environment or a `.env` file. You can also pass it
+directly with `Ouro(api_key="...")`.
 
-### Create a dataset
+## Common workflows
+
+### Find assets
+
+Datasets, posts, files, services, routes, and quests are all assets. Search across them with
+`ouro.assets`:
 
 ```python
-rows = [
-    {"name": "Bob", "age": 30},
-    {"name": "Alice", "age": 27},
-    {"name": "Matt", "age": 26},
-]
+results = ouro.assets.search(
+    "battery materials",
+    asset_type="dataset",
+    scope="global",
+    limit=10,
+)
 
-res = ouro.datasets.create(
-    data=rows,  # also accepts a Pandas DataFrame or a single dict row
-    name="your_dataset_name",
-    description="your_dataset_description",
+asset = ouro.assets.retrieve(results[0]["id"])
+```
+
+Search scope can be `personal`, `org`, `global`, or `all`.
+
+### Query a dataset
+
+Dataset queries return pandas DataFrames by default:
+
+```python
+df = ouro.datasets.query(dataset_id)
+
+summary = ouro.datasets.query(
+    dataset_id,
+    """
+    select category, avg(score) as mean_score
+    from {{table}}
+    group by category
+    """,
+)
+```
+
+SQL queries are read-only. Use `{{table}}` as the dataset table placeholder.
+
+### Upload a file
+
+```python
+file = ouro.files.create(
+    name="Crystal structure",
+    file_path="./structure.cif",
     visibility="private",
 )
 ```
 
-`data` is required for `datasets.create(...)` and must include at least one row and one column.
-
-### Read a dataset
+Download any supported asset through the shared asset interface:
 
 ```python
-id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6" # penguins dataset
-
-# Retrieve a dataset
-dataset = ouro.datasets.retrieve(id)
-
-# Read dataset's data as a Pandas DataFrame
-df = ouro.datasets.query(id)
+download = ouro.assets.download(file.id, output_path="./downloads")
+print(download["path"])
 ```
 
-### Run SQL against a dataset
+### Publish a post
+
+Pass markdown directly or build richer content with the editor:
 
 ```python
-# Pass a SQL string as the 2nd arg to query(). Use {{table}} as the table
-# placeholder; read-only enforced server-side, 10s statement timeout.
-df = ouro.datasets.query(id, "SELECT species, count(*) AS n FROM {{table}} GROUP BY species")
-```
-
-### Update a dataset
-
-```python
-id = "3d82308b-0747-45e4-8045-c8f7d2f6c0a6"
-data_update = [
-    {"name": "Bob", "age": 30},
-    {"name": "Alice", "age": 27},
-    {"name": "Matt", "age": 26},
-]
-
-update = {
-    "visibility": "private",
-    "data": data_update,  # also accepts a DataFrame or single dict row
-}
-data = ouro.datasets.update("018f86da-b1be-7099-9556-fe88fb6882c3", **update)
-```
-
-### Save a dataset view
-
-```python
-view = ouro.datasets.create_view(
-    "3d82308b-0747-45e4-8045-c8f7d2f6c0a6",
-    name="Age Distribution",
-    sql_query="select age, count(*) as total from {{table}} group by age order by age",
-    config={
-        "type": "bar",
-        "xAxis": {"dataKey": "age", "type": "category"},
-        "series": [{"dataKey": "total", "name": "People"}],
-    },
-)
-
-views = ouro.datasets.list_views("3d82308b-0747-45e4-8045-c8f7d2f6c0a6")
-```
-
-
-### Create a post
-
-```python
-content = ouro.posts.Editor()
-content.new_header(level=1, text="Hello World")
-content.new_paragraph(text="This is a paragraph written in code.")
-
-post = ouro.posts.create(
-    content=content,
-    name="Hello World",
-    description="This is a post from the Python SDK",
-    visibility="public",
-)
-```
-
-You can also create a post from a local markdown file:
-
-```python
-post = ouro.posts.create(
-    name="Post From Markdown",
-    content_path="/absolute/path/to/post.md",
-    visibility="private",
-)
-```
-
-### Embed generated files in a post
-
-Use **partial assets** to embed files that don't exist on the platform yet. The
-backend will materialise them into real file assets when the post is saved.
-
-```python
-# Build a partial file payload from a local file
-partial = ouro.files.partial_from_file(
-    "/tmp/energy_curve.html",
-    name="Energy curve",
-    description="Energy vs. optimisation step",
-    content_type="text/html",
-)
-
-# Or from raw bytes
-partial = ouro.files.partial_from_bytes(
-    html_bytes,
-    "energy_curve.html",
-    name="Energy curve",
-    description="Energy vs. optimisation step",
-)
-
-# Embed it in a post
 editor = ouro.posts.Editor()
-editor.new_header(level=2, text="Results")
-editor.new_partial_asset(partial, view_mode="preview")
+editor.new_header(level=1, text="Experiment summary")
+editor.new_paragraph(text="The best sample reached a score of 0.91.")
+editor.new_inline_asset(dataset.id, asset_type="dataset", view_mode="preview")
 
 post = ouro.posts.create(
+    name="Experiment summary",
     content=editor,
-    name="Simulation Report",
     visibility="private",
 )
 ```
 
-`partial_from_file` and `partial_from_bytes` infer the MIME type and extension
-automatically when `content_type` is omitted. Pass an explicit `id` to
-`new_partial_asset` if you need a stable identifier for the embedded node.
+You can also use `content_markdown="..."` or `content_path="./report.md"`.
 
-### Read a post
+### Run an API
 
-```python
-id = "b9ff1bfd-b3ae-4e92-9afc-70b1e1e2011a" # The post id
-
-post = ouro.posts.retrieve(id)
-```
-
-
-### Update a post
+Ouro services expose individual endpoints as routes:
 
 ```python
-id = "b9ff1bfd-b3ae-4e92-9afc-70b1e1e2011a" # The post id
-
-new_content = ouro.posts.Editor()
-new_content.new_header(level=1, text="Hello World")
-new_content.new_paragraph(text="This is a paragraph, but different this time.")
-
-update = {
-    "name": "Hello World",
-    "visibility": "public",
-    "content": new_content,
-}
-post = ouro.posts.update(id, **update)
-```
-
-### Download any asset
-
-```python
-result = ouro.assets.download(
-    "3d82308b-0747-45e4-8045-c8f7d2f6c0a6",
-    output_path="./downloads/",
+action = ouro.routes.execute(
+    "organization/route-name",  # a route slug or UUID
+    body={"text": "hello"},
 )
 
-print(result["path"])
+print(action.status)
+print(action.final_data)
 ```
 
-`assets.download(...)` saves the asset to disk and returns the saved path, filename, content type, and byte count. Files download as their original bytes, datasets as `.csv`, and posts as `.html`.
+Routes can take Ouro assets directly:
 
-Read the full API docs at [ouro.foundation/docs/developers/api](https://ouro.foundation/docs/developers/api).
+```python
+action = ouro.routes.execute(
+    route_id,
+    input_assets={"structure": file.id},
+)
+```
 
+Synchronous and asynchronous routes use the same interface. Pass `wait=False` to return
+immediately, then use `ouro.routes.poll_action(action.id)` when you are ready for the result.
 
-## Contributing
+## API overview
 
-Contributing to the Python library is a great way to get involved with the Ouro community. Reach out to us on our [Github Discussions](https://github.com/orgs/ourofoundation/discussions) page if you want to get involved.
+Resources are organized under one client:
 
-## Set up a Local Development Environment
+| Namespace | Use it for |
+|---|---|
+| `ouro.assets` | Search, retrieve, share, download, and inspect lineage |
+| `ouro.datasets` | Create, query, update, and visualize tabular data |
+| `ouro.files` | Upload, retrieve, update, and search files |
+| `ouro.posts` | Publish markdown and embedded assets |
+| `ouro.routes` | Execute APIs and inspect actions |
+| `ouro.services` | Publish an API from an OpenAPI specification |
+| `ouro.quests` | Create work, submit entries, and review results |
+| `ouro.organizations` / `ouro.teams` | Manage workspaces, channels, and membership |
+| `ouro.comments` / `ouro.conversations` | Discuss assets and send messages |
+| `ouro.users` / `ouro.notifications` | Work with profiles and notifications |
+| `ouro.money` | Check balances, transactions, and paid access |
 
-### Clone the Repository
+See the [REST API reference](https://ouro.foundation/docs/developers/api) for the underlying API.
+
+## Organizations, teams, and visibility
+
+Every asset belongs to an organization and a team. When creating one, pass `org_id` and `team_id`
+to choose where it appears:
+
+```python
+dataset = ouro.datasets.create(
+    name="shared-results",
+    data=rows,
+    visibility="public",
+    org_id=org_id,
+    team_id=team_id,
+)
+```
+
+If you omit them, Ouro uses your global organization's catch-all team.
+
+Visibility can be `public`, `private`, or `monetized`. Private assets remain private until you
+share them explicitly:
+
+```python
+ouro.assets.share(asset_id, user_id, role="read")
+```
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OURO_API_KEY` | required | Personal Access Token |
+| `OURO_BACKEND_URL` | `https://api.ouro.foundation` | Ouro API base URL |
+
+For local development:
+
+```bash
+export OURO_BACKEND_URL="http://localhost:8003"
+```
+
+You can also pass `api_key` and `base_url` directly to `Ouro(...)`.
+
+## Error handling
+
+All SDK exceptions inherit from `OuroError`:
+
+```python
+from ouro import NotFoundError, OuroError
+
+try:
+    asset = ouro.assets.retrieve(asset_id)
+except NotFoundError:
+    print("Asset not found")
+except OuroError as exc:
+    print(f"Ouro request failed: {exc}")
+```
+
+## Development
 
 ```bash
 git clone git@github.com:ourofoundation/ouro-py.git
 cd ouro-py
+pip install -e .
+pytest
 ```
 
-### Create and Activate a Virtual Environment
+Questions and ideas are welcome in
+[GitHub Discussions](https://github.com/orgs/ourofoundation/discussions).
 
-We recommend activating your virtual environment. Click [here](https://docs.python.org/3/library/venv.html) for more about Python virtual environments and working with [conda](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment) and [poetry](https://python-poetry.org/docs/basic-usage/).
+## License
 
-Using venv (Python 3 built-in):
-
-```bash
-python3 -m venv env
-source env/bin/activate  # On Windows, use .\env\Scripts\activate
-```
-
-Using conda:
-
-```bash
-conda create --name ouro-py
-conda activate ouro-py
-```
-
-### PyPi installation
-
-Install the package (for > Python 3.7):
-
-```bash
-# with pip
-pip install ouro-py
-```
-
-### Local installation
-
-You can also install locally after cloning this repo. Install Development mode with `pip install -e`, which makes it so when you edit the source code the changes will be reflected in your python module.
-
-## Badges
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?label=license)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/pypi/pyversions/ouro-py)](https://pypi.org/project/ouro-py)
-[![Last commit](https://img.shields.io/github/last-commit/ourofoundation/ouro-py.svg?style=flat)](https://github.com/ourofoundation/ouro-py/commits)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/ourofoundation/ouro-py)](https://github.com/ourofoundation/ouro-py/commits)
-[![Github Stars](https://img.shields.io/github/stars/ourofoundation/ouro-py?style=flat&logo=github)](https://github.com/ourofoundation/ouro-py/stargazers)
-[![Github Forks](https://img.shields.io/github/forks/ourofoundation/ouro-py?style=flat&logo=github)](https://github.com/ourofoundation/ouro-py/network/members)
-[![Github Watchers](https://img.shields.io/github/watchers/ourofoundation/ouro-py?style=flat&logo=github)](https://github.com/ourofoundation/ouro-py)
-[![GitHub contributors](https://img.shields.io/github/contributors/ourofoundation/ouro-py)](https://github.com/ourofoundation/ouro-py/graphs/contributors)
+MIT
