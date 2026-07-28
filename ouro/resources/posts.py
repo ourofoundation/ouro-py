@@ -193,7 +193,27 @@ class Posts(SyncAPIResource):
         )
         return Post(**self._handle_response(request))
 
-    def delete(self, id: str) -> None:
-        """Delete a Post by its id."""
-        request = self.client.delete(f"/posts/{id}")
-        self._handle_response(request, raw=True)
+    def delete(
+        self, id: str, *, delete_children: bool = False, dry_run: bool = False
+    ) -> dict:
+        """Delete a Post by its id.
+
+        Args:
+            id: Post UUID.
+            delete_children: When True, also delete child assets linked via
+                ``parent_id`` (e.g. embedded files materialized with the post).
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children`` (list of ``{id, name, asset_type}``).
+            Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.delete(
+            f"/posts/{id}",
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._handle_response(request) or {}

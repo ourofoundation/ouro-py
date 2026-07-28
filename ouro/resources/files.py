@@ -603,10 +603,29 @@ class Files(SyncAPIResource):
         data = self._handle_response(request)
         return File(**data, data=None, _ouro=self.ouro)
 
-    def delete(self, id: str) -> None:
-        """Delete a file."""
-        request = self.client.delete(f"/files/{id}")
-        self._handle_response(request)
+    def delete(
+        self, id: str, *, delete_children: bool = False, dry_run: bool = False
+    ) -> dict:
+        """Delete a file.
+
+        Args:
+            id: File UUID.
+            delete_children: When True, also delete child assets linked via
+                ``parent_id``.
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.delete(
+            f"/files/{id}",
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._handle_response(request) or {}
 
     def share(
         self,

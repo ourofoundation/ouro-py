@@ -211,10 +211,30 @@ class Services(SyncAPIResource):
         request = self.client.put(endpoint, json={"service": service})
         return Service(**self._handle_response(request), _ouro=self.ouro)
 
-    def delete(self, id: str) -> None:
-        """Delete a Service and its routes by ID."""
-        request = self.client.delete(f"/services/{id}")
-        self._handle_response(request, raw=True)
+    def delete(
+        self, id: str, *, delete_children: bool = True, dry_run: bool = False
+    ) -> dict:
+        """Delete a Service by ID.
+
+        Args:
+            id: Service UUID.
+            delete_children: When True (default), also delete child routes.
+                Services with routes require this to be True.
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children`` (list of ``{id, name, asset_type}``).
+            Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.delete(
+            f"/services/{id}",
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._handle_response(request) or {}
 
     def retrieve(self, id: str) -> Service:
         """Retrieve a Service by its ID."""
@@ -235,3 +255,22 @@ class Services(SyncAPIResource):
         """Get all routes for a service."""
         request = self.client.get(f"/services/{id}/routes")
         return [Route(**r, _ouro=self.ouro) for r in self._handle_response(request)]
+
+    def set_authentication(
+        self,
+        id: str,
+        secret: str,
+        method: str = "Ouro",
+    ) -> Dict:
+        """Upsert the service owner's authentication secret (idempotent).
+
+        Used for ``authentication="Ouro"`` (Basic token) and
+        ``"Personal Access Token"`` services. Only the service owner may call
+        this. Returns ``{id, secret_id, method, rotated}`` where ``rotated`` is
+        False when the plaintext already matched.
+        """
+        request = self.client.put(
+            f"/services/{id}/authentication",
+            json={"method": method, "secret": secret},
+        )
+        return self._handle_response(request) or {}

@@ -960,10 +960,29 @@ class Datasets(SyncAPIResource):
             offset += len(page_rows)
         return rows
 
-    def delete(self, id: str) -> None:
-        """Delete a dataset by its id."""
-        request = self.client.delete(f"/datasets/{id}")
-        self._handle_response(request)
+    def delete(
+        self, id: str, *, delete_children: bool = False, dry_run: bool = False
+    ) -> dict:
+        """Delete a dataset by its id.
+
+        Args:
+            id: Dataset UUID.
+            delete_children: When True, also delete child assets linked via
+                ``parent_id``.
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.delete(
+            f"/datasets/{id}",
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._handle_response(request) or {}
 
     def _serialize_dataframe(self, data: pd.DataFrame) -> List[dict]:
         """Make a DataFrame serializable for JSON insertion.

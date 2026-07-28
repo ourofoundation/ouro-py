@@ -554,6 +554,53 @@ class Assets(SyncAPIResource):
         request = self.client.get(f"/assets/{id}/children")
         return self._handle_response(request) or []
 
+    def delete(
+        self,
+        id: str,
+        *,
+        delete_children: Optional[bool] = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """Delete any asset by ID, cascading children when requested.
+
+        Auto-detects asset type and routes to the type-specific delete
+        endpoint. When ``delete_children`` is omitted, services default to
+        cascading routes and other types leave children alone.
+
+        Args:
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.get(f"/assets/{id}/type")
+        data = self._handle_response(request) or {}
+        asset_type = data.get("asset_type")
+        if not asset_type:
+            raise NotFoundError(
+                f"Asset with id {id} has no asset_type",
+                response=request,
+                body=data,
+            )
+
+        if delete_children is None:
+            delete_children = asset_type == "service"
+
+        endpoints = {
+            "post": self.ouro.posts.delete,
+            "file": self.ouro.files.delete,
+            "dataset": self.ouro.datasets.delete,
+            "service": self.ouro.services.delete,
+            "quest": self.ouro.quests.delete,
+        }
+        deleter = endpoints.get(asset_type)
+        if deleter is None:
+            raise ValueError(
+                f"Cannot delete asset of type '{asset_type}' via assets.delete"
+            )
+        return deleter(id, delete_children=delete_children, dry_run=dry_run)
+
     def _mark_viewed(self, asset_id: str) -> None:
         """Best-effort view recording to keep unread counts in sync."""
         try:
