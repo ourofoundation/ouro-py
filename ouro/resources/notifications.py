@@ -20,6 +20,7 @@ class Notifications(SyncAPIResource):
         limit: int = 20,
         org_id: Optional[str] = None,
         unread_only: bool = False,
+        category: Optional[str] = None,
         with_pagination: bool = False,
     ) -> Union[List[Notification], Dict[str, Any]]:
         """Fetch paginated notifications for the authenticated user.
@@ -27,6 +28,9 @@ class Notifications(SyncAPIResource):
         Returns a list of :class:`Notification` by default. When
         ``with_pagination=True``, returns ``{"data": [Notification, ...],
         "pagination": ...}`` so callers can implement their own paging.
+
+        ``category`` accepts a single category or a comma-separated list of
+        categories (``mentions``, ``comments``, ``shares``, ``money``).
         """
         params = {
             "offset": offset,
@@ -36,6 +40,8 @@ class Notifications(SyncAPIResource):
             params["org_id"] = org_id
         if unread_only:
             params["unread_only"] = "true"
+        if category is not None:
+            params["category"] = category
 
         request = self.client.get("/user/notifications", params=params)
         if with_pagination:
