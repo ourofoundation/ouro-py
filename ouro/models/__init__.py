@@ -194,3 +194,19 @@ class Dataset(Asset):
 
 class Comment(Asset):
     content: Optional[PostContent] = None
+
+    @property
+    def text(self) -> str:
+        """Plain comment body.
+
+        Prefer full ``content.text``; fall back to the truncated
+        ``description.text`` preview the list endpoint may return.
+        """
+        if self.content is not None and self.content.text:
+            return self.content.text
+        desc = self.description
+        if isinstance(desc, dict):
+            return str(desc.get("text") or "")
+        if isinstance(desc, str):
+            return desc
+        return ""
