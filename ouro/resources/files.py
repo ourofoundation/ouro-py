@@ -538,8 +538,8 @@ class Files(SyncAPIResource):
         """Update a file by ID.
 
         Pass *one* of ``file_path`` or ``file_content`` + ``file_name`` to
-        replace the file data.  Pass name, description, or visibility to
-        update metadata.
+        replace the file data in place (same storage path). Pass name,
+        description, or visibility to update metadata.
         """
         log.debug("Updating a file")
         if file_path and file_content is not None:
@@ -556,49 +556,31 @@ class Files(SyncAPIResource):
         })
         update_params.update(kwargs)
 
-        file: dict = {"id": str(id), **update_params}
-        existing = self.retrieve(id)
-
         has_upload = bool(file_path) or file_content is not None
         if has_upload:
-            visibility_for_upload = visibility or existing.visibility
-
             if file_path:
                 mime_type = mimetypes.guess_type(file_path)[0]
-                local_file_size = os.path.getsize(file_path)
-                upload_data = self._upload_local_file(
-                    file_path, visibility_for_upload, mime_type,
-                )
+                resolved_name = file_name or os.path.basename(file_path)
+                with open(file_path, "rb") as f:
+                    content = f.read()
             else:
                 mime_type = mimetypes.guess_type(file_name)[0]
-                local_file_size = len(file_content)
-                upload_data = self._upload_content(
-                    file_content, file_name, visibility_for_upload, mime_type,
-                )
+                resolved_name = file_name
+                content = file_content
 
-            file_id = upload_data["id"]
-            bucket = upload_data["bucket"]
-            path_on_storage = upload_data["path"]
-            storage_name = os.path.basename(path_on_storage)
-            meta_info = self._handle_response(
-                self.client.get(f"/files/{file_id}/metadata")
-            )
-            server_metadata = (meta_info or {}).get("metadata") or {}
-
-            metadata = _build_file_metadata(
-                file_id, storage_name, bucket, path_on_storage,
-                mime_type, server_metadata, local_file_size,
-            )
-
-            file = {
-                **file,
-                "metadata": metadata,
-                "preview": (meta_info or {}).get("preview"),
-                "asset_type": "file",
+            body: dict[str, Any] = {
+                "file_name": resolved_name,
+                "file_base64": b64encode(content).decode("ascii"),
+                "content_type": mime_type,
             }
+            if update_params:
+                body["file"] = {"id": str(id), **update_params}
 
-        file = _strip_none(file)
+            request = self.client.put(f"/files/{id}/content", json=body)
+            data = self._handle_response(request)
+            return File(**data, data=None, _ouro=self.ouro)
 
+        file = _strip_none({"id": str(id), **update_params})
         request = self.client.put(f"/files/{id}", json={"file": file})
         data = self._handle_response(request)
         return File(**data, data=None, _ouro=self.ouro)
