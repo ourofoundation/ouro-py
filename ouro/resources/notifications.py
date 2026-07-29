@@ -30,7 +30,8 @@ class Notifications(SyncAPIResource):
         "pagination": ...}`` so callers can implement their own paging.
 
         ``category`` accepts a single category or a comma-separated list of
-        categories (``mentions``, ``comments``, ``shares``, ``money``).
+        categories (``mentions``, ``comments``, ``references``, ``shares``,
+        ``money``, ``actions``).
         """
         params = {
             "offset": offset,
