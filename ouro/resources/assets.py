@@ -169,14 +169,20 @@ class Assets(SyncAPIResource):
         params["offset"] = offset
 
         scope = kwargs.pop("scope", None)
+        if isinstance(scope, str):
+            scope = scope.strip() or None
         if scope is not None:
             params["scope"] = scope
 
         sort = kwargs.pop("sort", None)
+        if isinstance(sort, str):
+            sort = sort.strip() or None
         if sort is not None:
             params["sort"] = sort
 
         time_window = kwargs.pop("time_window", None)
+        if isinstance(time_window, str):
+            time_window = time_window.strip() or None
         if time_window is not None:
             params["time_window"] = time_window
 
@@ -187,8 +193,15 @@ class Assets(SyncAPIResource):
         filter_keys = ("asset_type", "org_id", "team_id", "user_id", "visibility", "source", "top_level_only")
         filters: dict[str, Any] = {}
         for key in filter_keys:
-            if key in kwargs:
-                filters[key] = kwargs.pop(key)
+            if key not in kwargs:
+                continue
+            value = kwargs.pop(key)
+            # Blank strings are "unset" — Postgres rejects "" for uuid/enum cols.
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            filters[key] = value
         if filters:
             params["filters"] = json.dumps(filters)
 
