@@ -131,22 +131,18 @@ def _route_failure_info(response: Any) -> Dict[str, Any]:
         or envelope.get("message")
         or "Action failed"
     )
-    service_url = error.get("serviceUrl")
     retryable = error.get("retryable")
     if retryable is None and status_code is not None:
         retryable = status_code in {408, 429, 500, 502, 503, 504}
 
-    is_external = (
-        error_type == "external_service_error"
-        or service_url is not None
-        or (isinstance(code, str) and code.startswith("external_service"))
+    is_external = error_type == "external_service_error" or (
+        isinstance(code, str) and code.startswith("external_service")
     )
     return {
         "message": str(message),
         "status_code": status_code,
         "code": code,
         "type": error_type,
-        "service_url": service_url,
         "retryable": retryable,
         "is_external": is_external,
     }
@@ -167,7 +163,6 @@ def _raise_action_failure(action: Action) -> None:
         kwargs.update(
             {
                 "status_code": failure["status_code"],
-                "service_url": failure["service_url"],
                 "code": failure["code"],
             }
         )

@@ -193,7 +193,6 @@ class ExternalServiceError(RouteExecutionError):
         status: Optional[str] = None,
         response: object | None = None,
         status_code: Optional[int] = None,
-        service_url: Optional[str] = None,
         retryable: Optional[bool] = None,
         code: Optional[str] = None,
     ) -> None:
@@ -205,5 +204,4 @@ class ExternalServiceError(RouteExecutionError):
             retryable=retryable,
         )
         self.status_code = status_code
-        self.service_url = service_url
         self.code = code

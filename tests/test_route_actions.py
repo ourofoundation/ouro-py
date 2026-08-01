@@ -444,7 +444,6 @@ class TestRouteActions(unittest.TestCase):
                                     "code": "external_service_error",
                                     "message": "Service unavailable",
                                     "status": 503,
-                                    "serviceUrl": "https://service.example.test",
                                     "retryable": True,
                                 },
                             },
@@ -458,7 +457,6 @@ class TestRouteActions(unittest.TestCase):
             Routes(ouro).poll_action("00000000-0000-0000-0000-000000000001")
 
         self.assertEqual(ctx.exception.status_code, 503)
-        self.assertEqual(ctx.exception.service_url, "https://service.example.test")
         self.assertTrue(ctx.exception.retryable)
 
 
