@@ -27,6 +27,7 @@ class ActionLog(BaseModel):
     origin: Optional[str] = None
     source: Optional[str] = None
     client: Optional[str] = None
+    sdk: Optional[str] = None
     api_key_name: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None

@@ -199,6 +199,11 @@ class Ouro:
     # Connection options
     base_url: str | None
 
+    # Product identity for X-Ouro-Client (survives token refresh).
+    # User-Agent is always ouro-py/<ver>; backend stores it as logs.sdk.
+    _ouro_client: str
+    _user_agent: str
+
     def __init__(
         self,
         *,
@@ -206,6 +211,7 @@ class Ouro:
         organization: str | None = None,
         project: str | None = None,
         base_url: str | None = None,
+        client: str | None = None,
     ) -> None:
         """Construct a new synchronous ouro client instance.
 
@@ -213,6 +219,10 @@ class Ouro:
         - `api_key` from `OURO_API_KEY`
         - `organization` from `OURO_ORG_ID`
         - `project` from `OURO_PROJECT_ID`
+
+        ``client`` sets ``X-Ouro-Client`` (product identity for activity logs).
+        Wrappers should pass their own name/version (e.g. ``"ouro-mcp/0.7.10"``).
+        ``User-Agent`` is always ``ouro-py/<ver>`` and is stored separately as ``sdk``.
         """
         setup_logging()
 
@@ -232,6 +242,9 @@ class Ouro:
             project = os.environ.get("OURO_PROJECT_ID")
         self.project = project
 
+        self._user_agent = f"ouro-py/{__version__}"
+        self._ouro_client = (client or "").strip() or self._user_agent
+
         # Mark the expiration of the last token refresh so we can deduplicate token refresh events
         self.last_token_refresh_expiration = None
 
@@ -245,7 +258,8 @@ class Ouro:
         self._raw_client = httpx.Client(
             base_url=self.base_url,
             headers={
-                "User-Agent": f"ouro-py/{__version__}",
+                "User-Agent": self._user_agent,
+                "X-Ouro-Client": self._ouro_client,
             },
             timeout=DEFAULT_TIMEOUT,
             limits=DEFAULT_CONNECTION_LIMITS,
@@ -272,7 +286,6 @@ class Ouro:
         self.notifications = Notifications(self)
         self.organizations = Organizations(self)
         self.teams = Teams(self)
-
     def _make_status_error(
         self,
         err_msg: str,
@@ -366,7 +379,10 @@ class Ouro:
         self.access_token = data["access_token"]
         self.refresh_token = data["refresh_token"]
 
-        self._raw_client.headers["X-Ouro-Client"] = f"ouro-py/{__version__}"
+        # Re-apply on every exchange so token refresh cannot clobber a
+        # wrapper identity (e.g. ouro-mcp) set via the constructor.
+        self._raw_client.headers["X-Ouro-Client"] = self._ouro_client
+        self._raw_client.headers["User-Agent"] = self._user_agent
         api_key_name = data.get("api_key_name")
         if api_key_name:
             self.api_key_name = api_key_name
