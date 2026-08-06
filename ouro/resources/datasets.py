@@ -567,12 +567,12 @@ class Datasets(SyncAPIResource):
 
         Each field includes Postgres keys (``column_name``, ``data_type``) and
         agent-friendly aliases (``name``, ``type``). Prefer either pair.
+        Column names are lowercase snake_case — use them unquoted in SQL.
         """
         request = self.client.get(f"/datasets/{id}/schema")
         fields = self._handle_response(request) or []
         if not isinstance(fields, list):
             return fields
-        # Belt-and-suspenders for older backends that only return Postgres keys.
         for field in fields:
             if not isinstance(field, dict):
                 continue
@@ -607,11 +607,11 @@ class Datasets(SyncAPIResource):
            use this path.
         3. **SQL** (``sql`` set): runs a read-only PostgreSQL query against
            the dataset's table. Use ``{{table}}`` as a placeholder for the
-           fully-qualified table name. Read-only is enforced server-side and
-           queries time out after 10 seconds. Standard PostgreSQL syntax —
-           ``SELECT``, ``JOIN``, ``GROUP BY``, window functions, …
-           ``limit``/``offset``/``with_pagination`` are not supported in this
-           mode; include ``LIMIT``/``OFFSET`` directly in the SQL.
+           fully-qualified table name. Column names are lowercase snake_case
+           — use them unquoted. Read-only is enforced server-side and queries
+           time out after 10 seconds. ``limit``/``offset``/``with_pagination``
+           are not supported in this mode; include ``LIMIT``/``OFFSET``
+           directly in the SQL.
 
         Args:
             id: Dataset UUID.
@@ -631,8 +631,8 @@ class Datasets(SyncAPIResource):
             >>> ouro.datasets.query(id, "SELECT count(*) FROM {{table}}")
             >>> ouro.datasets.query(
             ...     id,
-            ...     "SELECT species, AVG(weight) AS avg "
-            ...     "FROM {{table}} GROUP BY species ORDER BY avg DESC",
+            ...     "SELECT formula, mae_ev FROM {{table}} "
+            ...     "ORDER BY mae_ev DESC NULLS LAST LIMIT 10",
             ... )
         """
         if not id:
