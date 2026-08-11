@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -20,11 +21,34 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Quests"]
 
 
+def _parse_quest_item(value: Any) -> Optional[Dict[str, Any]]:
+    """Return an item object embedded in JSON text, if present."""
+    if isinstance(value, dict):
+        if "description" in value:
+            return value
+        value = value.get("text")
+    elif not isinstance(value, str):
+        value = getattr(value, "text", None)
+    if not isinstance(value, str) or not value.lstrip().startswith("{"):
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) and "description" in parsed else None
+
+
 def _normalize_quest_item_input(item: Union[str, Dict]) -> Dict[str, Any]:
-    """Lift plain strings and coerce description to TipTap Content."""
+    """Lift plain strings / stringified item JSON and coerce description."""
     if isinstance(item, str):
-        return {"description": _coerce_description(item)}
-    row = dict(item)
+        row = _parse_quest_item(item) or {"description": item}
+    else:
+        row = dict(item)
+
+    nested = _parse_quest_item(row.get("description"))
+    if nested:
+        row.update(nested)
+
     if "description" in row and row["description"] is not None:
         row["description"] = _coerce_description(row["description"])
     return row

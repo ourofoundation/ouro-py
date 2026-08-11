@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ import httpx
 
 from ouro._exceptions import ConflictError, InternalServerError
 from ouro.models import Entry, Quest, QuestItem
+from ouro.resources.content import Content
 from ouro.resources.quests import Quests
 
 
@@ -56,6 +58,30 @@ class _FakeOuro:
 
 
 class TestQuestItems(unittest.TestCase):
+    def test_create_items_unwraps_item_json_from_content(self) -> None:
+        ouro = _FakeOuro([_FakeResponse({"data": []})])
+        item = {
+            "description": Content(
+                text=json.dumps(
+                    {
+                        "description": "Measure Curie temperature",
+                        "expected_asset_type": "file",
+                        "sort_order": 1,
+                    }
+                )
+            )
+        }
+
+        Quests(ouro).create_items(
+            "00000000-0000-0000-0000-000000000002",
+            [item],
+        )
+
+        sent = ouro.client.requests[0]["json"]["items"][0]
+        self.assertEqual(sent["description"]["text"], "Measure Curie temperature")
+        self.assertEqual(sent["expected_asset_type"], "file")
+        self.assertEqual(sent["sort_order"], 1)
+
     def test_quest_item_preserves_waiting_metadata(self) -> None:
         item = QuestItem(
             id="00000000-0000-0000-0000-000000000001",
