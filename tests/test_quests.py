@@ -74,6 +74,28 @@ class TestQuestItems(unittest.TestCase):
         self.assertEqual(dumped["waiting_until"], "2026-07-10T00:00:00Z")
         self.assertEqual(dumped["waiting_check_every"], "1d")
 
+    def test_quest_item_accepts_tiptap_content_description(self) -> None:
+        content = {
+            "text": "Link the dataset",
+            "json": {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "Link the dataset"}],
+                    }
+                ],
+            },
+        }
+        item = QuestItem(
+            id="00000000-0000-0000-0000-000000000001",
+            quest_id="00000000-0000-0000-0000-000000000002",
+            description=content,
+            status="pending",
+        )
+        self.assertEqual(item.description["text"], "Link the dataset")
+        self.assertEqual(item.description["json"]["type"], "doc")
+
     def test_retrieve_preserves_waiting_metadata_on_nested_items(self) -> None:
         ouro = _FakeOuro(
             [
@@ -93,7 +115,23 @@ class TestQuestItems(unittest.TestCase):
                                 {
                                     "id": "00000000-0000-0000-0000-000000000001",
                                     "quest_id": "00000000-0000-0000-0000-000000000010",
-                                    "description": "Wait for reply",
+                                    "description": {
+                                        "text": "Wait for reply",
+                                        "json": {
+                                            "type": "doc",
+                                            "content": [
+                                                {
+                                                    "type": "paragraph",
+                                                    "content": [
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Wait for reply",
+                                                        }
+                                                    ],
+                                                }
+                                            ],
+                                        },
+                                    },
                                     "status": "in_progress",
                                     "waiting_on": "reply from authors",
                                     "waiting_until": "2026-07-10T00:00:00Z",

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Literal
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Literal, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -74,7 +74,9 @@ class QuestDetails(BaseModel):
 class QuestItem(BaseModel):
     id: Optional[UUID] = None
     quest_id: Optional[UUID] = None
-    description: str = ""
+    # TipTap Content {json, text} from the API; plain strings still accepted
+    # for create/update payloads and older fixtures.
+    description: Union[str, DescriptionDict] = ""
     status: Literal["pending", "in_progress", "done", "skipped"] = "pending"
     auto_skipped: bool = False
     status_before_auto_skip: Optional[
@@ -100,6 +102,8 @@ class QuestItem(BaseModel):
     waiting_on: Optional[str] = None
     waiting_until: Optional[str] = None
     waiting_check_every: Optional[str] = None
+    embedded_assets: Optional[List[Any]] = None
+    users: Optional[List[Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

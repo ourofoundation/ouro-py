@@ -20,6 +20,16 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Quests"]
 
 
+def _normalize_quest_item_input(item: Union[str, Dict]) -> Dict[str, Any]:
+    """Lift plain strings and coerce description to TipTap Content."""
+    if isinstance(item, str):
+        return {"description": _coerce_description(item)}
+    row = dict(item)
+    if "description" in row and row["description"] is not None:
+        row["description"] = _coerce_description(row["description"])
+    return row
+
+
 class Quests(SyncAPIResource):
     def Content(self, **kwargs) -> "Content":
         """Create a Content instance connected to the Ouro client."""
@@ -110,9 +120,9 @@ class Quests(SyncAPIResource):
                 ``submitted`` or ``accepted``). Continuous quests allow unlimited
                 entries per item while the quest is open.
             status: Quest lifecycle status ("draft", "open", "closed", "cancelled").
-            items: List of task descriptions (strings) or dicts with item fields
-                   (description, expected_asset_type, reward_currency,
-                   reward_amount, etc.).
+            items: List of task descriptions (strings), TipTap Content dicts, or
+                   full item objects (description, expected_asset_type,
+                   reward_currency, reward_amount, etc.).
         """
         quest = _strip_none(
             {
@@ -122,8 +132,7 @@ class Quests(SyncAPIResource):
                 "type": type,
                 "status": status,
                 "items": [
-                    {"description": i} if isinstance(i, str) else i
-                    for i in (items or [])
+                    _normalize_quest_item_input(i) for i in (items or [])
                 ]
                 or None,
                 "license_id": license_id,
@@ -221,11 +230,10 @@ class Quests(SyncAPIResource):
         """Batch-create items on a quest.
 
         Args:
-            items: List of task descriptions (strings) or dicts with item fields.
+            items: List of task descriptions (strings), TipTap Content dicts, or
+                   full item objects.
         """
-        rows = [
-            {"description": i} if isinstance(i, str) else i for i in items
-        ]
+        rows = [_normalize_quest_item_input(i) for i in items]
         request = self.client.post(
             f"/quests/{quest_id}/items",
             json={"items": rows},
@@ -237,9 +245,12 @@ class Quests(SyncAPIResource):
 
     def update_item(self, quest_id: str, item_id: str, **kwargs) -> QuestItem:
         """Update an item's metadata, status, rewards, or notes."""
+        item = _strip_none(kwargs)
+        if "description" in item and item["description"] is not None:
+            item["description"] = _coerce_description(item["description"])
         request = self.client.put(
             f"/quests/{quest_id}/items/{item_id}",
-            json={"item": _strip_none(kwargs)},
+            json={"item": item},
         )
         return QuestItem(**self._handle_response(request))
 
