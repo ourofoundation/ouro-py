@@ -8,6 +8,10 @@ import socketio
 log = logging.getLogger(__name__)
 
 
+CONNECT_WAIT_TIMEOUT_S = 5
+REFRESH_GAP_S = 0.05
+
+
 class OuroWebSocket:
     def __init__(self, ouro):
         self.ouro = ouro
@@ -45,12 +49,13 @@ class OuroWebSocket:
             self.sio.connect(
                 self.ouro.websocket_url,
                 retry=True,
+                wait=True,
+                wait_timeout=CONNECT_WAIT_TIMEOUT_S,
                 namespaces=["/"],
                 auth={
                     "access_token": access_token or self.ouro.access_token,
                 },
             )
-            self.sio.sleep(1)
             if not self.is_connected:
                 raise RuntimeError(
                     f"Websocket connection failed: {self._last_connect_error or 'unknown error'}"
@@ -62,9 +67,14 @@ class OuroWebSocket:
     def disconnect(self):
         self.sio.disconnect()
 
+    def ensure_connected(self, access_token: Optional[str] = None) -> None:
+        """Connect if needed and leave the socket open for later emits."""
+        if not self.is_connected:
+            self.connect(access_token)
+
     def refresh_connection(self, access_token: Optional[str] = None):
         self.disconnect()
-        self.sio.sleep(1)
+        self.sio.sleep(REFRESH_GAP_S)
         self.connect(access_token)
 
     def handle_disconnect(self):
