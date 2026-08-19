@@ -88,6 +88,33 @@ summary = ouro.datasets.query(
 
 SQL queries are read-only. Use `{{table}}` as the dataset table placeholder.
 
+### Save a dataset view
+
+A view is a saved visualization: SQL plus a chart config. Provide both, or pass
+`prompt` and the API generates them:
+
+```python
+view = ouro.datasets.create_view(
+    dataset.id,
+    name="Score by sample",
+    sql_query=(
+        "SELECT sample, avg(score) AS mean_score "
+        "FROM {{table}} GROUP BY sample"
+    ),
+    config={
+        "type": "bar",
+        "xAxis": {"dataKey": "sample"},
+        "series": [{"dataKey": "mean_score", "name": "Mean score"}],
+    },
+)
+
+# Or: ouro.datasets.create_view(dataset.id, name="Top samples", prompt="Which samples score highest?")
+```
+
+List, update, and delete with `list_views`, `update_view`, and `delete_view`.
+Embed the chart in a post with
+`display_config={"visualizationId": view["id"]}` on `new_inline_asset`.
+
 ### Upload a file
 
 ```python
