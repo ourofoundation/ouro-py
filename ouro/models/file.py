@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal, Optional, Union
+from typing import TYPE_CHECKING, List, Literal, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -34,6 +34,9 @@ class File(Asset):
         default=None,
         union_mode="left_to_right",
     )
+    # CSV uploads store the first parsed rows here (same shape as Dataset.preview).
+    # Other file types leave this null. Asset.preview is a dict (TipTap for posts).
+    preview: Optional[List[dict]] = None
     data: Optional[FileData] = None
     _ouro: Optional["Ouro"] = None
 

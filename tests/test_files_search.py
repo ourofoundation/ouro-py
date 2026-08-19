@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from uuid import UUID
 
+from ouro.models.file import File
 from ouro.resources.files import (
     Files,
     _merge_file_metadata_filters,
@@ -25,6 +26,35 @@ def _file_hit(file_id: str, name: str) -> dict:
         "created_at": now,
         "last_updated": now,
     }
+
+
+class TestFilePreviewShape(unittest.TestCase):
+    def test_csv_row_preview_list_is_accepted(self) -> None:
+        """CSV files persist preview as a list of row dicts, not a TipTap object."""
+        now = datetime.now(timezone.utc)
+        file = File(
+            id="25fa1d37-cd9c-4b16-990e-31231aea9a35",
+            user_id="56c30e2b-9868-4313-8927-75459083649d",
+            org_id="00000000-0000-0000-0000-000000000000",
+            team_id="01954d5f-fcea-7970-b8d8-b68879df9d7f",
+            name="RE-free magnet campaign — full master table (77 rows)",
+            asset_type="file",
+            visibility="public",
+            created_at=now,
+            last_updated=now,
+            metadata={
+                "id": "25fa1d37-cd9c-4b16-990e-31231aea9a35",
+                "name": "019fcd4d-b3bd-76b4-99b6-758ac766cc88.csv",
+                "path": "56c30e2b-9868-4313-8927-75459083649d/019fcd4d-b3bd-76b4-99b6-758ac766cc88.csv",
+                "size": 6463,
+                "type": "text/csv",
+                "bucket": "public-files",
+                "extension": "csv",
+            },
+            preview=[{"K1": "0.465", "Tc": "695.05", "label": "Fe2B"}],
+        )
+        self.assertEqual(file.preview[0]["label"], "Fe2B")
+        self.assertEqual(file.metadata.extension, "csv")
 
 
 class TestFileSearchHelpers(unittest.TestCase):
