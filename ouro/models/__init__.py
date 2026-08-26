@@ -33,6 +33,7 @@ __all__ = [
     "Entry",
     "QuestItem",
     "QuestProgress",
+    "QuestLeaderboardRow",
     "Conversation",
     "File",
     "FileData",
@@ -94,8 +95,11 @@ class QuestItem(BaseModel):
     completed_entry_id: Optional[UUID] = None
     eval_route_id: Optional[UUID] = None
     eval_score_path: Optional[str] = None
+    eval_categories_path: Optional[str] = None
     eval_pass_min: Optional[float] = None
     eval_pass_max: Optional[float] = None
+    leaderboard_enabled: bool = False
+    leaderboard_order: Optional[Literal["desc", "asc"]] = "desc"
     submission_assets: Optional[dict] = None
     eval_static_inputs: Optional[dict] = None
     notes: Optional[str] = None
@@ -125,6 +129,7 @@ class Entry(DictCompatModel):
     reviewed_at: Optional[str] = None
     eval_action_id: Optional[UUID] = None
     eval_score: Optional[float] = None
+    eval_category_scores: Optional[dict] = None
     eval_status: Optional[str] = None
     judge_signals: Optional[dict] = None
     created_at: Optional[str] = None
@@ -144,6 +149,19 @@ class QuestProgress(BaseModel):
     total: int = 0
     resolved: int = 0
     remaining: int = 0
+
+
+class QuestLeaderboardRow(BaseModel):
+    placement: int
+    entry_id: Optional[UUID] = None
+    score: Optional[float] = None
+    status: Optional[str] = None
+    eval_status: Optional[str] = None
+    eval_action_id: Optional[UUID] = None
+    created_at: Optional[str] = None
+    category_scores: Optional[dict] = None
+    user: Optional[Any] = None
+    asset: Optional[Any] = None
 
 
 class Quest(Asset):

@@ -11,7 +11,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Entry, Quest, QuestItem
+from ouro.models import Entry, Quest, QuestItem, QuestLeaderboardRow
 
 from .content import Content
 
@@ -390,6 +390,37 @@ class Quests(SyncAPIResource):
         if isinstance(data, list):
             return [Entry(**entry) for entry in data]
         return []
+
+    def list_leaderboard(
+        self,
+        quest_id: str,
+        item_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        with_pagination: bool = False,
+    ) -> Union[List[QuestLeaderboardRow], dict]:
+        """List ranked scored entries for a leaderboard-enabled quest item.
+
+        Rows are every non-rejected entry with a numeric ``eval_score``.
+        Placement is 1-based and stable: score (direction from the item's
+        ``leaderboard_order``), then earliest submission, then entry id.
+        """
+        request = self.client.get(
+            f"/quests/{quest_id}/items/{item_id}/leaderboard",
+            params=_strip_none({"limit": limit, "offset": offset}),
+        )
+        body = self._handle_response(request, raw=True) or {}
+        rows = [
+            QuestLeaderboardRow(**row) for row in (body.get("data") or [])
+        ]
+        if with_pagination:
+            return {
+                "data": rows,
+                "pagination": body.get("pagination") or {},
+                "item": body.get("item"),
+            }
+        return rows
 
     def review_entry(
         self,

@@ -415,5 +415,61 @@ class TestQuestEntries(unittest.TestCase):
         )
 
 
+class TestQuestLeaderboard(unittest.TestCase):
+    def test_list_leaderboard_returns_ranked_rows(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": [
+                            {
+                                "placement": 1,
+                                "entry_id": "00000000-0000-0000-0000-000000000001",
+                                "score": 0.91,
+                                "status": "accepted",
+                                "eval_status": "passed",
+                                "category_scores": {
+                                    "accuracy": 0.95,
+                                    "completeness": 0.8,
+                                },
+                            }
+                        ],
+                        "pagination": {"hasMore": False, "limit": 50},
+                        "item": {
+                            "id": "00000000-0000-0000-0000-000000000003",
+                            "leaderboard_order": "desc",
+                        },
+                    }
+                )
+            ]
+        )
+
+        page = Quests(ouro).list_leaderboard(
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003",
+            limit=50,
+            offset=0,
+            with_pagination=True,
+        )
+
+        self.assertEqual(page["data"][0].placement, 1)
+        self.assertEqual(page["data"][0].score, 0.91)
+        self.assertEqual(
+            page["data"][0].category_scores,
+            {"accuracy": 0.95, "completeness": 0.8},
+        )
+        self.assertEqual(page["item"]["leaderboard_order"], "desc")
+        self.assertEqual(
+            ouro.client.requests[0],
+            {
+                "path": (
+                    "/quests/00000000-0000-0000-0000-000000000002/items/"
+                    "00000000-0000-0000-0000-000000000003/leaderboard"
+                ),
+                "params": {"limit": 50, "offset": 0},
+            },
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
