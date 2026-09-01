@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -28,7 +29,8 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Datasets"]
 
 BATCH_INSERT_WARNING_THRESHOLD = 10_000
-DATASET_UPLOAD_TARGET_BYTES = 1_000_000
+DATASET_UPLOAD_TARGET_BYTES = 6_000_000
+GZIP_MIN_BYTES = 2_048
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 DatasetUploadMode = Literal["append", "overwrite", "upsert"]
 DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
@@ -172,17 +174,36 @@ class Datasets(SyncAPIResource):
         if max_bytes <= 0:
             raise ValueError("max_bytes must be positive.")
 
+        envelope = cls._json_size_bytes({"rows": [], "mode": mode})
         batch: list[dict] = []
+        size = envelope
         for row in rows:
-            candidate = [*batch, row]
-            payload = {"rows": candidate, "mode": mode}
-            if batch and cls._json_size_bytes(payload) > max_bytes:
+            row_bytes = cls._json_size_bytes(row) + 1
+            if batch and size + row_bytes > max_bytes:
                 yield batch
                 batch = [row]
+                size = envelope + row_bytes
             else:
-                batch = candidate
+                batch.append(row)
+                size += row_bytes
         if batch:
             yield batch
+
+    def _post_json(self, path: str, payload: Any):
+        """POST JSON, gzipping bodies above GZIP_MIN_BYTES."""
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        if len(raw) >= GZIP_MIN_BYTES:
+            return self.client.post(
+                path,
+                content=gzip.compress(raw, compresslevel=1),
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                },
+            )
+        return self.client.post(path, json=payload)
 
     @staticmethod
     def _merge_warnings(
@@ -262,9 +283,13 @@ class Datasets(SyncAPIResource):
             else:
                 request_mode = mode
             try:
-                request = self.client.post(
+                request = self._post_json(
                     f"/datasets/{id}/data",
-                    json={"rows": batch, "mode": request_mode},
+                    {
+                        "rows": batch,
+                        "mode": request_mode,
+                        "finalize": not batches,
+                    },
                 )
                 body = self._handle_response(request, raw=True) or {}
             except (APIStatusError, httpx.HTTPStatusError) as exc:
@@ -451,6 +476,10 @@ class Datasets(SyncAPIResource):
         create_table_sql = create_table_sql.replace(
             "TIMESTAMP", "TIMESTAMP WITH TIME ZONE"
         )
+        # pandas get_schema uses the SQLite type map (int64 → INTEGER).
+        # SQLite INTEGER is 64-bit; Postgres INTEGER is 32-bit, so values
+        # above 2^31-1 fail with "out of range for type integer".
+        create_table_sql = create_table_sql.replace(" INTEGER", " BIGINT")
         create_table_sql = create_table_sql.replace(
             "CREATE TABLE", "CREATE TABLE IF NOT EXISTS"
         )
@@ -490,18 +519,18 @@ class Datasets(SyncAPIResource):
         body = inline_body if inline_create else base_body
 
         try:
-            request = self.client.post(
+            request = self._post_json(
                 "/datasets/create/from-schema",
-                json={"dataset": body},
+                {"dataset": body},
             )
         except (APIStatusError, httpx.HTTPStatusError) as exc:
             if not inline_create or not self._is_payload_too_large(exc):
                 raise
             inline_create = False
             body = base_body
-            request = self.client.post(
+            request = self._post_json(
                 "/datasets/create/from-schema",
-                json={"dataset": body},
+                {"dataset": body},
             )
         response_body = self._handle_response(request, raw=True) or {}
         response_data = (
@@ -538,9 +567,9 @@ class Datasets(SyncAPIResource):
             and not create_ingested_rows
             and not self._dataset_has_rows(str(created.id))
         ):
-            upload_req = self.client.post(
+            upload_req = self._post_json(
                 f"/datasets/{created.id}/data",
-                json={"rows": insert_data, "mode": "append"},
+                {"rows": insert_data, "mode": "append", "finalize": True},
             )
             _attach_ingest(created, self._handle_response(upload_req, raw=True) or {})
 
@@ -775,15 +804,18 @@ class Datasets(SyncAPIResource):
             **kwargs,
         })
 
-        request = self.client.put(
-            f"/datasets/{id}",
-            json={"dataset": body},
-        )
-        response_data = self._handle_response(request)
-
         df = self._coerce_dataframe(data, parameter_name="data")
         if df is not None and (df.empty or len(df.columns) == 0):
             raise ValueError("data must contain at least one row and one column.")
+
+        skip_put = df is not None and not body
+        response_data: Any = None
+        if not skip_put:
+            request = self.client.put(
+                f"/datasets/{id}",
+                json={"dataset": body},
+            )
+            response_data = self._handle_response(request)
 
         upload_body: Any = None
         if df is not None:
@@ -796,9 +828,12 @@ class Datasets(SyncAPIResource):
                 f"Ingested {len(insert_data)} rows into dataset {id} using mode={data_mode}"
             )
 
-        updated = Dataset(
-            **self._require_dataset_payload(response_data, operation="update")
-        )
+        if response_data is None:
+            updated = self.retrieve(id)
+        else:
+            updated = Dataset(
+                **self._require_dataset_payload(response_data, operation="update")
+            )
         return _attach_ingest(updated, upload_body)
 
     def add_column(
@@ -1019,7 +1054,9 @@ class Datasets(SyncAPIResource):
                     return None
                 return fval
             if isinstance(val, (list, dict)):
-                return val
+                # pandas maps object/JSON columns to TEXT. Sending a nested
+                # object makes the backend String() it to "[object Object]".
+                return json.dumps(val, ensure_ascii=False, default=str)
             return str(val)
 
         return [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json as json_module
 import unittest
 from unittest.mock import patch
@@ -55,13 +56,22 @@ class _FakeClient:
         self.create_extra = create_extra or {}
         self.requests: list[dict] = []
 
-    def post(self, path: str, json=None):
-        self.requests.append({"method": "POST", "path": path, "json": json})
+    def post(self, path: str, json=None, content=None, headers=None):
+        if json is None and content is not None:
+            raw = content if isinstance(content, (bytes, bytearray)) else bytes(content)
+            if (headers or {}).get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            json = json_module.loads(raw.decode("utf-8"))
+        self.requests.append(
+            {"method": "POST", "path": path, "json": json, "headers": headers}
+        )
         if path == "/datasets/create/from-schema":
             return _FakeResponse(
                 {"data": self.create_data, "error": None, **self.create_extra}
             )
-        return _FakeResponse({"data": {"inserted": len(json.get("rows", []))}, "error": None})
+        return _FakeResponse(
+            {"data": {"inserted": len((json or {}).get("rows", []))}, "error": None}
+        )
 
     def put(self, path: str, json=None):
         self.requests.append({"method": "PUT", "path": path, "json": json})
@@ -71,6 +81,9 @@ class _FakeClient:
         self.requests.append({"method": "GET", "path": path, "params": params})
         if path.endswith("/stats"):
             return _FakeResponse({"data": {"count": self.stats_count}, "error": None})
+        parts = path.strip("/").split("/")
+        if len(parts) == 2 and parts[0] == "datasets":
+            return _FakeResponse({"data": self.create_data, "error": None})
         return _FakeResponse({"data": [], "error": None})
 
 
@@ -130,7 +143,12 @@ class _ChunkingFakeClient(_FakeClient):
         self.reject_as_http_error = reject_as_http_error
         self.reject_create_rows = reject_create_rows
 
-    def post(self, path: str, json=None):
+    def post(self, path: str, json=None, content=None, headers=None):
+        if json is None and content is not None:
+            raw = content if isinstance(content, (bytes, bytearray)) else bytes(content)
+            if (headers or {}).get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            json = json_module.loads(raw.decode("utf-8"))
         force_reject = (
             path == "/datasets/create/from-schema"
             and self.reject_create_rows
@@ -155,7 +173,7 @@ class _ChunkingFakeClient(_FakeClient):
                 raise APIStatusError(
                     "request too large", response=response, body={"error": "413"}
                 )
-        return super().post(path, json=json)
+        return super().post(path, json=json, content=content, headers=headers)
 
 
 class _ChunkingFakeOuro(_FakeOuro):
@@ -175,6 +193,23 @@ class _ChunkingFakeOuro(_FakeOuro):
 
 
 class TestDatasetsCreate(unittest.TestCase):
+    def test_create_maps_int64_to_postgres_bigint(self) -> None:
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
+        )
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="ids",
+            visibility="private",
+            data=[{"property_id": 417001084945, "name": "x"}],
+        )
+
+        schema = ouro.client.requests[0]["json"]["dataset"]["schema"]
+        self.assertIn('"property_id" BIGINT', schema)
+        self.assertNotIn('"property_id" INTEGER', schema)
+
     def test_create_sends_rows_in_schema_request_and_skips_fallback_when_backend_ingests(self) -> None:
         ouro = _FakeOuro(
             stats_count=0,
@@ -224,7 +259,11 @@ class TestDatasetsCreate(unittest.TestCase):
         self.assertEqual(len(data_uploads), 1)
         self.assertEqual(
             data_uploads[0]["json"],
-            {"rows": [{"sample": "alpha", "value": 1}], "mode": "append"},
+            {
+                "rows": [{"sample": "alpha", "value": 1}],
+                "mode": "append",
+                "finalize": True,
+            },
         )
 
     def test_create_raises_clear_error_when_response_has_no_dataset(self) -> None:
@@ -337,7 +376,7 @@ class TestDatasetsCreate(unittest.TestCase):
 
 class TestDatasetChunking(unittest.TestCase):
     def test_upload_splits_batches_after_413(self) -> None:
-        ouro = _ChunkingFakeOuro(reject_above_bytes=70)
+        ouro = _ChunkingFakeOuro(reject_above_bytes=100)
         datasets = Datasets(ouro)
         rows = [{"value": "a" * 20}, {"value": "b" * 20}]
 
@@ -352,7 +391,7 @@ class TestDatasetChunking(unittest.TestCase):
         self.assertEqual(result["row_ingest"]["inserted"], 2)
 
     def test_upload_splits_batches_after_proxy_413(self) -> None:
-        ouro = _ChunkingFakeOuro(reject_above_bytes=70, reject_as_http_error=True)
+        ouro = _ChunkingFakeOuro(reject_above_bytes=100, reject_as_http_error=True)
         datasets = Datasets(ouro)
 
         result = datasets._upload_rows(
@@ -381,6 +420,41 @@ class TestDatasetChunking(unittest.TestCase):
         self.assertEqual(
             [request["json"]["mode"] for request in uploads], ["overwrite", "append"]
         )
+        self.assertEqual(
+            [request["json"]["finalize"] for request in uploads], [False, True]
+        )
+
+    def test_update_data_only_skips_metadata_put(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        updated = datasets.update(
+            DATASET_RESPONSE["id"],
+            data=[{"sample": "alpha", "value": 1}],
+        )
+
+        self.assertFalse(
+            any(request["method"] == "PUT" for request in ouro.client.requests)
+        )
+        self.assertTrue(
+            any(request["path"].endswith("/data") for request in ouro.client.requests)
+        )
+        self.assertEqual(str(updated.id), DATASET_RESPONSE["id"])
+
+    def test_upload_gzips_large_payloads(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+        rows = [{"value": "x" * 400} for _ in range(10)]
+
+        datasets._upload_rows(DATASET_RESPONSE["id"], rows, "append")
+
+        upload = next(
+            request
+            for request in ouro.client.requests
+            if request["path"].endswith("/data")
+        )
+        self.assertEqual((upload["headers"] or {}).get("Content-Encoding"), "gzip")
+        self.assertEqual(len(upload["json"]["rows"]), 10)
 
 
 class TestDatasetRefs(unittest.TestCase):
@@ -747,6 +821,17 @@ class TestSerializeDataframe(unittest.TestCase):
                 if r["value"] is not None
             )
         )
+
+    def test_dict_and_list_become_json_strings(self) -> None:
+        df = pd.DataFrame(
+            {
+                "raw": [{"lat": 1.5, "flags": {"is_new": True}}, [1, 2]],
+            }
+        )
+        rows = Datasets.__new__(Datasets)._serialize_dataframe(df)
+        self.assertEqual(rows[0]["raw"], '{"lat": 1.5, "flags": {"is_new": true}}')
+        self.assertEqual(rows[1]["raw"], "[1, 2]")
+        json_module.dumps(rows)
 
 
 if __name__ == "__main__":
