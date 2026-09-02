@@ -47,6 +47,22 @@ from ._exceptions import (
 # Refresh token 5 minutes before expiry
 TOKEN_REFRESH_BUFFER_SECONDS = 300
 
+
+def response_needs_auth_retry(response: httpx.Response) -> bool:
+    """True when the backend failed to resolve the caller from the JWT."""
+    if response.status_code == 401:
+        return True
+    if response.status_code < 500:
+        return False
+    try:
+        body = response.json()
+    except Exception:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else error
+    return "No user context" in str(message or "")
+
+
 __all__ = ["Ouro"]
 
 
@@ -122,11 +138,20 @@ class AutoRefreshClient:
     def _do(self, method: str, args, kwargs) -> httpx.Response:
         self._ensure_valid_token()
         fn = getattr(self._client, method)
-        return _translate_httpx_errors(
+        response = _translate_httpx_errors(
             lambda: fn(*args, **kwargs),
             method.upper(),
             self._url_for(args, kwargs),
         )
+        if response_needs_auth_retry(response):
+            log.info("Auth failed; re-exchanging API key and retrying once")
+            self._ouro.refresh_session()
+            response = _translate_httpx_errors(
+                lambda: fn(*args, **kwargs),
+                method.upper(),
+                self._url_for(args, kwargs),
+            )
+        return response
 
     def get(self, *args, **kwargs) -> httpx.Response:
         return self._do("get", args, kwargs)
@@ -151,11 +176,20 @@ class AutoRefreshClient:
         url = kwargs.get("url")
         if url is None and len(args) > 1:
             url = args[1]
-        return _translate_httpx_errors(
+        response = _translate_httpx_errors(
             lambda: self._client.request(*args, **kwargs),
             str(method or "").upper(),
             str(url or ""),
         )
+        if response_needs_auth_retry(response):
+            log.info("Auth failed; re-exchanging API key and retrying once")
+            self._ouro.refresh_session()
+            response = _translate_httpx_errors(
+                lambda: self._client.request(*args, **kwargs),
+                str(method or "").upper(),
+                str(url or ""),
+            )
+        return response
 
     @property
     def headers(self):
