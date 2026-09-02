@@ -13,6 +13,22 @@ from ouro.models import Action, Asset, Comment, Dataset, File, Post, Quest, Rout
 
 log: logging.Logger = logging.getLogger(__name__)
 
+# Models fill unused search filters with blanks or string-nulls. Postgres
+# rejects "" and "/null" for uuid/enum columns.
+_ABSENT_OPTIONAL_STRINGS = frozenset({"null", "none", "undefined", "/null"})
+
+
+def _present_optional(value: Any) -> Any:
+    """Return value, or None when it means "this filter is unset"."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped or stripped.lower() in _ABSENT_OPTIONAL_STRINGS:
+            return None
+        return stripped
+    return value
+
 
 __all__ = ["Assets"]
 
@@ -168,21 +184,15 @@ class Assets(SyncAPIResource):
         params["limit"] = limit
         params["offset"] = offset
 
-        scope = kwargs.pop("scope", None)
-        if isinstance(scope, str):
-            scope = scope.strip() or None
+        scope = _present_optional(kwargs.pop("scope", None))
         if scope is not None:
             params["scope"] = scope
 
-        sort = kwargs.pop("sort", None)
-        if isinstance(sort, str):
-            sort = sort.strip() or None
+        sort = _present_optional(kwargs.pop("sort", None))
         if sort is not None:
             params["sort"] = sort
 
-        time_window = kwargs.pop("time_window", None)
-        if isinstance(time_window, str):
-            time_window = time_window.strip() or None
+        time_window = _present_optional(kwargs.pop("time_window", None))
         if time_window is not None:
             params["time_window"] = time_window
 
@@ -195,11 +205,10 @@ class Assets(SyncAPIResource):
         for key in filter_keys:
             if key not in kwargs:
                 continue
-            value = kwargs.pop(key)
-            # Blank strings are "unset" — Postgres rejects "" for uuid/enum cols.
+            value = _present_optional(kwargs.pop(key))
+            # Blank / string-null filters are "unset" — Postgres rejects them
+            # for uuid/enum cols ("" and "/null").
             if value is None:
-                continue
-            if isinstance(value, str) and not value.strip():
                 continue
             filters[key] = value
         if filters:
