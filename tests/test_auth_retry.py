@@ -1,4 +1,4 @@
-"""Auth retry: 401 / legacy 500 No user context re-exchanges the PAT once."""
+"""Auth retry: 401 / legacy 500 auth failures re-exchange the PAT once."""
 
 from __future__ import annotations
 
@@ -50,6 +50,19 @@ class AuthRetryTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         ouro.refresh_session.assert_called_once()
 
+    def test_retries_legacy_500_no_user(self) -> None:
+        first = _response(500, {"data": None, "error": {"message": "No user"}})
+        second = _response(200, {"data": {"ok": True}})
+        raw = MagicMock()
+        raw.post.side_effect = [first, second]
+        ouro = MagicMock()
+        ouro._token_needs_refresh.return_value = False
+        client = AutoRefreshClient(raw, ouro)
+
+        result = client.post("/comments/create")
+        self.assertEqual(result.status_code, 200)
+        ouro.refresh_session.assert_called_once()
+
     def test_does_not_retry_other_500s(self) -> None:
         raw = MagicMock()
         raw.post.return_value = _response(
@@ -69,6 +82,11 @@ class AuthRetryTests(unittest.TestCase):
         self.assertTrue(
             response_needs_auth_retry(
                 _response(500, {"error": {"message": "No user context"}})
+            )
+        )
+        self.assertTrue(
+            response_needs_auth_retry(
+                _response(500, {"error": {"message": "No user"}})
             )
         )
         self.assertFalse(

@@ -60,7 +60,8 @@ def response_needs_auth_retry(response: httpx.Response) -> bool:
         return False
     error = body.get("error") if isinstance(body, dict) else None
     message = error.get("message") if isinstance(error, dict) else error
-    return "No user context" in str(message or "")
+    auth_error = str(message or "").strip().lower()
+    return "no user context" in auth_error or auth_error == "no user"
 
 
 __all__ = ["Ouro"]
