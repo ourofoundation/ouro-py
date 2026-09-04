@@ -13,6 +13,15 @@ class FileData(BaseModel):
     url: str
 
 
+class ZipArchiveMetadata(BaseModel):
+    entry_count: int
+    file_count: int
+    directory_count: int
+    total_uncompressed_size: int
+    total_compressed_size: int
+    preview_truncated: bool
+
+
 class FileMetadata(BaseModel):
     name: str
     path: str
@@ -23,6 +32,7 @@ class FileMetadata(BaseModel):
     fullPath: Optional[str] = None
     extension: Optional[str] = None
     mimeType: Optional[str] = None
+    archive: Optional[ZipArchiveMetadata] = None
 
 
 class InProgressFileMetadata(BaseModel):

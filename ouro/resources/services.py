@@ -157,6 +157,7 @@ class Services(SyncAPIResource):
         doi_url: Optional[str] = None,
         external_url: Optional[str] = None,
         relation_type: Optional[str] = None,
+        refresh_spec: bool = False,
         **kwargs,
     ) -> Service:
         """Update a Service by its ID.
@@ -164,7 +165,18 @@ class Services(SyncAPIResource):
         Service config fields (``base_url``, ``authentication``, …) merge into
         ``metadata``. Provenance fields merge into ``attribution``. Providing
         ``spec_path`` or ``spec_url`` re-parses the OpenAPI spec and syncs routes.
+        Set ``refresh_spec=True`` to re-fetch the service's stored remote
+        ``spec_url`` without having to pass it again.
         """
+        current = None
+        if refresh_spec and spec_path is None and spec_url is None:
+            current = self.retrieve(id)
+            spec_url = current.metadata.spec_url if current.metadata else None
+            if not spec_url:
+                raise ValueError(
+                    "refresh_spec=True requires the service to have a stored spec_url"
+                )
+
         metadata = _service_metadata(
             base_url=base_url,
             authentication=authentication,
@@ -201,7 +213,8 @@ class Services(SyncAPIResource):
         # The backend derives the URL slug from the name on every update, so
         # fall back to the current name for metadata-only updates.
         if "name" not in service:
-            service["name"] = self.retrieve(id).name
+            current = current or self.retrieve(id)
+            service["name"] = current.name
 
         endpoint = (
             f"/services/{id}/update/from-file"

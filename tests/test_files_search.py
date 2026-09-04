@@ -56,6 +56,49 @@ class TestFilePreviewShape(unittest.TestCase):
         self.assertEqual(file.preview[0]["label"], "Fe2B")
         self.assertEqual(file.metadata.extension, "csv")
 
+    def test_zip_preview_and_archive_metadata_are_accepted(self) -> None:
+        now = datetime.now(timezone.utc)
+        file = File(
+            id="25fa1d37-cd9c-4b16-990e-31231aea9a35",
+            user_id="56c30e2b-9868-4313-8927-75459083649d",
+            org_id="00000000-0000-0000-0000-000000000000",
+            team_id="01954d5f-fcea-7970-b8d8-b68879df9d7f",
+            name="results.zip",
+            asset_type="file",
+            visibility="public",
+            created_at=now,
+            last_updated=now,
+            metadata={
+                "id": "25fa1d37-cd9c-4b16-990e-31231aea9a35",
+                "name": "results.zip",
+                "path": "user/results.zip",
+                "size": 1024,
+                "type": "application/zip",
+                "bucket": "public-files",
+                "extension": "zip",
+                "archive": {
+                    "entry_count": 1,
+                    "file_count": 1,
+                    "directory_count": 0,
+                    "total_uncompressed_size": 20,
+                    "total_compressed_size": 12,
+                    "preview_truncated": False,
+                },
+            },
+            preview=[
+                {
+                    "path": "data.csv",
+                    "name": "data.csv",
+                    "type": "text/csv",
+                    "size": 20,
+                    "compressed_size": 12,
+                    "is_directory": False,
+                }
+            ],
+        )
+        self.assertEqual(file.preview[0]["name"], "data.csv")
+        self.assertEqual(file.metadata.archive.entry_count, 1)
+
 
 class TestFileSearchHelpers(unittest.TestCase):
     def test_normalize_extension_strips_dot_and_lowercases(self) -> None:
