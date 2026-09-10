@@ -92,13 +92,32 @@ def _build_file_metadata(
     }
 
 
+def _resolve_content_type(
+    file_name: str | None,
+    content_type: str | None = None,
+) -> str:
+    """Return a storage-safe MIME type, never None.
+
+    Python's ``mimetypes.guess_type`` returns None for unknown extensions
+    (``.cif`` among them). Supabase storage then rejects the upload with
+    ``Invalid Content-Type header``.
+    """
+    if content_type:
+        return content_type
+    if file_name:
+        guessed = mimetypes.guess_type(file_name)[0]
+        if guessed:
+            return guessed
+    return "application/octet-stream"
+
+
 def _infer_partial_metadata(
     file_name: str,
     content_type: str | None,
     size: int,
 ) -> tuple[str, str, dict]:
     """Return (resolved_content_type, extension, metadata) for a partial payload."""
-    resolved_type = content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    resolved_type = _resolve_content_type(file_name, content_type)
 
     ext = os.path.splitext(file_name)[1]
     if ext.startswith("."):
@@ -211,7 +230,7 @@ class Files(SyncAPIResource):
         content: bytes,
         file_name: str,
         visibility: str,
-        mime_type: str | None,
+        mime_type: str,
     ) -> dict:
         """Upload raw bytes to Ouro's file storage."""
         file_base64 = b64encode(content).decode("ascii")
@@ -234,7 +253,7 @@ class Files(SyncAPIResource):
         self,
         file_path: str,
         visibility: str,
-        mime_type: str | None,
+        mime_type: str,
     ) -> dict:
         with open(file_path, "rb") as f:
             content = f.read()
@@ -441,11 +460,11 @@ class Files(SyncAPIResource):
             }
         else:
             if file_path:
-                mime_type = mimetypes.guess_type(file_path)[0]
+                mime_type = _resolve_content_type(file_path)
                 local_file_size = os.path.getsize(file_path)
                 upload_data = self._upload_local_file(file_path, visibility, mime_type)
             else:
-                mime_type = mimetypes.guess_type(file_name)[0]
+                mime_type = _resolve_content_type(file_name)
                 local_file_size = len(file_content)
                 upload_data = self._upload_content(
                     file_content, file_name, visibility, mime_type,
@@ -559,13 +578,13 @@ class Files(SyncAPIResource):
         has_upload = bool(file_path) or file_content is not None
         if has_upload:
             if file_path:
-                mime_type = mimetypes.guess_type(file_path)[0]
                 resolved_name = file_name or os.path.basename(file_path)
+                mime_type = _resolve_content_type(resolved_name)
                 with open(file_path, "rb") as f:
                     content = f.read()
             else:
-                mime_type = mimetypes.guess_type(file_name)[0]
                 resolved_name = file_name
+                mime_type = _resolve_content_type(resolved_name)
                 content = file_content
 
             body: dict[str, Any] = {

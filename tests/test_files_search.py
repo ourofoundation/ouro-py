@@ -10,6 +10,7 @@ from ouro.resources.files import (
     Files,
     _merge_file_metadata_filters,
     _normalize_extension,
+    _resolve_content_type,
 )
 
 
@@ -276,6 +277,26 @@ class TestSearchAutoPagination(unittest.TestCase):
         files, page_fetch = self._files_with_pages(pages)
         self.assertEqual(files.search(extension="cif", limit=None), [])
         self.assertEqual(page_fetch.call_count, 1)
+
+
+class TestResolveContentType(unittest.TestCase):
+    def test_unknown_extension_falls_back_to_octet_stream(self) -> None:
+        self.assertEqual(
+            _resolve_content_type("probe.notarealext"),
+            "application/octet-stream",
+        )
+
+    def test_known_extension_uses_guessed_type(self) -> None:
+        self.assertEqual(_resolve_content_type("notes.txt"), "text/plain")
+
+    def test_explicit_type_wins(self) -> None:
+        self.assertEqual(
+            _resolve_content_type("bcc_fe.cif", "chemical/x-cif"),
+            "chemical/x-cif",
+        )
+
+    def test_missing_name_falls_back(self) -> None:
+        self.assertEqual(_resolve_content_type(None), "application/octet-stream")
 
 
 if __name__ == "__main__":
