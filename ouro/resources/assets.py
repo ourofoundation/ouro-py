@@ -609,19 +609,23 @@ class Assets(SyncAPIResource):
         if delete_children is None:
             delete_children = asset_type == "service"
 
-        endpoints = {
-            "post": self.ouro.posts.delete,
-            "file": self.ouro.files.delete,
-            "dataset": self.ouro.datasets.delete,
-            "service": self.ouro.services.delete,
-            "quest": self.ouro.quests.delete,
+        resources = {
+            "post": "posts",
+            "comment": "comments",
+            "file": "files",
+            "dataset": "datasets",
+            "service": "services",
+            "quest": "quests",
+            "route": "routes",
         }
-        deleter = endpoints.get(asset_type)
-        if deleter is None:
+        attr = resources.get(asset_type)
+        if attr is None:
             raise ValueError(
                 f"Cannot delete asset of type '{asset_type}' via assets.delete"
             )
-        return deleter(id, delete_children=delete_children, dry_run=dry_run)
+        return getattr(self.ouro, attr).delete(
+            id, delete_children=delete_children, dry_run=dry_run
+        )
 
     def _mark_viewed(self, asset_id: str) -> None:
         """Best-effort view recording to keep unread counts in sync."""

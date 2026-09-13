@@ -360,6 +360,30 @@ class Routes(SyncAPIResource):
         )
         return Route(**self._handle_response(request), _ouro=self.ouro)
 
+    def delete(
+        self, id: str, *, delete_children: bool = False, dry_run: bool = False
+    ) -> dict:
+        """Delete a Route by its id.
+
+        Args:
+            id: Route UUID.
+            delete_children: When True, also delete child assets linked via
+                ``parent_id``.
+            dry_run: When True, return the delete summary without deleting.
+
+        Returns:
+            Summary with ``id``, ``name``, ``asset_type``, and
+            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+        """
+        request = self.client.delete(
+            f"/routes/{id}",
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._handle_response(request) or {}
+
     def retrieve_action(self, action_id: str) -> Action:
         """Retrieve an action by its ID to check its status and response."""
         request = self.client.get(f"/actions/{action_id}")

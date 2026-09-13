@@ -93,7 +93,9 @@ class Comments(SyncAPIResource):
         )
         return Comment(**self._handle_response(request))
 
-    def delete(self, id: str) -> None:
+    def delete(
+        self, id: str, *, delete_children: bool = False, dry_run: bool = False
+    ) -> dict:
         """Delete a Comment (and its reply thread) by its id.
 
         The backend's generic comment-delete path runs through
@@ -103,6 +105,6 @@ class Comments(SyncAPIResource):
         is not wired on the backend as of 2026-04-17; we'll point this at
         the dedicated route if/when that changes.
         """
-        request = self.client.delete(f"/posts/{id}")
-        self._handle_response(request)
-        return None
+        return self.ouro.posts.delete(
+            id, delete_children=delete_children, dry_run=dry_run
+        )
