@@ -1,24 +1,28 @@
 # Publishing
 
-Requires [uv](https://docs.astral.sh/uv/) and [keyring](https://pypi.org/project/keyring/).
+Releases publish to PyPI from GitHub Actions when a `vX.Y.Z` tag is pushed.
+Trusted publishing is used — no API token.
 
 ```bash
-make publish              # build current version and upload to PyPI
-make release              # bump patch, then publish
-make release minor        # bump minor, then publish
-make release major        # bump major, then publish
+make release              # bump patch in pyproject.toml
+make release minor        # bump minor
+make release major        # bump major
+
+git add pyproject.toml
+git commit -m "Bump version"
+git tag v$(uv version --short)
+git push origin HEAD --tags
 ```
 
-### One-time token setup
+The tag must match the version in `pyproject.toml` (`v0.11.17` for `0.11.17`).
+Pushing it runs `.github/workflows/publish.yml`.
 
-1. Create a token at https://pypi.org/manage/account/token/ scoped to **ouro-py**
-2. Store it in the macOS keychain:
+### One-time PyPI setup
 
-```bash
-keyring set 'https://upload.pypi.org/legacy/?ouro-py' __token__
-# paste pypi-... when prompted
-```
+On https://pypi.org/manage/project/ouro-py/settings/publishing add a GitHub
+trusted publisher:
 
-A `403 Forbidden` on upload usually means the token is expired, revoked, or scoped to a different project — generate a fresh token and re-run `keyring set`.
-
-CI also publishes on GitHub Release publish once Trusted Publishing is configured on PyPI for workflow `python-publish.yml` / environment `pypi`.
+- Owner: `ourofoundation`
+- Repository: `ouro-py`
+- Workflow: `publish.yml`
+- Environment: `pypi`
