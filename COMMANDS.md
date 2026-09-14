@@ -1,28 +1,14 @@
 # Publishing
 
-Releases publish to PyPI from GitHub Actions when a `vX.Y.Z` tag is pushed.
-Trusted publishing is used — no API token.
+`make release`, then commit and push to `main`. GitHub Actions publishes that
+version to PyPI if it is not already there. No tag required.
 
 ```bash
 make release              # bump patch in pyproject.toml
 make release minor        # bump minor
 make release major        # bump major
 
-git add pyproject.toml
+git add pyproject.toml uv.lock
 git commit -m "Bump version"
-git tag v$(uv version --short)
-git push origin HEAD --tags
+git push
 ```
-
-The tag must match the version in `pyproject.toml` (`v0.11.17` for `0.11.17`).
-Pushing it runs `.github/workflows/publish.yml`.
-
-### One-time PyPI setup
-
-On https://pypi.org/manage/project/ouro-py/settings/publishing add a GitHub
-trusted publisher:
-
-- Owner: `ourofoundation`
-- Repository: `ouro-py`
-- Workflow: `publish.yml`
-- Environment: `pypi`
