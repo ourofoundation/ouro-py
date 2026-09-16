@@ -24,6 +24,7 @@ class Teams(SyncAPIResource):
         default_role: Optional[str] = None,
         actor_type_policy: Optional[str] = None,
         source_policy: Optional[str] = None,
+        join_policy: Optional[str] = None,
         **kwargs,
     ) -> Team:
         """Create a team in an organization."""
@@ -35,6 +36,7 @@ class Teams(SyncAPIResource):
             "default_role": default_role,
             "actor_type_policy": actor_type_policy,
             "source_policy": source_policy,
+            "join_policy": join_policy,
             **kwargs,
         })
         request = self.client.post("/teams/create", json={"team": team})
@@ -49,6 +51,7 @@ class Teams(SyncAPIResource):
         default_role: Optional[str] = None,
         actor_type_policy: Optional[str] = None,
         source_policy: Optional[str] = None,
+        join_policy: Optional[str] = None,
         **kwargs,
     ) -> Team:
         """Update a team."""
@@ -60,6 +63,7 @@ class Teams(SyncAPIResource):
             "default_role": default_role,
             "actor_type_policy": actor_type_policy,
             "source_policy": source_policy,
+            "join_policy": join_policy,
             **kwargs,
         })
         request = self.client.put(f"/teams/{id}", json={"team": team})
@@ -100,9 +104,51 @@ class Teams(SyncAPIResource):
         return Team.model_validate(self._handle_response(request) or {})
 
     def join(self, id: str) -> dict:
-        """Join a team."""
+        """Join a team.
+
+        On teams with ``join_policy="request"`` this submits a join request
+        instead of adding membership immediately. Invite-only teams and bans
+        return an error.
+        """
         request = self.client.post(f"/teams/{id}/join", json={})
         return self._handle_response(request) or {}
+
+    def list_join_requests(self, id: str) -> list:
+        """List pending join requests. Admins see all; others see their own."""
+        request = self.client.get(f"/teams/{id}/join-requests")
+        return self._handle_response(request) or []
+
+    def approve_join_request(self, id: str, request_id: str) -> dict:
+        """Approve a pending join request (team admin)."""
+        request = self.client.post(
+            f"/teams/{id}/join-requests/{request_id}/approve", json={}
+        )
+        return self._handle_response(request) or {}
+
+    def reject_join_request(self, id: str, request_id: str) -> dict:
+        """Reject a pending join request (team admin)."""
+        request = self.client.post(
+            f"/teams/{id}/join-requests/{request_id}/reject", json={}
+        )
+        return self._handle_response(request) or {}
+
+    def ban_member(self, id: str, user_id: str, reason: Optional[str] = None) -> dict:
+        """Remove a member and prevent them from rejoining (team admin)."""
+        request = self.client.post(
+            f"/teams/{id}/bans",
+            json=_strip_none({"user_id": user_id, "reason": reason}),
+        )
+        return self._handle_response(request) or {}
+
+    def unban_member(self, id: str, user_id: str) -> dict:
+        """Lift a team ban (team admin). Does not restore membership."""
+        request = self.client.delete(f"/teams/{id}/bans/{user_id}")
+        return self._handle_response(request) or {}
+
+    def list_bans(self, id: str) -> list:
+        """List users banned from a team (team admin)."""
+        request = self.client.get(f"/teams/{id}/bans")
+        return self._handle_response(request) or []
 
     def leave(self, id: str) -> dict:
         """Leave a team. Uses the authenticated user's ID."""

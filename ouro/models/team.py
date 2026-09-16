@@ -41,9 +41,11 @@ class Team(DictCompatModel):
     default_role: Optional[str] = None
     source_policy: Optional[str] = None
     actor_type_policy: Optional[str] = None
+    join_policy: Optional[str] = None
     description: Optional[dict] = None
     members: Optional[List[TeamMember]] = None
     memberCount: Optional[int] = None
     userMembership: Optional[TeamMembership] = None
+    userJoinRequest: Optional[dict] = None
     created_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
