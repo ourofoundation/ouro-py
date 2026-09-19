@@ -1,9 +1,39 @@
 from datetime import datetime
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
+
+
+class LanguageToolProviderPreference(BaseModel):
+    """Provider route and output-affecting options."""
+
+    route_id: Optional[UUID] = None
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SpeechProviderPreference(LanguageToolProviderPreference):
+    voice: Optional[str] = None
+
+
+class LanguageToolsPreferences(BaseModel):
+    """Preferred language and route-provider configuration."""
+
+    language: str
+    translation: LanguageToolProviderPreference
+    speech: SpeechProviderPreference
+
+
+class Preferences(BaseModel):
+    """User preferences record returned by the preferences API."""
+
+    id: UUID
+    user_id: UUID
+    notifications: Optional[Dict[str, Any]] = None
+    webhooks: Optional[List[Dict[str, Any]]] = None
+    onboarding: Optional[Dict[str, Any]] = None
+    language_tools: Optional[LanguageToolsPreferences] = None
 
 
 class UserProfile(BaseModel):
@@ -35,6 +65,7 @@ class TeamProfile(BaseModel):
 
 class DescriptionDict(TypedDict, total=False):
     """Shape of a structured description as returned by the API."""
+
     json: dict
     text: str
 

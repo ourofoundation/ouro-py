@@ -34,6 +34,17 @@ def ouro_execution_mode(mode: str):
     return ouro_field("x-ouro-execution-mode", mode)
 
 
+def ouro_capabilities(capabilities):
+    """Declare validated semantic capabilities on an OpenAPI operation."""
+    from ouro.models.route import RouteCapabilities
+
+    normalized = RouteCapabilities.model_validate(capabilities).model_dump(
+        by_alias=True,
+        exclude_none=True,
+    )
+    return ouro_field("x-ouro-capabilities", normalized)
+
+
 def get_custom_openapi(app, get_openapi):
     """
     Function to generate a custom OpenAPI schema for your FastAPI app.

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .asset import Asset
 
@@ -9,7 +9,8 @@ if TYPE_CHECKING:
     from ouro.models.action import Action
 
 
-RouteAssetType = Literal["file", "dataset", "post"]
+RouteAssetType = Literal["file", "dataset", "post", "comment"]
+RouteCacheScope = Literal["none", "user", "shared"]
 RouteInputFilter = Literal[
     "audio",
     "video",
@@ -31,10 +32,30 @@ class RouteInputAssetDeclaration(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     asset_type: RouteAssetType
+    asset_types: Optional[List[RouteAssetType]] = Field(default=None, min_length=1)
     primary: Optional[bool] = None
     input_filter: Optional[RouteInputFilter] = None
     file_extensions: Optional[List[str]] = None
     contains_file_extensions: Optional[List[str]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_asset_types(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        declaration = dict(value)
+        asset_types = declaration.get("asset_types")
+        if (
+            isinstance(asset_types, list)
+            and asset_types
+            and "asset_type" in declaration
+            and declaration["asset_type"] not in asset_types
+        ):
+            raise ValueError(
+                "asset_types must include the legacy asset_type projection"
+            )
+        return declaration
 
 
 class RouteOutputAssetDeclaration(BaseModel):
@@ -46,6 +67,52 @@ class RouteOutputAssetDeclaration(BaseModel):
     primary: Optional[bool] = None
     file_extensions: Optional[List[str]] = None
     contains_file_extensions: Optional[List[str]] = None
+
+
+class RouteCapabilityBase(BaseModel):
+    """Shared behavior declared by a semantic route capability."""
+
+    model_config = ConfigDict(extra="allow")
+
+    supported_languages: List[str] = Field(min_length=1)
+    cache_scope: RouteCacheScope = "none"
+    cache_version: str = Field(min_length=1)
+    trusted: bool = False
+    structured_content: bool = False
+
+
+class TextTranslationRouteCapability(RouteCapabilityBase):
+    """Contract for the ``text.translate.v1`` capability."""
+
+
+class SpeechVoice(BaseModel):
+    """Provider voice advertised by a speech route."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: Optional[str] = None
+    language: Optional[str] = None
+    languages: Optional[List[str]] = None
+
+
+class TextSpeechRouteCapability(RouteCapabilityBase):
+    """Contract for the ``text.speech.v1`` capability."""
+
+    voices: List[SpeechVoice]
+
+
+class RouteCapabilities(BaseModel):
+    """Semantic capabilities stored under ``x-ouro-capabilities``."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    text_translate_v1: Optional[TextTranslationRouteCapability] = Field(
+        default=None, alias="text.translate.v1"
+    )
+    text_speech_v1: Optional[TextSpeechRouteCapability] = Field(
+        default=None, alias="text.speech.v1"
+    )
 
 
 class RouteData(BaseModel):
@@ -68,6 +135,7 @@ class RouteData(BaseModel):
     # Canonical plural output declarations keyed by response body field name.
     output_assets: Optional[Dict[str, RouteOutputAssetDeclaration]] = None
     output_file_extension: Optional[str] = None
+    capabilities: Optional[RouteCapabilities] = None
     rate_limit: Optional[int] = None
     # Author-declared execution model: 'sync' = upstream returns the result
     # inline; 'async' = upstream returns 202 quickly and webhooks completion.

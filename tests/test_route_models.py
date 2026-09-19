@@ -10,10 +10,12 @@ import pytest
 from pydantic import ValidationError
 
 from ouro.models.route import (
+    RouteCapabilities,
     RouteData,
     RouteInputAssetDeclaration,
     RouteOutputAssetDeclaration,
 )
+from ouro.utils import ouro_capabilities
 
 
 class TestRouteInputAssetDeclaration:
@@ -49,6 +51,25 @@ class TestRouteInputAssetDeclaration:
         with pytest.raises(ValidationError):
             RouteInputAssetDeclaration.model_validate(
                 {"asset_type": "file", "input_filter": "binary"}
+            )
+
+    def test_accepts_post_and_comment_union(self) -> None:
+        declaration = RouteInputAssetDeclaration.model_validate(
+            {
+                "asset_type": "post",
+                "asset_types": ["post", "comment"],
+            }
+        )
+        assert declaration.asset_type == "post"
+        assert declaration.asset_types == ["post", "comment"]
+
+    def test_rejects_inconsistent_legacy_projection(self) -> None:
+        with pytest.raises(ValidationError):
+            RouteInputAssetDeclaration.model_validate(
+                {
+                    "asset_type": "file",
+                    "asset_types": ["post", "comment"],
+                }
             )
 
 
@@ -128,3 +149,49 @@ class TestRouteData:
         assert route.input_type == "file"
         assert route.input_assets is not None
         assert route.input_assets["structure"].asset_type == "file"
+
+    def test_semantic_capabilities_parse(self) -> None:
+        route = RouteData.model_validate(
+            {
+                "path": "/translate",
+                "method": "POST",
+                "capabilities": {
+                    "text.translate.v1": {
+                        "supported_languages": ["en", "es"],
+                        "cache_version": "translator-1",
+                        "structured_content": True,
+                    },
+                    "text.speech.v1": {
+                        "supported_languages": ["en-US"],
+                        "voices": [{"id": "alloy", "language": "en-US"}],
+                        "cache_scope": "user",
+                        "cache_version": "speech-2",
+                        "trusted": True,
+                    },
+                },
+            }
+        )
+        assert isinstance(route.capabilities, RouteCapabilities)
+        assert route.capabilities.text_translate_v1 is not None
+        assert route.capabilities.text_translate_v1.cache_scope == "none"
+        assert route.capabilities.text_speech_v1 is not None
+        assert route.capabilities.text_speech_v1.voices[0].id == "alloy"
+
+
+def test_ouro_capabilities_decorator_uses_openapi_extension() -> None:
+    decorator = ouro_capabilities(
+        {
+            "text.translate.v1": {
+                "supported_languages": ["en", "es"],
+                "cache_version": "translator-1",
+            }
+        }
+    )
+
+    @decorator
+    def translate() -> None:
+        pass
+
+    capability = translate.ouro_fields["x-ouro-capabilities"]["text.translate.v1"]
+    assert capability["cache_scope"] == "none"
+    assert capability["trusted"] is False

@@ -1,10 +1,16 @@
 import uuid as _uuid
 
 from .content import description_to_markdown, tiptap_to_markdown
-from .openapi import get_custom_openapi, ouro_execution_mode, ouro_field
+from .openapi import (
+    get_custom_openapi,
+    ouro_capabilities,
+    ouro_execution_mode,
+    ouro_field,
+)
 
 __all__ = [
     "ouro_field",
+    "ouro_capabilities",
     "ouro_execution_mode",
     "get_custom_openapi",
     "generate_uuid",

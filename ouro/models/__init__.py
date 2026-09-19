@@ -4,7 +4,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from ._base import DictCompatModel
-from .asset import Asset, Attribution, Citation, DescriptionDict, TeamProfile
+from .asset import (
+    Asset,
+    Attribution,
+    Citation,
+    DescriptionDict,
+    LanguageToolsPreferences,
+    Preferences,
+    TeamProfile,
+)
 
 if TYPE_CHECKING:
     from ouro.resources.conversations import ConversationMessages
@@ -15,7 +23,32 @@ from .action import Action, ActionLog
 from .file import File, FileData
 from .notification import Notification
 from .organization import Organization, OrganizationMembership
-from .service import Route, RouteData, RouteMetrics, Service
+from .rendition import (
+    AssetRendition,
+    AssetRenditionCacheScope,
+    AssetRenditionKind,
+    AssetRenditionRecord,
+    AssetRenditionStatus,
+    RenditionContent,
+    SpeechAssetRendition,
+    SpeechAudio,
+    TranslationAssetRendition,
+)
+from .route import (
+    Route,
+    RouteAssetType,
+    RouteCacheScope,
+    RouteCapabilities,
+    RouteData,
+    RouteInputAssetDeclaration,
+    RouteInputFilter,
+    RouteMetrics,
+    RouteOutputAssetDeclaration,
+    SpeechVoice,
+    TextSpeechRouteCapability,
+    TextTranslationRouteCapability,
+)
+from .service import Service
 from .team import Team, TeamMember, TeamMembership
 
 __all__ = [
@@ -25,6 +58,8 @@ __all__ = [
     "Attribution",
     "Citation",
     "DescriptionDict",
+    "LanguageToolsPreferences",
+    "Preferences",
     "TeamProfile",
     "PostContent",
     "Post",
@@ -44,8 +79,26 @@ __all__ = [
     "OrganizationMembership",
     "Service",
     "Route",
+    "RouteAssetType",
+    "RouteCacheScope",
+    "RouteCapabilities",
     "RouteData",
+    "RouteInputAssetDeclaration",
+    "RouteInputFilter",
     "RouteMetrics",
+    "RouteOutputAssetDeclaration",
+    "SpeechVoice",
+    "TextSpeechRouteCapability",
+    "TextTranslationRouteCapability",
+    "AssetRendition",
+    "AssetRenditionCacheScope",
+    "AssetRenditionKind",
+    "AssetRenditionRecord",
+    "AssetRenditionStatus",
+    "RenditionContent",
+    "SpeechAssetRendition",
+    "SpeechAudio",
+    "TranslationAssetRendition",
     "Team",
     "TeamMember",
     "TeamMembership",
