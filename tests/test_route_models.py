@@ -168,6 +168,10 @@ class TestRouteData:
                         "cache_version": "speech-2",
                         "trusted": True,
                     },
+                    "speech.transcribe.v1": {
+                        "supported_languages": ["*"],
+                        "cache_version": "stt-1",
+                    },
                 },
             }
         )
@@ -176,6 +180,8 @@ class TestRouteData:
         assert route.capabilities.text_translate_v1.cache_scope == "none"
         assert route.capabilities.text_speech_v1 is not None
         assert route.capabilities.text_speech_v1.voices[0].id == "alloy"
+        assert route.capabilities.speech_transcribe_v1 is not None
+        assert route.capabilities.speech_transcribe_v1.cache_scope == "none"
 
 
 def test_ouro_capabilities_decorator_uses_openapi_extension() -> None:

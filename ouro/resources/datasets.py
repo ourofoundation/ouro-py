@@ -594,9 +594,10 @@ class Datasets(SyncAPIResource):
     def schema(self, id: str) -> List[dict]:
         """Retrieve a dataset's column schema.
 
-        Each field includes Postgres keys (``column_name``, ``data_type``) and
-        agent-friendly aliases (``name``, ``type``). Prefer either pair.
-        Column names are lowercase snake_case — use them unquoted in SQL.
+        Each field includes Postgres keys (``column_name``, ``data_type``,
+        ``is_nullable``) and agent-friendly aliases (``name``, ``type``).
+        Prefer either pair. Column names are lowercase snake_case — use them
+        unquoted in SQL.
         """
         request = self.client.get(f"/datasets/{id}/schema")
         fields = self._handle_response(request) or []

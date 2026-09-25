@@ -1,9 +1,10 @@
 import os
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-# Load .env file if it exists
-load_dotenv()
+# Search from the working directory, not from this file, so an editable install
+# doesn't pick up the SDK checkout's own .env.
+load_dotenv(find_dotenv(usecwd=True))
 
 
 class Config:

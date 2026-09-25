@@ -23,6 +23,7 @@ class LanguageToolsPreferences(BaseModel):
     language: str
     translation: LanguageToolProviderPreference
     speech: SpeechProviderPreference
+    transcription: Optional[LanguageToolProviderPreference] = None
 
 
 class Preferences(BaseModel):

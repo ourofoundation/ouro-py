@@ -102,6 +102,10 @@ class TextSpeechRouteCapability(RouteCapabilityBase):
     voices: List[SpeechVoice]
 
 
+class SpeechTranscribeRouteCapability(RouteCapabilityBase):
+    """Contract for the ``speech.transcribe.v1`` capability."""
+
+
 class RouteCapabilities(BaseModel):
     """Semantic capabilities stored under ``x-ouro-capabilities``."""
 
@@ -112,6 +116,9 @@ class RouteCapabilities(BaseModel):
     )
     text_speech_v1: Optional[TextSpeechRouteCapability] = Field(
         default=None, alias="text.speech.v1"
+    )
+    speech_transcribe_v1: Optional[SpeechTranscribeRouteCapability] = Field(
+        default=None, alias="speech.transcribe.v1"
     )
 
 

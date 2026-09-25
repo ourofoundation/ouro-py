@@ -132,11 +132,25 @@ class Teams(SyncAPIResource):
         )
         return self._handle_response(request) or {}
 
-    def ban_member(self, id: str, user_id: str, reason: Optional[str] = None) -> dict:
-        """Remove a member and prevent them from rejoining (team admin)."""
+    def ban_member(
+        self,
+        id: str,
+        user_id: str,
+        reason: Optional[str] = None,
+        remove_contributions: bool = False,
+    ) -> dict:
+        """Remove a member and prevent them from rejoining (team admin).
+
+        Pass ``remove_contributions=True`` to move their assets to the
+        organization's #all team and delete their quest entries on this team.
+        """
         request = self.client.post(
             f"/teams/{id}/bans",
-            json=_strip_none({"user_id": user_id, "reason": reason}),
+            json=_strip_none({
+                "user_id": user_id,
+                "reason": reason,
+                "remove_contributions": remove_contributions or None,
+            }),
         )
         return self._handle_response(request) or {}
 

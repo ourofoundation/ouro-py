@@ -45,6 +45,7 @@ from .route import (
     RouteMetrics,
     RouteOutputAssetDeclaration,
     SpeechVoice,
+    SpeechTranscribeRouteCapability,
     TextSpeechRouteCapability,
     TextTranslationRouteCapability,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "RouteMetrics",
     "RouteOutputAssetDeclaration",
     "SpeechVoice",
+    "SpeechTranscribeRouteCapability",
     "TextSpeechRouteCapability",
     "TextTranslationRouteCapability",
     "AssetRendition",
