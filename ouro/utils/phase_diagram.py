@@ -4,7 +4,9 @@ Ouro renders ``.phasediagram`` files as interactive binary, ternary, and
 quaternary phase diagrams. The file carries the thermodynamics pymatgen already
 computed — formation energies, hull distances, and the hull facets themselves —
 so the viewer draws exactly the hull the numbers were measured against rather
-than recomputing one.
+than recomputing one. The format is open and fully specified at
+https://ouro.foundation/docs/developers/phase-diagram-format, so files written
+by any other tool render the same way.
 
     import json
     from ouro.utils.phase_diagram import PHASE_DIAGRAM_EXTENSION, phase_diagram_to_dict
@@ -33,6 +35,7 @@ Format (version 1)::
           "formation_energy_per_atom": 0.0,
           "e_above_hull": 0.0,
           "stable": true,
+          "space_group": "Im-3m",            # optional Hermann–Mauguin symbol
           "asset_id": "…"                    # optional Ouro asset for this entry
         }
       ],
@@ -42,6 +45,9 @@ Format (version 1)::
 
 Decompositions are not stored: every entry decomposes onto the facet whose
 composition simplex contains it, so readers derive them from ``facets``.
+
+``space_group`` comes from the entry's structure when it has one (a
+``ComputedStructureEntry``), otherwise from ``entry.data["space_group"]``.
 """
 
 from __future__ import annotations
@@ -107,6 +113,9 @@ def phase_diagram_to_dict(
             "e_above_hull": round(e_above_hull[id(entry)], 6),
             "stable": id(entry) in stable,
         }
+        space_group = _space_group(entry)
+        if space_group:
+            serialized["space_group"] = space_group
         if entry.entry_id in asset_ids:
             serialized["asset_id"] = asset_ids[entry.entry_id]
         return serialized
@@ -126,3 +135,10 @@ def phase_diagram_to_dict(
     if highlight is not None:
         data["highlight"] = index[id(highlight)]
     return data
+
+
+def _space_group(entry: Any) -> Optional[str]:
+    structure = getattr(entry, "structure", None)
+    if structure is not None:
+        return structure.get_space_group_info()[0]
+    return getattr(entry, "data", {}).get("space_group")
