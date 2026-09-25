@@ -62,13 +62,16 @@ def get_custom_openapi(app, get_openapi):
             routes=app.routes,
         )
 
-        # Create a mapping of route paths to their endpoints
-        route_map = {}
-        for route in app.routes:
-            # Get the full path including any router prefix
-            full_path = route.path
-            if hasattr(route, "endpoint"):
-                route_map[full_path] = route.endpoint
+        from fastapi import routing
+
+        # FastAPI >= 0.141 keeps included routers nested in app.routes;
+        # iter_route_contexts flattens them with their full, prefixed paths.
+        iter_routes = getattr(routing, "iter_route_contexts", iter)
+        route_map = {
+            route.path: route.endpoint
+            for route in iter_routes(app.routes)
+            if getattr(route, "endpoint", None) is not None
+        }
 
         for path, path_item in openapi_schema["paths"].items():
             for method, operation in path_item.items():
