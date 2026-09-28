@@ -126,7 +126,7 @@ class AutoRefreshClient:
 
     def _ensure_valid_token(self):
         """Check and refresh token if needed before making a request."""
-        if self._ouro._token_needs_refresh():
+        if self._ouro.can_refresh and self._ouro._token_needs_refresh():
             log.info("Token expiring soon, refreshing proactively...")
             self._ouro.refresh_session()
 
@@ -144,7 +144,7 @@ class AutoRefreshClient:
             method.upper(),
             self._url_for(args, kwargs),
         )
-        if response_needs_auth_retry(response):
+        if self._ouro.can_refresh and response_needs_auth_retry(response):
             log.info("Auth failed; re-exchanging API key and retrying once")
             self._ouro.refresh_session()
             response = _translate_httpx_errors(
@@ -182,7 +182,7 @@ class AutoRefreshClient:
             str(method or "").upper(),
             str(url or ""),
         )
-        if response_needs_auth_retry(response):
+        if self._ouro.can_refresh and response_needs_auth_retry(response):
             log.info("Auth failed; re-exchanging API key and retrying once")
             self._ouro.refresh_session()
             response = _translate_httpx_errors(
@@ -219,7 +219,7 @@ class Ouro:
     teams: Teams
 
     # Client options
-    api_key: str
+    api_key: str | None
     organization: str | None
     project: str | None
 
@@ -247,6 +247,7 @@ class Ouro:
         project: str | None = None,
         base_url: str | None = None,
         client: str | None = None,
+        access_token: str | None = None,
     ) -> None:
         """Construct a new synchronous ouro client instance.
 
@@ -255,15 +256,21 @@ class Ouro:
         - `organization` from `OURO_ORG_ID`
         - `project` from `OURO_PROJECT_ID`
 
+        ``access_token`` authenticates with an Ouro access token issued
+        elsewhere (for example by the OAuth flow) instead of exchanging an API
+        key. The client cannot refresh it; whoever issued it owns renewal.
+
         ``client`` sets ``X-Ouro-Client`` (product identity for activity logs).
         Wrappers should pass their own name/version (e.g. ``"ouro-mcp/0.7.10"``).
         ``User-Agent`` is always ``ouro-py/<ver>`` and is stored separately as ``sdk``.
         """
         setup_logging()
 
-        if api_key is None:
+        if api_key is not None and access_token is not None:
+            raise OuroError("Pass either api_key or access_token, not both")
+        if api_key is None and access_token is None:
             api_key = os.environ.get("OURO_API_KEY")
-        if api_key is None:
+        if api_key is None and access_token is None:
             raise OuroError(
                 "The api_key client option must be set either by passing api_key to the client or by setting the OURO_API_KEY environment variable"
             )
@@ -299,8 +306,12 @@ class Ouro:
             timeout=DEFAULT_TIMEOUT,
             limits=DEFAULT_CONNECTION_LIMITS,
         )
-        # Perform initial token exchange (uses _raw_client)
-        self.exchange_api_key()
+        if access_token is not None:
+            self.access_token = access_token
+            self.refresh_token = None
+        else:
+            # Perform initial token exchange (uses _raw_client)
+            self.exchange_api_key()
         self._bootstrap_authenticated_client()
 
         # Wrap the client with auto-refresh capability
@@ -423,6 +434,11 @@ class Ouro:
             self.api_key_name = api_key_name
             self._raw_client.headers["X-Ouro-Key-Name"] = api_key_name
 
+    @property
+    def can_refresh(self) -> bool:
+        """Whether this client can mint a new access token on its own."""
+        return self.api_key is not None
+
     def _token_needs_refresh(self) -> bool:
         """Check if the token is expired or will expire soon."""
         if self.last_token_refresh_expiration is None:
@@ -439,6 +455,11 @@ class Ouro:
         Call this method if you encounter JWT expiration errors, or periodically
         for long-running processes.
         """
+        if not self.can_refresh:
+            raise OuroError(
+                "This client was created with an access token and cannot refresh it. "
+                "Create a new client with a fresh token."
+            )
         log.info("Refreshing authentication session...")
         try:
             self.exchange_api_key()
@@ -457,6 +478,6 @@ class Ouro:
 
         Call this before making API requests in long-running processes.
         """
-        if self._token_needs_refresh():
+        if self.can_refresh and self._token_needs_refresh():
             log.info("Token expiring soon, refreshing proactively...")
             self.refresh_session()
