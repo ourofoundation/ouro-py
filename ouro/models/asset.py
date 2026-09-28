@@ -199,6 +199,7 @@ class AssetRef(OuroModel):
     org_id: Optional[UUID] = None
     team_id: Optional[UUID] = None
     user_id: Optional[UUID] = None
+    user: Optional[UserProfile] = None
     visibility: Optional[str] = None
     description: Optional[RichText] = None
     created_at: Optional[datetime] = None

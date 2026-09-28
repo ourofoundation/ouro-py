@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from base64 import urlsafe_b64decode
 from types import SimpleNamespace
@@ -124,35 +125,29 @@ class AutoRefreshClient:
         self._client = client
         self._ouro = ouro
 
-    def _ensure_valid_token(self):
-        """Check and refresh token if needed before making a request."""
-        if self._ouro.can_refresh and self._ouro._token_needs_refresh():
-            log.info("Token expiring soon, refreshing proactively...")
-            self._ouro.refresh_session()
-
     def _url_for(self, args, kwargs) -> str:
         url = kwargs.get("url")
         if url is None and args:
             url = args[0]
         return str(url) if url is not None else ""
 
+    def _send(self, call, method: str, url: str) -> httpx.Response:
+        self._ouro.ensure_valid_token()
+        token = self._ouro.access_token
+        response = _translate_httpx_errors(call, method, url)
+        if self._ouro.can_refresh and response_needs_auth_retry(response):
+            log.info("Auth failed; re-exchanging API key and retrying once")
+            self._ouro._refresh_unless_changed(token)
+            response = _translate_httpx_errors(call, method, url)
+        return response
+
     def _do(self, method: str, args, kwargs) -> httpx.Response:
-        self._ensure_valid_token()
         fn = getattr(self._client, method)
-        response = _translate_httpx_errors(
+        return self._send(
             lambda: fn(*args, **kwargs),
             method.upper(),
             self._url_for(args, kwargs),
         )
-        if self._ouro.can_refresh and response_needs_auth_retry(response):
-            log.info("Auth failed; re-exchanging API key and retrying once")
-            self._ouro.refresh_session()
-            response = _translate_httpx_errors(
-                lambda: fn(*args, **kwargs),
-                method.upper(),
-                self._url_for(args, kwargs),
-            )
-        return response
 
     def get(self, *args, **kwargs) -> httpx.Response:
         return self._do("get", args, kwargs)
@@ -170,27 +165,17 @@ class AutoRefreshClient:
         return self._do("delete", args, kwargs)
 
     def request(self, *args, **kwargs) -> httpx.Response:
-        self._ensure_valid_token()
         method = kwargs.get("method")
         if method is None and args:
             method = args[0]
         url = kwargs.get("url")
         if url is None and len(args) > 1:
             url = args[1]
-        response = _translate_httpx_errors(
+        return self._send(
             lambda: self._client.request(*args, **kwargs),
             str(method or "").upper(),
             str(url or ""),
         )
-        if self._ouro.can_refresh and response_needs_auth_retry(response):
-            log.info("Auth failed; re-exchanging API key and retrying once")
-            self._ouro.refresh_session()
-            response = _translate_httpx_errors(
-                lambda: self._client.request(*args, **kwargs),
-                str(method or "").upper(),
-                str(url or ""),
-            )
-        return response
 
     @property
     def headers(self):
@@ -289,6 +274,7 @@ class Ouro:
 
         # Mark the expiration of the last token refresh so we can deduplicate token refresh events
         self.last_token_refresh_expiration = None
+        self._refresh_lock = threading.RLock()
 
         # Set config for Supabase client and Ouro client
         self.base_url = base_url or Config.OURO_BACKEND_URL
@@ -461,16 +447,27 @@ class Ouro:
                 "Create a new client with a fresh token."
             )
         log.info("Refreshing authentication session...")
-        try:
-            self.exchange_api_key()
-            self._raw_client.headers["Authorization"] = f"{self.access_token}"
-            self.last_token_refresh_expiration = self._jwt_expiration(self.access_token)
-            if self.websocket.is_connected:
-                self.websocket.refresh_connection(self.access_token)
-            log.info("Session refreshed successfully")
-        except Exception as e:
-            log.warning(f"Failed to refresh session: {e}")
-            raise
+        with self._refresh_lock:
+            try:
+                self.exchange_api_key()
+                self._raw_client.headers["Authorization"] = f"{self.access_token}"
+                self.last_token_refresh_expiration = self._jwt_expiration(self.access_token)
+                if self.websocket.is_connected:
+                    self.websocket.refresh_connection(self.access_token)
+                log.info("Session refreshed successfully")
+            except Exception as e:
+                log.warning(f"Failed to refresh session: {e}")
+                raise
+
+    def _refresh_unless_changed(self, token: str | None) -> None:
+        """Refresh only if ``token`` is still current.
+
+        The backend's API-key exchange is single-use, so concurrent refreshes
+        fail; threads that lose the race reuse the winner's new token.
+        """
+        with self._refresh_lock:
+            if self.access_token == token:
+                self.refresh_session()
 
     def ensure_valid_token(self) -> None:
         """
@@ -478,6 +475,9 @@ class Ouro:
 
         Call this before making API requests in long-running processes.
         """
-        if self.can_refresh and self._token_needs_refresh():
-            log.info("Token expiring soon, refreshing proactively...")
-            self.refresh_session()
+        if not (self.can_refresh and self._token_needs_refresh()):
+            return
+        with self._refresh_lock:
+            if self._token_needs_refresh():
+                log.info("Token expiring soon, refreshing proactively...")
+                self.refresh_session()

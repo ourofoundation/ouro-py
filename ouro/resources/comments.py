@@ -9,7 +9,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Comment, DeleteResult
+from ouro.models import Comment, DeleteResult, Page
 
 from .content import Content, Editor
 
@@ -59,6 +59,22 @@ class Comments(SyncAPIResource):
         """Retrieve a Comment by its id."""
         request = self.client.get(f"/comments/{id}")
         return self._parse(Comment, self._handle_response(request))
+
+    def list(self, parent_id: str, limit: int = 50, offset: int = 0) -> Page[Comment]:
+        """List a page of comments on an asset, or replies to a comment, oldest first.
+
+        While ``page.has_more``, pass ``offset + len(page)`` to fetch the next page.
+
+        Args:
+            parent_id: Asset UUID for top-level comments, or comment UUID for replies.
+            limit: Max comments to return (backend caps at 200; default 50).
+            offset: Number of comments to skip.
+        """
+        request = self.client.get(
+            f"/assets/{parent_id}/comments",
+            params={"limit": limit, "offset": offset},
+        )
+        return self._page(Page[Comment], self._handle_response(request, raw=True))
 
     def list_by_parent(self, parent_id: str) -> List[Comment]:
         """List all comments for a parent asset or comment (one-level replies)."""

@@ -91,6 +91,11 @@ def _render_inline(nodes: list) -> str:
             attrs = node.get("attrs", {})
             label = attrs.get("label") or attrs.get("username") or attrs.get("id", "")
             parts.append(f"@{label}")
+        elif node_type == "mathematics":
+            attrs = node.get("attrs", {})
+            latex = attrs.get("latex", "")
+            display = str(attrs.get("displayMode")).lower() == "true"
+            parts.append(f"\\[{latex}\\]" if display else f"\\({latex}\\)")
         elif node_type == "hardBreak":
             parts.append("\n")
         elif node_type == "image":
@@ -184,7 +189,7 @@ def _render_block(node: dict, indent: str = "") -> Optional[str]:
         block = {"id": asset_id, "assetType": asset_type, "viewMode": view_mode}
         if display_config:
             block["displayConfig"] = display_config
-        return f"```assetComponent\n{_json.dumps(block, indent=2)}\n```"
+        return f"```assetComponent\n{_json.dumps(block)}\n```"
 
     if node_type == "hardBreak":
         return ""
