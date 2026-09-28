@@ -117,10 +117,12 @@ class Action(BaseModel):
     def final_data(self) -> Any:
         """Return the response payload for callers that need plain route data.
 
-        If the action created an output asset, it's merged into the response
-        under the asset-type key (e.g. ``{"dataset": {...}}``). Otherwise the
-        raw ``response`` is returned unchanged. Useful for migrating callers
-        that previously expected the deprecated :meth:`Routes.use` dict return.
+        Output assets are merged into the response under their declared output
+        name (e.g. ``{"report": {...}}`` for a route declaring a ``report``
+        output). Legacy single-output routes merge under the asset type
+        instead (e.g. ``{"dataset": {...}}``). Otherwise the raw ``response``
+        is returned unchanged. Useful for migrating callers that previously
+        expected the deprecated :meth:`Routes.use` dict return.
         """
         response_data = self.response
         if self.output_assets:

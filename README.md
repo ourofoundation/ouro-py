@@ -297,6 +297,23 @@ pip install -e .
 pytest
 ```
 
+`tests/integration` exercises the SDK against a live backend. It creates real
+assets (named `sdk-it-<run>-...`) and deletes them when the session ends, and
+it only runs when an API key is set. A second key enables the sharing,
+membership, and multi-user tests. The suite refuses non-local backends unless
+`OURO_TEST_ALLOW_REMOTE=1`.
+
+```bash
+export OURO_TEST_API_KEY=...        # primary user
+export OURO_TEST_API_KEY_2=...      # optional second user
+export OURO_TEST_BASE_URL=http://localhost:8003
+pytest tests/integration
+```
+
+Route tests register a mock OpenAPI service on `127.0.0.1`, so the backend
+must be able to reach the machine running the tests. Known backend bugs are
+marked `xfail(strict=True)`; when one starts passing, remove its marker.
+
 Questions and ideas are welcome in
 [GitHub Discussions](https://github.com/orgs/ourofoundation/discussions).
 

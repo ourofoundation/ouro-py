@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from ._base import DictCompatModel
@@ -42,7 +42,7 @@ class Team(DictCompatModel):
     source_policy: Optional[str] = None
     actor_type_policy: Optional[str] = None
     join_policy: Optional[str] = None
-    description: Optional[dict] = None
+    description: Optional[Union[str, dict]] = None
     members: Optional[List[TeamMember]] = None
     memberCount: Optional[int] = None
     userMembership: Optional[TeamMembership] = None

@@ -177,7 +177,12 @@ class Editor(Content):
         element["content"] = [header_row, *rows]
 
         self.json["content"].append(element)
-        self.text += f"{data.to_markdown()}\n"
+        lines = [
+            "| " + " | ".join(str(col) for col in data.columns) + " |",
+            "| " + " | ".join("---" for _ in data.columns) + " |",
+            *("| " + " | ".join(str(val) for val in row) + " |" for row in data.itertuples(index=False)),
+        ]
+        self.text += "\n".join(lines) + "\n"
 
     def new_inline_image(self, src: str, alt: str) -> None:
         element = {

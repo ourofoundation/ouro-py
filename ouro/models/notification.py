@@ -19,13 +19,15 @@ class Notification(DictCompatModel):
     """
 
     id: UUID
-    user_id: Optional[UUID] = None
+    destination_user_id: Optional[UUID] = None
     asset_id: Optional[UUID] = None
+    parent_asset_id: Optional[UUID] = None
+    root_asset_id: Optional[UUID] = None
+    action_id: Optional[UUID] = None
     source_user_id: Optional[UUID] = None
     org_id: Optional[UUID] = None
     type: Optional[str] = None
-    read: Optional[bool] = None
-    read_at: Optional[datetime] = None
+    viewed: Optional[bool] = None
     content: Optional[dict] = None
     source_user: Optional[dict] = None
     asset: Optional[dict] = None

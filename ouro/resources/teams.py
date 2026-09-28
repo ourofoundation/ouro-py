@@ -27,7 +27,12 @@ class Teams(SyncAPIResource):
         join_policy: Optional[str] = None,
         **kwargs,
     ) -> Team:
-        """Create a team in an organization."""
+        """Create a team in an organization.
+
+        ``name`` must be a slug (lowercase letters, numbers, and single dashes)
+        and unique within the organization; otherwise the request fails with
+        ``BadRequestError`` or ``ConflictError``.
+        """
         team = _strip_none({
             "name": name,
             "org_id": org_id,
@@ -68,6 +73,16 @@ class Teams(SyncAPIResource):
         })
         request = self.client.put(f"/teams/{id}", json={"team": team})
         return Team.model_validate(self._handle_response(request) or {})
+
+    def delete(self, id: str) -> None:
+        """Delete a team (team or organization admins only).
+
+        The team's assets move to the organization's default team; its
+        memberships, bans, and join requests are removed. An organization's
+        default team cannot be deleted.
+        """
+        request = self.client.delete(f"/teams/{id}")
+        self._handle_response(request)
 
     def list(
         self,
@@ -165,9 +180,8 @@ class Teams(SyncAPIResource):
         return self._handle_response(request) or []
 
     def leave(self, id: str) -> dict:
-        """Leave a team. Uses the authenticated user's ID."""
-        user_id = self.ouro.user.id
-        request = self.client.delete(f"/teams/{id}/members/{user_id}")
+        """Leave a team as the authenticated user."""
+        request = self.client.get(f"/teams/{id}/leave")
         return self._handle_response(request) or {}
 
     def activity(

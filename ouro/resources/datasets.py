@@ -467,18 +467,24 @@ class Datasets(SyncAPIResource):
         # UUID and uses the request's `name` field as the display-name
         # candidate, so the identifier embedded here is just a syntactic
         # placeholder to make the CREATE TABLE parseable.
+        # pandas get_schema uses the SQLite type map, whose names mean something
+        # narrower in Postgres: REAL is 4-byte (floats lose precision), bools
+        # map to INTEGER, and INTEGER is 32-bit (2^31+ overflows).
+        postgres_types = {
+            column: "BOOLEAN" if pd.api.types.is_bool_dtype(dtype) else "DOUBLE PRECISION"
+            for column, dtype in df.dtypes.items()
+            if pd.api.types.is_bool_dtype(dtype) or pd.api.types.is_float_dtype(dtype)
+        }
         create_table_sql = pd.io.sql.get_schema(
             df,
             name=_PLACEHOLDER_TABLE,
             schema="datasets",
+            dtype=postgres_types,
         )
 
         create_table_sql = create_table_sql.replace(
             "TIMESTAMP", "TIMESTAMP WITH TIME ZONE"
         )
-        # pandas get_schema uses the SQLite type map (int64 → INTEGER).
-        # SQLite INTEGER is 64-bit; Postgres INTEGER is 32-bit, so values
-        # above 2^31-1 fail with "out of range for type integer".
         create_table_sql = create_table_sql.replace(" INTEGER", " BIGINT")
         create_table_sql = create_table_sql.replace(
             "CREATE TABLE", "CREATE TABLE IF NOT EXISTS"

@@ -444,7 +444,8 @@ class Ouro:
             self.exchange_api_key()
             self._raw_client.headers["Authorization"] = f"{self.access_token}"
             self.last_token_refresh_expiration = self._jwt_expiration(self.access_token)
-            self.websocket.refresh_connection(self.access_token)
+            if self.websocket.is_connected:
+                self.websocket.refresh_connection(self.access_token)
             log.info("Session refreshed successfully")
         except Exception as e:
             log.warning(f"Failed to refresh session: {e}")

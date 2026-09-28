@@ -145,8 +145,11 @@ class Quests(SyncAPIResource):
                 entries per item while the quest is open.
             status: Quest lifecycle status ("draft", "open", "closed", "cancelled").
             items: List of task descriptions (strings), TipTap Content dicts, or
-                   full item objects (description, expected_asset_type,
-                   reward_currency, reward_amount, etc.).
+                   full item objects (description, submission_assets,
+                   reward_xp, reward_currency, reward_amount, etc.).
+                   ``submission_assets`` declares what contributors attach,
+                   keyed by input name, e.g.
+                   ``{"file": {"asset_type": "file"}}``.
         """
         quest = _strip_none(
             {

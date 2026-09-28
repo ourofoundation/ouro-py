@@ -210,6 +210,23 @@ class TestDatasetsCreate(unittest.TestCase):
         self.assertIn('"property_id" BIGINT', schema)
         self.assertNotIn('"property_id" INTEGER', schema)
 
+    def test_create_maps_floats_and_bools_to_postgres_types(self) -> None:
+        ouro = _FakeOuro(
+            stats_count=0,
+            create_extra={"row_ingest": {"inserted": 1, "skipped": 0}},
+        )
+        datasets = Datasets(ouro)
+
+        datasets.create(
+            name="types",
+            visibility="private",
+            data=[{"energy": 1.23456789012345, "stable": True}],
+        )
+
+        schema = ouro.client.requests[0]["json"]["dataset"]["schema"]
+        self.assertIn('"energy" DOUBLE PRECISION', schema)
+        self.assertIn('"stable" BOOLEAN', schema)
+
     def test_create_sends_rows_in_schema_request_and_skips_fallback_when_backend_ingests(self) -> None:
         ouro = _FakeOuro(
             stats_count=0,

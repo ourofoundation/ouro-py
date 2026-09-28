@@ -734,6 +734,11 @@ class Routes(SyncAPIResource):
                 (default), derived from route's p95_completion_ms.
             **kwargs: Additional keyword arguments to send to the route
         """
+        warnings.warn(
+            "ouro.routes.use() is deprecated; use ouro.routes.execute(), which returns an Action.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         raise_on_error = kwargs.pop("raise_on_error", wait)
         action = self.execute(
             name_or_id,

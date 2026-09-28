@@ -1,3 +1,4 @@
+import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -261,6 +262,11 @@ class Route(Asset):
                 ``p95_completion_ms`` metric.
             **kwargs: Additional arguments (body, query, params, output, timeout).
         """
+        warnings.warn(
+            "Route.use() is deprecated; use Route.execute(), which returns an Action.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         raise_on_error = kwargs.pop("raise_on_error", wait)
         action = self.execute(
             wait=wait,

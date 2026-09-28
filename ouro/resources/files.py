@@ -7,8 +7,6 @@ from base64 import b64encode
 from typing import Any, List, Literal, Optional, Union
 from uuid import UUID
 
-from ouro.utils import generate_uuid
-
 import httpx
 
 from ouro._exceptions import APIConnectionError, APIStatusError
@@ -431,73 +429,57 @@ class Files(SyncAPIResource):
         """Create a File.
 
         Provide file data via *one* of:
-        - ``file_path`` — absolute path to a local file.
+        - ``file_path`` — path to a local file.
         - ``file_content`` + ``file_name`` — raw bytes and the original
           filename (with extension, e.g. ``"report.pdf"``).
-        - Neither — creates an in-progress stub to be updated later.
         """
         log.debug("Creating a file")
         if file_path and file_content is not None:
             raise ValueError("Provide file_path or file_content, not both.")
+        if not file_path and file_content is None:
+            raise ValueError("Provide file_path, or file_content with file_name.")
         if file_content is not None and not file_name:
             raise ValueError("file_name is required when using file_content.")
 
-        has_upload = bool(file_path) or file_content is not None
-        if not has_upload:
-            log.warning("No file data provided, creating a file stub. Update it later.")
-            file = {
-                "id": generate_uuid(),
-                "name": name,
-                "visibility": visibility,
-                "monetization": monetization,
-                "price": price,
-                "description": _coerce_description(description),
-                "license_id": license_id,
-                **kwargs,
-                "asset_type": "file",
-                "state": "in-progress",
-                "source": "api",
-            }
+        if file_path:
+            mime_type = _resolve_content_type(file_path)
+            local_file_size = os.path.getsize(file_path)
+            upload_data = self._upload_local_file(file_path, visibility, mime_type)
         else:
-            if file_path:
-                mime_type = _resolve_content_type(file_path)
-                local_file_size = os.path.getsize(file_path)
-                upload_data = self._upload_local_file(file_path, visibility, mime_type)
-            else:
-                mime_type = _resolve_content_type(file_name)
-                local_file_size = len(file_content)
-                upload_data = self._upload_content(
-                    file_content, file_name, visibility, mime_type,
-                )
-
-            file_id = upload_data["id"]
-            bucket = upload_data["bucket"]
-            path_on_storage = upload_data["path"]
-            storage_name = os.path.basename(path_on_storage)
-            meta_data = self._handle_response(
-                self.client.get(f"/files/{file_id}/metadata")
-            )
-            server_metadata = (meta_data or {}).get("metadata") or {}
-
-            metadata = _build_file_metadata(
-                file_id, storage_name, bucket, path_on_storage,
-                mime_type, server_metadata, local_file_size,
+            mime_type = _resolve_content_type(file_name)
+            local_file_size = len(file_content)
+            upload_data = self._upload_content(
+                file_content, file_name, visibility, mime_type,
             )
 
-            file = {
-                "id": file_id,
-                "name": name,
-                "visibility": visibility,
-                "monetization": monetization,
-                "price": price,
-                "description": _coerce_description(description),
-                "license_id": license_id,
-                **kwargs,
-                "source": "api",
-                "metadata": metadata,
-                "preview": (meta_data or {}).get("preview"),
-                "asset_type": "file",
-            }
+        file_id = upload_data["id"]
+        bucket = upload_data["bucket"]
+        path_on_storage = upload_data["path"]
+        storage_name = os.path.basename(path_on_storage)
+        meta_data = self._handle_response(
+            self.client.get(f"/files/{file_id}/metadata")
+        )
+        server_metadata = (meta_data or {}).get("metadata") or {}
+
+        metadata = _build_file_metadata(
+            file_id, storage_name, bucket, path_on_storage,
+            mime_type, server_metadata, local_file_size,
+        )
+
+        file = {
+            "id": file_id,
+            "name": name,
+            "visibility": visibility,
+            "monetization": monetization,
+            "price": price,
+            "description": _coerce_description(description),
+            "license_id": license_id,
+            **kwargs,
+            "source": "api",
+            "metadata": metadata,
+            "preview": (meta_data or {}).get("preview"),
+            "asset_type": "file",
+        }
 
         file = _strip_none(file)
         file["attribution"] = _ensure_attribution(attribution)

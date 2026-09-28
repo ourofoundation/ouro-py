@@ -1,3 +1,4 @@
+import warnings
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import BaseModel
@@ -66,6 +67,11 @@ class Service(Asset):
         The latter two are passed through unchanged so we don't accidentally
         build a 3-segment identifier like ``"{service_id}/entity/route"``.
         """
+        warnings.warn(
+            "Service.use_route() is deprecated; use Service.execute_route(), which returns an Action.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         wait = kwargs.get("wait", True)
         kwargs.setdefault("raise_on_error", wait)
         action = self.execute_route(route_name_or_id, **kwargs)
