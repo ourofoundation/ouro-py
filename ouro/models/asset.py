@@ -85,6 +85,27 @@ class User(UserProfile):
     metrics: Optional[Dict[str, Any]] = None
 
 
+class PlanLimits(OuroModel):
+    max_storage_bytes: int = Field(alias="maxStorageBytes")
+    max_assets: int = Field(alias="maxAssets")
+    max_datasets: int = Field(alias="maxDatasets")
+    can_create_private_assets: bool = Field(alias="canCreatePrivateAssets")
+    can_monetize: bool = Field(alias="canMonetize")
+
+
+class PlanUsage(OuroModel):
+    used: int
+    limit: int
+
+
+class PlanInfo(OuroModel):
+    """The authenticated user's plan, its limits, and current usage."""
+
+    plan_type: str = Field(alias="planType")
+    limits: PlanLimits
+    usage: Dict[str, PlanUsage] = Field(default_factory=dict)
+
+
 class OrganizationProfile(OuroModel):
     id: UUID
     name: str

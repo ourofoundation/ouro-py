@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ouro._resource import SyncAPIResource
-from ouro.models import User, UserImpact
+from ouro.models import PlanInfo, User, UserImpact
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -17,6 +17,11 @@ class Users(SyncAPIResource):
         """Return the authenticated user's profile (username, bio, etc.)."""
         request = self.client.get("/user/profile")
         return self._parse(User, self._handle_response(request))
+
+    def plan(self) -> PlanInfo:
+        """Return the authenticated user's plan, its limits, and current usage."""
+        request = self.client.get("/user/plan-info")
+        return self._parse(PlanInfo, self._handle_response(request))
 
     def get(self, name_or_id: str) -> User:
         """Look up a user profile by username or user_id."""
