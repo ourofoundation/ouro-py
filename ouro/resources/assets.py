@@ -3,13 +3,30 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 from urllib.parse import unquote
 from uuid import UUID
 
 from ouro._exceptions import NotFoundError
-from ouro._resource import SyncAPIResource, _strip_none
-from ouro.models import Action, Asset, Comment, Dataset, File, Post, Quest, Route, Service
+from ouro._resource import M, SyncAPIResource, _strip_none
+from ouro.models import (
+    Asset,
+    AssetActions,
+    AssetCounts,
+    AssetImpact,
+    AssetTag,
+    Comment,
+    Connection,
+    Dataset,
+    DeleteResult,
+    Download,
+    File,
+    Page,
+    Post,
+    Quest,
+    Route,
+    Service,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -82,12 +99,7 @@ SEARCH_PAGE_MAX = 200
 
 
 class Assets(SyncAPIResource):
-    def search(
-        self,
-        query: str = "",
-        with_pagination: bool = False,
-        **kwargs: Any,
-    ) -> Union[List[dict], dict]:
+    def search(self, query: str = "", **kwargs: Any) -> Page[Asset]:
         """
         Search or browse assets.
 
@@ -122,61 +134,39 @@ class Assets(SyncAPIResource):
             limit:  max results to return (default 20). Values above 200
                     paginate internally; ``None`` fetches all matches.
             offset: pagination offset (default 0)
-
-        Returns a list of asset dicts, or a dict with ``data`` and
-        ``pagination`` keys when ``with_pagination=True``.
         """
+        return self._search(Asset, query, **kwargs)
+
+    def _search(self, model: Type[M], query: str = "", **kwargs: Any) -> Page[M]:
+        """Search assets, parsing each hit as *model*."""
         limit = kwargs.pop("limit", 20)
-        offset = int(kwargs.pop("offset", 0))
+        start = offset = int(kwargs.pop("offset", 0))
 
-        if limit is not None and limit <= SEARCH_PAGE_MAX:
-            return self._search_page(
-                query, limit, offset, with_pagination, dict(kwargs)
-            )
-
-        # limit=None (all matches) or limit > server page cap: paginate.
         collected: List[dict] = []
-        last_pagination: Optional[dict] = None
+        pagination: dict = {}
         while True:
             remaining = None if limit is None else limit - len(collected)
-            page_limit = (
-                SEARCH_PAGE_MAX
-                if remaining is None
-                else min(remaining, SEARCH_PAGE_MAX)
-            )
-            page = self._search_page(
-                query, page_limit, offset, True, dict(kwargs)
-            )
-            data = page.get("data") or []
+            page_limit = SEARCH_PAGE_MAX if remaining is None else min(remaining, SEARCH_PAGE_MAX)
+            body = self._search_page(query, page_limit, offset, dict(kwargs))
+            data = body.get("data") or []
             collected.extend(data)
-            last_pagination = page.get("pagination")
-
-            has_more = bool((last_pagination or {}).get("hasMore"))
-            done = (
+            pagination = body.get("pagination") or {}
+            # A limit within the server cap is a single page: the caller pages.
+            if (
                 not data
-                or not has_more
-                or (limit is not None and len(collected) >= limit)
-            )
-            if done:
+                or not pagination.get("hasMore")
+                or (limit is not None and (limit <= SEARCH_PAGE_MAX or len(collected) >= limit))
+            ):
                 break
             offset += len(data)
 
-        if limit is not None:
-            collected = collected[:limit]
+        return self._page(
+            Page[model],
+            {"data": collected, "pagination": {**pagination, "offset": start, "limit": limit}},
+        )
 
-        if with_pagination:
-            return {"data": collected, "pagination": last_pagination}
-        return collected
-
-    def _search_page(
-        self,
-        query: str,
-        limit: int,
-        offset: int,
-        with_pagination: bool,
-        kwargs: dict,
-    ) -> Union[List[dict], dict]:
-        """Fetch a single page from /search/assets."""
+    def _search_page(self, query: str, limit: int, offset: int, kwargs: dict) -> dict:
+        """Fetch one raw ``{data, pagination}`` page from /search/assets."""
         params: dict[str, Any] = {}
         if query:
             params["query"] = query
@@ -216,13 +206,7 @@ class Assets(SyncAPIResource):
 
         params.update(kwargs)
         request = self.client.get("/search/assets", params=params)
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": [], "pagination": None}
-            result["data"] = result.get("data") or []
-            return result
-        return self._handle_response(request) or []
+        return self._handle_response(request, raw=True) or {}
 
     def retrieve(
         self,
@@ -275,8 +259,8 @@ class Assets(SyncAPIResource):
         id: str,
         output_path: Optional[str] = None,
         asset_type: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Download an asset to disk and return metadata about the saved file.
+    ) -> Download:
+        """Download an asset to disk and describe the saved file.
 
         Files are downloaded as their original bytes, datasets as CSV, and posts
         as HTML. If ``output_path`` points to a directory (or is omitted), the
@@ -319,13 +303,13 @@ class Assets(SyncAPIResource):
                     fh.write(chunk)
                     bytes_written += len(chunk)
 
-        return {
-            "id": id,
-            "path": str(target_path.resolve()),
-            "filename": target_path.name,
-            "content_type": content_type,
-            "bytes": bytes_written,
-        }
+        return Download(
+            id=id,
+            path=str(target_path.resolve()),
+            filename=target_path.name,
+            content_type=content_type,
+            size=bytes_written,
+        )
 
     def share(
         self,
@@ -349,17 +333,17 @@ class Assets(SyncAPIResource):
         )
         self._handle_response(request)
 
-    def counts(self, id: str) -> dict:
+    def counts(self, id: str) -> AssetCounts:
         """Fetch engagement counts (views, comments, reactions, downloads) for an asset."""
         request = self.client.get(f"/assets/{id}/counts")
-        return self._handle_response(request) or {}
+        return self._parse(AssetCounts, self._handle_response(request))
 
     def impact(
         self,
         ids: list[str] | str,
         *,
         since: Optional[str] = None,
-    ) -> dict:
+    ) -> List[AssetImpact]:
         """Batch impact metrics for one or more assets.
 
         Returns external-vs-self engagement, bot-filtered quality views, and
@@ -373,12 +357,16 @@ class Assets(SyncAPIResource):
         if since:
             params["since"] = since
         request = self.client.get("/assets/impact", params=params)
-        return self._handle_response(request) or {}
+        data = self._handle_response(request) or {}
+        return self._parse_list(AssetImpact, data.get("assets"))
 
-    def connections(self, id: str) -> List[dict]:
-        """Fetch the connection graph for an asset (references, components, derivatives, etc.)."""
-        request = self.client.get(f"/assets/{id}/connections")
-        return self._handle_response(request) or []
+    def connections(
+        self, id: str, *, limit: Optional[int] = None, offset: int = 0
+    ) -> Page[Connection]:
+        """Fetch a page of the asset's connection graph (references, components, derivatives, etc.)."""
+        params = _strip_none({"limit": limit, "offset": offset or None})
+        request = self.client.get(f"/assets/{id}/connections", params=params)
+        return self._page(Page[Connection], self._handle_response(request, raw=True))
 
     def actions(
         self,
@@ -390,7 +378,7 @@ class Assets(SyncAPIResource):
         include_response: bool = False,
         limit: Optional[int] = None,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> AssetActions:
         """List route actions linked to an asset.
 
         Args:
@@ -409,25 +397,20 @@ class Assets(SyncAPIResource):
             limit: Max as_input actions per request (server max 200). When
                 ``None`` (default), pages through until exhausted.
             offset: Pagination offset for as_input (ignored when ``limit``
-                is ``None`` and auto-paging).
+                is ``None``).
 
         Returns:
-            Always ``{"created_by": Action | None, "as_input": list[Action]}``.
-            Unused sides are ``None`` / ``[]`` when ``role`` is narrowed.
-            When ``limit`` is set, may also include ``pagination``.
+            ``created_by`` (the producing action, if any) and ``as_input``.
+            Unused sides are ``None`` / ``[]`` when ``role`` is narrowed;
+            ``has_more`` reports whether more ``as_input`` actions remain.
         """
         if role not in {"input", "output", "both"}:
             raise ValueError(
                 f"role must be 'input', 'output', or 'both'; got {role!r}"
             )
 
-        def _params(
-            *,
-            req_role: str,
-            page_limit: Optional[int],
-            page_offset: int,
-        ) -> Dict[str, Any]:
-            return _strip_none(
+        def fetch(req_role: str, page_limit: Optional[int], page_offset: int) -> dict:
+            params = _strip_none(
                 {
                     "role": req_role,
                     "status": status,
@@ -441,95 +424,37 @@ class Assets(SyncAPIResource):
                     "offset": page_offset if page_limit is not None else None,
                 }
             )
+            request = self.client.get(f"/assets/{id}/actions", params=params)
+            return self._handle_response(request, raw=True) or {}
 
-        def _wrap_actions(rows: List[dict]) -> List[Action]:
-            return [Action(**item, _ouro=self.ouro) for item in rows]
+        if role == "output":
+            data = fetch("output", None, 0).get("data")
+            return self._parse(AssetActions, {"created_by": data})
 
-        def _parse_page(
-            envelope: dict, *, req_role: str
-        ) -> tuple[Optional[Action], List[dict], Optional[dict]]:
-            pagination = envelope.get("pagination")
-            data = envelope.get("data")
-            created: Optional[Action] = None
-            rows: List[dict] = []
-            if req_role == "input":
-                rows = list(data or []) if isinstance(data, list) else []
-            elif req_role == "both":
-                if isinstance(data, dict):
-                    created_raw = data.get("created_by")
-                    if created_raw is not None:
-                        created = Action(**created_raw, _ouro=self.ouro)
-                    rows = list(data.get("as_input") or [])
-            elif req_role == "output" and data is not None:
-                created = Action(**data, _ouro=self.ouro)
-            return created, rows, pagination
+        # "both" returns {created_by, as_input}; "input" returns the list alone.
+        def split(body: dict) -> tuple[Optional[dict], List[dict], bool]:
+            data = body.get("data")
+            has_more = bool((body.get("pagination") or {}).get("hasMore"))
+            if isinstance(data, dict):
+                return data.get("created_by"), data.get("as_input") or [], has_more
+            return None, data or [], has_more
 
-        # Single-page (or output-only) path.
-        if role == "output" or limit is not None:
-            request = self.client.get(
-                f"/assets/{id}/actions",
-                params=_params(
-                    req_role=role, page_limit=limit, page_offset=offset
-                ),
-            )
-            if role == "output":
-                raw = self._handle_response(request)
-                created_by = (
-                    Action(**raw, _ouro=self.ouro) if raw is not None else None
-                )
-                return {"created_by": created_by, "as_input": []}
+        page_size = limit if limit is not None else SEARCH_PAGE_MAX
+        created_by, as_input, has_more = split(fetch(role, page_size, offset))
+        while limit is None and has_more:
+            offset += page_size
+            _, rows, has_more = split(fetch("input", page_size, offset))
+            as_input.extend(rows)
 
-            envelope = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(envelope, dict):
-                return {"created_by": None, "as_input": []}
-            created_by, rows, pagination = _parse_page(envelope, req_role=role)
-            result: Dict[str, Any] = {
-                "created_by": created_by,
-                "as_input": _wrap_actions(rows),
-            }
-            if pagination is not None:
-                result["pagination"] = pagination
-            return result
+        return self._parse(
+            AssetActions,
+            {"created_by": created_by, "as_input": as_input, "has_more": has_more},
+        )
 
-        # Auto-paginate as_input (limit=None).
-        page_size = 200
-        page_offset = 0
-        created_by = None
-        as_input_rows: List[dict] = []
-        req_role = role
-        while True:
-            request = self.client.get(
-                f"/assets/{id}/actions",
-                params=_params(
-                    req_role=req_role,
-                    page_limit=page_size,
-                    page_offset=page_offset,
-                ),
-            )
-            envelope = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(envelope, dict):
-                break
-            page_created, page_rows, pagination = _parse_page(
-                envelope, req_role=req_role
-            )
-            if created_by is None and page_created is not None:
-                created_by = page_created
-            as_input_rows.extend(page_rows)
-            if not (pagination or {}).get("hasMore"):
-                break
-            page_offset += page_size
-            req_role = "input"
-
-        return {
-            "created_by": created_by,
-            "as_input": _wrap_actions(as_input_rows),
-        }
-
-
-    def tags(self, id: str) -> List[dict]:
+    def tags(self, id: str) -> List[AssetTag]:
         """Fetch tags attached to an asset."""
         request = self.client.get(f"/assets/{id}/tags")
-        return self._handle_response(request) or []
+        return self._parse_list(AssetTag, self._handle_response(request))
 
     def compatible_routes(
         self,
@@ -542,18 +467,14 @@ class Assets(SyncAPIResource):
         output_asset_type: Optional[str] = None,
         output_file_extension: Optional[str] = None,
         contains_file_extension: Optional[str] = None,
-        with_pagination: bool = False,
-    ) -> Union[List[dict], dict]:
+    ) -> Page[Route]:
         """Fetch routes that can operate on this asset.
 
-        Routes default to popularity order (most used first). Pass ``limit`` and
-        ``offset`` to request a page; set ``with_pagination=True`` to include the
-        server pagination envelope. Output filters match both the primary route
-        output and any structured ``output_assets`` metadata.
+        Routes default to popularity order (most used first). Without a
+        ``limit`` every compatible route is returned in one page. Output
+        filters match both the primary route output and any structured
+        ``output_assets`` metadata.
         """
-        if with_pagination and limit is None:
-            limit = 20
-
         params = {
             "limit": limit,
             "offset": offset if limit is not None else None,
@@ -564,17 +485,14 @@ class Assets(SyncAPIResource):
             "contains_file_extension": contains_file_extension,
         }
         request = self.client.get(
-            f"/assets/{id}/compatible-routes",
-            params={k: v for k, v in params.items() if v is not None},
+            f"/assets/{id}/compatible-routes", params=_strip_none(params)
         )
-        if with_pagination:
-            return self._handle_response(request, with_pagination=True) or {}
-        return self._handle_response(request) or []
+        return self._page(Page[Route], self._handle_response(request, raw=True))
 
-    def children(self, id: str) -> List[dict]:
+    def children(self, id: str) -> List[Asset]:
         """Fetch child assets (e.g. routes of a service)."""
         request = self.client.get(f"/assets/{id}/children")
-        return self._handle_response(request) or []
+        return self._parse_list(Asset, self._handle_response(request))
 
     def delete(
         self,
@@ -582,7 +500,7 @@ class Assets(SyncAPIResource):
         *,
         delete_children: Optional[bool] = None,
         dry_run: bool = False,
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete any asset by ID, cascading children when requested.
 
         Auto-detects asset type and routes to the type-specific delete
@@ -593,8 +511,7 @@ class Assets(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
         request = self.client.get(f"/assets/{id}/type")
         data = self._handle_response(request) or {}

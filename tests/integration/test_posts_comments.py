@@ -94,7 +94,7 @@ def test_editor_with_embeds_and_partial_file(ouro, track):
     assert materialized and not materialized[0]["attrs"].get("partial")
 
     summary = ouro.posts.delete(str(created.id), dry_run=True, delete_children=True)
-    assert any(child["asset_type"] == "file" for child in summary["deleted_children"])
+    assert any(child.asset_type == "file" for child in summary.deleted_children)
 
 
 def test_header_level_validation(ouro):

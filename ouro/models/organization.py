@@ -4,25 +4,23 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from ._base import DictCompatModel
+from pydantic import Field
+
+from ._base import OuroModel
+from .asset import TeamProfile
 
 __all__ = ["Organization", "OrganizationMembership"]
 
 
-class OrganizationMembership(DictCompatModel):
+class OrganizationMembership(OuroModel):
     """User's membership info within an organization."""
 
     role: Optional[str] = None
     membership_type: Optional[str] = None
 
 
-class Organization(DictCompatModel):
-    """An Ouro organization (workspace).
-
-    Fields are permissive (``extra="allow"``) because the backend returns a
-    richer shape than what's declared here. Use attribute access for the
-    fields below; fall back to ``.get("field")`` for anything else.
-    """
+class Organization(OuroModel):
+    """An Ouro organization (workspace)."""
 
     id: UUID
     name: str
@@ -34,5 +32,8 @@ class Organization(DictCompatModel):
     source_policy: Optional[str] = None
     actor_type_policy: Optional[str] = None
     membership: Optional[OrganizationMembership] = None
+    membership_type: Optional[str] = Field(default=None, alias="membershipType")
+    user_role: Optional[str] = Field(default=None, alias="userRole")
+    default_team: Optional[TeamProfile] = None
     created_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None

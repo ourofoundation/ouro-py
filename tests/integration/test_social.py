@@ -6,21 +6,28 @@ import time
 
 import pytest
 
-from ouro.models import Conversation, Notification
+from ouro.models import (
+    BitcoinBalance,
+    BitcoinTransaction,
+    Conversation,
+    Notification,
+    UsdBalance,
+    UsdTransaction,
+)
 
 
 def test_users_lookup(ouro, me, other_me):
-    assert ouro.users.get(me["username"])["user_id"] == me["user_id"]
-    assert ouro.users.get(other_me["user_id"])["username"] == other_me["username"]
-    found = ouro.users.search(other_me["username"])
-    assert any(u["user_id"] == other_me["user_id"] for u in found)
-    assert isinstance(ouro.users.impact(me["username"]), dict)
+    assert ouro.users.get(me.username).user_id == me.user_id
+    assert ouro.users.get(str(other_me.user_id)).username == other_me.username
+    found = ouro.users.search(other_me.username)
+    assert any(u.user_id == other_me.user_id for u in found)
+    assert ouro.users.impact(me.username).user_id == me.user_id
 
 
 @pytest.fixture(scope="module")
 def conversation(ouro, other_me, run_id):
     convo = ouro.conversations.create(
-        member_user_ids=[str(ouro.user.id), other_me["user_id"]],
+        member_user_ids=[str(ouro.user.id), str(other_me.user_id)],
         name=f"sdk-it-{run_id}",
     )
     yield convo
@@ -39,12 +46,12 @@ def test_messages_and_cursor_pagination(ouro, other, conversation):
         conversation.messages.create(text=f"message {i}")
     other.conversations.retrieve(str(conversation.id)).messages.create(text="reply from other")
 
-    newest = ouro.conversations.retrieve(str(conversation.id)).messages.list(limit=2, with_pagination=True)
-    assert [m["text"] for m in newest["data"]][-1] == "reply from other"
-    assert newest["pagination"]["hasMore"] is True
+    newest = ouro.conversations.retrieve(str(conversation.id)).messages.list(limit=2)
+    assert [m.text for m in newest][-1] == "reply from other"
+    assert newest.has_more is True
 
-    older = conversation.messages.list(limit=10, **newest["pagination"]["nextCursor"])
-    assert [m["text"] for m in older] == ["message 0", "message 1"]
+    older = conversation.messages.list(limit=10, before=newest.next_cursor["before"])
+    assert [m.text for m in older] == ["message 0", "message 1"]
 
 
 def test_notifications_after_share(ouro, other, track):
@@ -64,17 +71,18 @@ def test_notifications_after_share(ouro, other, track):
     assert other.notifications.unreads() >= before
     assert other.notifications.read(str(match.id)).viewed is True
 
-    page = other.notifications.list(limit=1, with_pagination=True, category="shares")
-    assert "hasMore" in page["pagination"]
+    page = other.notifications.list(limit=1, category="shares")
+    assert isinstance(page.has_more, bool)
 
 
 def test_money_reads(ouro):
-    assert isinstance(ouro.money.get_balance("btc"), dict)
-    assert isinstance(ouro.money.get_balance("usd"), dict)
-    assert isinstance(ouro.money.get_transactions("btc"), list)
-    assert isinstance(ouro.money.get_transactions("usd", limit=5), list)
-    assert isinstance(ouro.money.get_usage_history(limit=5), dict)
-    assert isinstance(ouro.money.get_pending_earnings(), dict)
+    assert isinstance(ouro.money.get_balance("btc"), BitcoinBalance)
+    assert isinstance(ouro.money.get_balance("usd"), UsdBalance)
+    assert all(isinstance(t, BitcoinTransaction) for t in ouro.money.get_transactions("btc"))
+    assert all(isinstance(t, UsdTransaction) for t in ouro.money.get_transactions("usd", limit=5))
+    history = ouro.money.get_usage_history(limit=5)
+    assert history.summary.record_count >= len(history)
+    assert ouro.money.get_pending_earnings().total_pending_cents >= 0
     with pytest.raises(ValueError):
         ouro.money.get_balance("eur")
 

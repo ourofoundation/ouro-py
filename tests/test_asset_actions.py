@@ -84,11 +84,11 @@ class TestAssetActions(unittest.TestCase):
         )
         result = Assets(ouro).actions(ASSET_ID)
 
-        self.assertIsInstance(result["created_by"], Action)
-        self.assertEqual(result["created_by"].id, UUID(ACTION_ID))
-        self.assertEqual(len(result["as_input"]), 1)
+        self.assertIsInstance(result.created_by, Action)
+        self.assertEqual(result.created_by.id, UUID(ACTION_ID))
+        self.assertEqual(len(result.as_input), 1)
         self.assertEqual(
-            result["as_input"][0].id,
+            result.as_input[0].id,
             UUID("00000000-0000-0000-0000-000000000004"),
         )
         self.assertEqual(
@@ -123,8 +123,8 @@ class TestAssetActions(unittest.TestCase):
             ASSET_ID, role="input", status="success", limit=20
         )
 
-        self.assertIsNone(result["created_by"])
-        self.assertEqual(len(result["as_input"]), 1)
+        self.assertIsNone(result.created_by)
+        self.assertEqual(len(result.as_input), 1)
         self.assertEqual(
             ouro.client.requests[0]["params"],
             {
@@ -150,7 +150,7 @@ class TestAssetActions(unittest.TestCase):
         result = Assets(ouro).actions(
             ASSET_ID, role="input", include_response=True, limit=50
         )
-        self.assertEqual(len(result["as_input"]), 1)
+        self.assertEqual(len(result.as_input), 1)
         self.assertEqual(
             ouro.client.requests[0]["params"]["include_response"], "true"
         )
@@ -159,8 +159,8 @@ class TestAssetActions(unittest.TestCase):
         ouro = _FakeOuro([_FakeResponse({"data": _action_payload()})])
         result = Assets(ouro).actions(ASSET_ID, role="output")
 
-        self.assertIsInstance(result["created_by"], Action)
-        self.assertEqual(result["as_input"], [])
+        self.assertIsInstance(result.created_by, Action)
+        self.assertEqual(result.as_input, [])
         self.assertEqual(
             ouro.client.requests[0]["params"],
             {"role": "output", "include_response": "false"},
@@ -170,8 +170,8 @@ class TestAssetActions(unittest.TestCase):
         ouro = _FakeOuro([_FakeResponse({"data": None})])
         result = Assets(ouro).actions(ASSET_ID, role="output")
 
-        self.assertIsNone(result["created_by"])
-        self.assertEqual(result["as_input"], [])
+        self.assertIsNone(result.created_by)
+        self.assertEqual(result.as_input, [])
 
     def test_creation_actions_removed(self) -> None:
         self.assertFalse(hasattr(Assets, "creation_actions"))

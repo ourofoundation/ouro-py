@@ -98,11 +98,11 @@ def test_update_metadata_and_content(ouro, track):
 
 def test_download_roundtrip(ouro, cif_file, tmp_path):
     result = ouro.assets.download(str(cif_file.id), output_path=str(tmp_path) + "/")
-    saved = Path(result["path"])
+    saved = Path(result.path)
     assert saved.parent == tmp_path.resolve()
     assert saved.suffix == ".cif"
     assert saved.read_text() == CIF
-    assert result["bytes"] == len(CIF)
+    assert result.size == len(CIF)
 
 
 def test_search_by_extension(ouro, cif_file):
@@ -111,9 +111,9 @@ def test_search_by_extension(ouro, cif_file):
     assert any(f.id == cif_file.id for f in results)
     assert all(f.metadata.extension == "cif" for f in results if f.metadata)
 
-    page = ouro.files.search(extension="cif", scope="personal", limit=1, with_pagination=True)
-    assert len(page["data"]) == 1
-    assert "hasMore" in page["pagination"]
+    page = ouro.files.search(extension="cif", scope="personal", limit=1)
+    assert len(page) == 1
+    assert isinstance(page.has_more, bool)
 
 
 def test_list_is_search_without_pagination(ouro, cif_file):

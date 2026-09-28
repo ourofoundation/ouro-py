@@ -14,7 +14,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Action, ActionLog, Route
+from ouro.models import Action, ActionLog, DeleteResult, Page, Route, RouteCost, RouteStats
 from ouro.utils import is_valid_uuid
 
 from .content import Content
@@ -184,7 +184,7 @@ class Routes(SyncAPIResource):
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
         **kwargs: Any,
-    ) -> List[Route]:
+    ) -> Page[Route]:
         """List routes, optionally filtered by search query and scope.
 
         Results include base asset fields but not full route definitions.
@@ -195,7 +195,8 @@ class Routes(SyncAPIResource):
             time_window: For sort="popular": "day" | "week" | "month" | "all".
                          Default: "month".
         """
-        results = self.ouro.assets.search(
+        return self.ouro.assets._search(
+            Route,
             query=query,
             asset_type="route",
             limit=limit,
@@ -207,7 +208,6 @@ class Routes(SyncAPIResource):
             time_window=time_window,
             **kwargs,
         )
-        return [Route(**item, _ouro=self.ouro) for item in results]
 
     def _resolve_name_to_id(self, name_or_id: str, asset_type: str) -> str:
         """Resolve a name to an ID using the backend endpoint."""
@@ -229,7 +229,7 @@ class Routes(SyncAPIResource):
         """Retrieve a Route by its name or ID."""
         route_id = self._resolve_name_to_id(name_or_id, "route")
         request = self.client.get(f"/routes/{route_id}")
-        return Route(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Route, self._handle_response(request))
 
     def create(
         self,
@@ -298,7 +298,7 @@ class Routes(SyncAPIResource):
             f"/services/{service_id}/routes/create",
             json={"route": route},
         )
-        return Route(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Route, self._handle_response(request))
 
     def update(
         self,
@@ -358,11 +358,11 @@ class Routes(SyncAPIResource):
             f"/services/{service_id}/routes/{existing.id}",
             json={"route": route},
         )
-        return Route(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Route, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a Route by its id.
 
         Args:
@@ -372,22 +372,16 @@ class Routes(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/routes/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/routes/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}
 
     def retrieve_action(self, action_id: str) -> Action:
         """Retrieve an action by its ID to check its status and response."""
         request = self.client.get(f"/actions/{action_id}")
-        return Action(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Action, self._handle_response(request))
 
     def list_actions(
         self,
@@ -397,9 +391,8 @@ class Routes(SyncAPIResource):
         exclude_self: bool = False,
         limit: int = 20,
         offset: int = 0,
-        with_pagination: bool = False,
-    ) -> Union[List[Action], Dict[str, Any]]:
-        """List executions/actions for a route.
+    ) -> Page[Action]:
+        """List a page of executions/actions for a route.
 
         By default, the backend returns only actions owned by the authenticated
         user. Set ``include_other_users=True`` to include visible actions from
@@ -419,17 +412,7 @@ class Routes(SyncAPIResource):
             f"/services/{route.parent_id}/routes/{route.id}/actions",
             params=_strip_none(params),
         )
-
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": [], "pagination": None}
-            items = result.get("data") or []
-            result["data"] = [Action(**item, _ouro=self.ouro) for item in items]
-            return result
-
-        data = self._handle_response(request) or []
-        return [Action(**item, _ouro=self.ouro) for item in data]
+        return self._page(Page[Action], self._handle_response(request, raw=True))
 
     def get_action_logs(
         self,
@@ -440,9 +423,8 @@ class Routes(SyncAPIResource):
         offset: int = 0,
         sort_order: str = "desc",
         chronological: Optional[bool] = None,
-        with_pagination: bool = False,
-    ) -> Union[List[ActionLog], Dict[str, Any]]:
-        """Read logs for a route action."""
+    ) -> Page[ActionLog]:
+        """Read a page of logs for a route action."""
         if chronological is not None:
             sort_order = "asc" if chronological else "desc"
         if sort_order not in {"asc", "desc"}:
@@ -458,17 +440,21 @@ class Routes(SyncAPIResource):
             f"/actions/{action_id}/logs",
             params=_strip_none(params),
         )
+        return self._page(Page[ActionLog], self._handle_response(request, raw=True))
 
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": [], "pagination": None}
-            items = result.get("data") or []
-            result["data"] = [ActionLog.model_validate(item) for item in items]
-            return result
+    def stats(self, id: str) -> RouteStats:
+        """Usage counts plus today's in-progress and recent actions for a route."""
+        request = self.client.get(f"/routes/{id}/stats")
+        return self._parse(RouteStats, self._handle_response(request))
 
-        data = self._handle_response(request) or []
-        return [ActionLog.model_validate(item) for item in data]
+    def cost(self, id: str, asset_id: str) -> RouteCost:
+        """Price of running a variable-cost route on the input asset ``asset_id``."""
+        route = self.retrieve(id)
+        request = self.client.get(
+            f"/services/{route.parent_id}/routes/{route.id}/cost",
+            params={"input": asset_id},
+        )
+        return self._parse(RouteCost, (self._handle_response(request) or {}).get("cost"))
 
     def poll_action(
         self,
@@ -531,9 +517,8 @@ class Routes(SyncAPIResource):
         """
         Execute a route and return the full :class:`Action`.
 
-        Unlike :meth:`use`, this always returns an :class:`Action` with metadata
-        (``id``, ``status``, ``response``, ``output_asset``, timestamps) so callers
-        can reference the action afterwards — e.g. to poll, log, or embed a route
+        The :class:`Action` carries ``id``, ``status``, ``response``,
+        ``output_asset``, and timestamps so callers can reference it afterwards — e.g. to poll, log, or embed a route
         preview pinned to this action.
 
         Handles both sync and async routes transparently. For routes declared
@@ -616,7 +601,7 @@ class Routes(SyncAPIResource):
         )
 
         if is_async and action_data:
-            action = Action(**action_data, _ouro=self.ouro)
+            action = self._parse(Action, action_data)
             log.info(
                 f"Route returned 202 Accepted. Action ID: {action.id}, "
                 f"status: {action.status}"
@@ -671,7 +656,7 @@ class Routes(SyncAPIResource):
             if output_assets and not action_kwargs.get("output_assets"):
                 action_kwargs["output_assets"] = output_assets
 
-            action = Action(**action_kwargs, _ouro=self.ouro)
+            action = self._parse(Action, action_kwargs)
             if raise_on_error and action.is_error:
                 _raise_action_failure(action)
             return action
@@ -683,76 +668,3 @@ class Routes(SyncAPIResource):
             f"Route {route.name} returned no action metadata; "
             f"response: {envelope.get('data')}"
         )
-
-    def use(
-        self,
-        name_or_id: str,
-        body: Optional[Dict[str, Any]] = None,
-        query: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        output: Optional[Dict[str, Any]] = None,
-        input_assets: Optional[Dict[str, Any]] = None,
-        assets: Optional[Dict[str, Any]] = None,
-        *,
-        timeout: Optional[float] = None,
-        wait: bool = True,
-        poll_interval: Optional[float] = None,
-        poll_timeout: Optional[float] = None,
-        **kwargs,
-    ) -> Union[Dict, Action]:
-        """
-        Deprecated compatibility wrapper for :meth:`execute`.
-
-        Use/execute a specific route by its name or ID.
-        The route name should be in the format "entity_name/route_name".
-
-        For routes that return 202 (async processing), this method will automatically
-        poll for updates until the action completes, unless wait=False.
-
-        Polling cadence is adapted from the route's observed latency
-        (``avg_completion_ms`` / ``p95_completion_ms``) when ``poll_interval``
-        / ``poll_timeout`` are not explicitly set.
-
-        For programmatic access to the full action (id, status, output asset),
-        prefer :meth:`execute` — it always returns an :class:`Action`. Use
-        ``action.final_data`` if you need the same dict shape this method
-        returns.
-
-        Args:
-            name_or_id: Route name ("entity_name/route_name") or UUID
-            body: Request body data
-            query: Query parameters
-            params: URL parameters
-            output: Output configuration
-            timeout: HTTP request timeout in seconds
-            wait: If True (default), wait for async routes to complete. If
-                False, sends ``Prefer: respond-async`` and returns the
-                in-progress :class:`Action` immediately.
-            poll_interval: Seconds between status checks while waiting; if
-                None (default), derived from route's avg_completion_ms.
-            poll_timeout: Maximum seconds to wait for completion; if None
-                (default), derived from route's p95_completion_ms.
-            **kwargs: Additional keyword arguments to send to the route
-        """
-        warnings.warn(
-            "ouro.routes.use() is deprecated; use ouro.routes.execute(), which returns an Action.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        raise_on_error = kwargs.pop("raise_on_error", wait)
-        action = self.execute(
-            name_or_id,
-            body=body,
-            query=query,
-            params=params,
-            output=output,
-            input_assets=input_assets,
-            assets=assets,
-            wait=wait,
-            timeout=timeout,
-            poll_interval=poll_interval,
-            poll_timeout=poll_timeout,
-            raise_on_error=raise_on_error,
-            **kwargs,
-        )
-        return action if not wait else action.final_data

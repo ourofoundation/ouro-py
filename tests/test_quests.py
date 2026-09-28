@@ -119,8 +119,8 @@ class TestQuestItems(unittest.TestCase):
             description=content,
             status="pending",
         )
-        self.assertEqual(item.description["text"], "Link the dataset")
-        self.assertEqual(item.description["json"]["type"], "doc")
+        self.assertEqual(item.description.text, "Link the dataset")
+        self.assertEqual(item.description.data["type"], "doc")
 
     def test_retrieve_preserves_waiting_metadata_on_nested_items(self) -> None:
         ouro = _FakeOuro(
@@ -208,7 +208,7 @@ class TestQuestEntries(unittest.TestCase):
             offset=10,
         )
 
-        self.assertEqual(result[0]["description"], "Do the assigned work")
+        self.assertEqual(result[0].description.text, "Do the assigned work")
         self.assertEqual(
             ouro.client.requests[0],
             {
@@ -290,8 +290,7 @@ class TestQuestEntries(unittest.TestCase):
         )
 
         self.assertEqual(entry.status, "submitted")
-        self.assertEqual(entry.get("custom"), "value")
-        self.assertEqual(entry["custom"], "value")
+        self.assertEqual(entry.custom, "value")
         self.assertEqual(
             ouro.client.requests[0],
             {
@@ -364,12 +363,11 @@ class TestQuestEntries(unittest.TestCase):
             status="accepted",
             limit=5,
             offset=10,
-            with_pagination=True,
         )
 
-        self.assertEqual(page["data"][0].eval_status, "passed")
-        self.assertEqual(page["data"][0].assets["file"]["asset_type"], "file")
-        self.assertEqual(page["pagination"]["hasMore"], False)
+        self.assertEqual(page[0].eval_status, "passed")
+        self.assertEqual(page[0].assets["file"]["asset_type"], "file")
+        self.assertFalse(page.has_more)
         self.assertEqual(
             ouro.client.requests[0],
             {
@@ -449,16 +447,15 @@ class TestQuestLeaderboard(unittest.TestCase):
             "00000000-0000-0000-0000-000000000003",
             limit=50,
             offset=0,
-            with_pagination=True,
         )
 
-        self.assertEqual(page["data"][0].placement, 1)
-        self.assertEqual(page["data"][0].score, 0.91)
+        self.assertEqual(page[0].placement, 1)
+        self.assertEqual(page[0].score, 0.91)
         self.assertEqual(
-            page["data"][0].category_scores,
+            page[0].category_scores,
             {"accuracy": 0.95, "completeness": 0.8},
         )
-        self.assertEqual(page["item"]["leaderboard_order"], "desc")
+        self.assertEqual(page.item.leaderboard_order, "desc")
         self.assertEqual(
             ouro.client.requests[0],
             {

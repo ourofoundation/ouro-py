@@ -79,16 +79,16 @@ class TestAssetsDownload(unittest.TestCase):
         assets = Assets(ouro)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = assets.download("asset-123", output_path=tmpdir)
+            result = assets.download("00000000-0000-0000-0000-000000000123", output_path=tmpdir)
 
-            output_path = Path(result["path"])
+            output_path = Path(result.path)
             self.assertTrue(ouro._validated)
             self.assertEqual(output_path.read_bytes(), b"hello world")
-            self.assertEqual(result["filename"], "report.csv")
-            self.assertEqual(result["content_type"], "text/csv")
-            self.assertEqual(result["bytes"], 11)
+            self.assertEqual(result.filename, "report.csv")
+            self.assertEqual(result.content_type, "text/csv")
+            self.assertEqual(result.size, 11)
             self.assertEqual(ouro._raw_client.last_request["method"], "POST")
-            self.assertEqual(ouro._raw_client.last_request["path"], "/assets/asset-123/download")
+            self.assertEqual(ouro._raw_client.last_request["path"], "/assets/00000000-0000-0000-0000-000000000123/download")
 
 
 if __name__ == "__main__":

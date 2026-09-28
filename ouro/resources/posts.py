@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 from ouro._resource import (
     SyncAPIResource,
@@ -11,7 +11,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Post
+from ouro.models import DeleteResult, Page, Post
 
 from .content import Content, Editor
 
@@ -73,7 +73,7 @@ class Posts(SyncAPIResource):
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
         **kwargs: Any,
-    ) -> List[Post]:
+    ) -> Page[Post]:
         """List posts, optionally filtered by search query and scope.
 
         Args:
@@ -81,7 +81,8 @@ class Posts(SyncAPIResource):
             time_window: For sort="popular": "day" | "week" | "month" | "all".
                          Default: "month".
         """
-        results = self.ouro.assets.search(
+        return self.ouro.assets._search(
+            Post,
             query=query,
             asset_type="post",
             limit=limit,
@@ -93,7 +94,6 @@ class Posts(SyncAPIResource):
             time_window=time_window,
             **kwargs,
         )
-        return [Post(**item) for item in results]
 
     def Editor(self, **kwargs) -> Editor:
         """Create an Editor instance connected to the Ouro client."""
@@ -150,12 +150,12 @@ class Posts(SyncAPIResource):
                 "content": content.to_dict(),
             },
         )
-        return Post(**self._handle_response(request))
+        return self._parse(Post, self._handle_response(request))
 
     def retrieve(self, id: str) -> Post:
         """Retrieve a Post by its id."""
         request = self.client.get(f"/posts/{id}")
-        return Post(**self._handle_response(request))
+        return self._parse(Post, self._handle_response(request))
 
     def update(
         self,
@@ -191,11 +191,11 @@ class Posts(SyncAPIResource):
                 "content": content.to_dict() if content is not None else None,
             },
         )
-        return Post(**self._handle_response(request))
+        return self._parse(Post, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a Post by its id.
 
         Args:
@@ -205,15 +205,8 @@ class Posts(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children`` (list of ``{id, name, asset_type}``).
-            Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/posts/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/posts/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}

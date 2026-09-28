@@ -15,23 +15,19 @@ class Organizations(SyncAPIResource):
     def list(self) -> List[Organization]:
         """List organizations the authenticated user belongs to."""
         request = self.client.get("/organizations/user")
-        data = self._handle_response(request) or []
-        return [Organization.model_validate(o) for o in data]
+        return self._parse_list(Organization, self._handle_response(request))
 
     def list_discoverable(self) -> List[Organization]:
         """List discoverable organizations (open or request-to-join policy)."""
         request = self.client.get("/organizations/discoverable")
-        data = self._handle_response(request) or []
-        return [Organization.model_validate(o) for o in data]
+        return self._parse_list(Organization, self._handle_response(request))
 
     def retrieve(self, id: str) -> Organization:
         """Retrieve an organization by ID."""
         request = self.client.get(f"/organizations/{id}")
-        data = self._handle_response(request) or {}
-        return Organization.model_validate(data)
+        return self._parse(Organization, self._handle_response(request))
 
     def get_context(self) -> Organization:
         """Get the current user's active organization context."""
         request = self.client.get("/organizations/context")
-        data = self._handle_response(request) or {}
-        return Organization.model_validate(data)
+        return self._parse(Organization, self._handle_response(request))

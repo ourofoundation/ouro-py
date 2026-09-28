@@ -19,7 +19,17 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Dataset
+from ouro.models import (
+    Dataset,
+    DatasetColumn,
+    DatasetRows,
+    DatasetStats,
+    DatasetView,
+    DeleteResult,
+    Page,
+    Permission,
+    RowIngest,
+)
 
 from .content import Content
 
@@ -43,14 +53,13 @@ _PLACEHOLDER_TABLE = "dataset"
 
 
 def _attach_ingest(dataset: Dataset, body: Any) -> Dataset:
-    """Stash row-ingest stats and any partial-success warning from a write
-    response onto the returned model.
+    """Record row-ingest stats and any partial-success warning from a write
+    response on the returned dataset.
 
     Reference columns are FK-enforced, so an ingest can land some rows and skip
     others (bad/missing ref ids). The backend reports this as ``row_ingest``
     ({inserted, skipped}) plus a structured ``warning`` listing the offending
-    ids. The Dataset model rejects unknown fields, so expose them out-of-band
-    (the same approach Action uses for ``_ouro``).
+    ids.
     """
     if not isinstance(body, Mapping):
         return dataset
@@ -60,14 +69,11 @@ def _attach_ingest(dataset: Dataset, body: Any) -> Dataset:
         # reports them under `row_ingest`.
         data = body.get("data")
         if isinstance(data, Mapping) and "inserted" in data:
-            row_ingest = {
-                k: data[k] for k in ("inserted", "skipped", "mode") if k in data
-            }
+            row_ingest = data
     if row_ingest is not None:
-        object.__setattr__(dataset, "row_ingest", row_ingest)
-    warning = body.get("warning")
-    if warning is not None:
-        object.__setattr__(dataset, "ingest_warning", warning)
+        dataset.row_ingest = RowIngest.model_validate(row_ingest)
+    if body.get("warning") is not None:
+        dataset.ingest_warning = body["warning"]
     return dataset
 
 
@@ -83,7 +89,7 @@ class Datasets(SyncAPIResource):
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
         **kwargs: Any,
-    ) -> List[Dataset]:
+    ) -> Page[Dataset]:
         """List datasets, optionally filtered by search query and scope.
 
         Args:
@@ -91,7 +97,8 @@ class Datasets(SyncAPIResource):
             time_window: For sort="popular": "day" | "week" | "month" | "all".
                          Default: "month".
         """
-        results = self.ouro.assets.search(
+        return self.ouro.assets._search(
+            Dataset,
             query=query,
             asset_type="dataset",
             limit=limit,
@@ -103,7 +110,6 @@ class Datasets(SyncAPIResource):
             time_window=time_window,
             **kwargs,
         )
-        return [Dataset(**item) for item in results]
 
     def _coerce_dataframe(
         self,
@@ -132,8 +138,7 @@ class Datasets(SyncAPIResource):
     def _dataset_has_rows(self, id: str) -> bool:
         """Return whether the dataset table has rows, falling back to upload on errors."""
         try:
-            stats = self.stats(id)
-            return int(stats.get("count") or 0) > 0
+            return (self.stats(id).count or 0) > 0
         except Exception as exc:
             log.debug("Could not verify dataset row count for %s: %s", id, exc)
             return False
@@ -549,7 +554,9 @@ class Datasets(SyncAPIResource):
         )
         create_ingested_rows = isinstance(create_ingest, Mapping)
 
-        created = Dataset(**self._require_dataset_payload(response_data, operation="create"))
+        created = self._parse(
+            Dataset, self._require_dataset_payload(response_data, operation="create")
+        )
         _attach_ingest(created, response_body)
         if inline_create and len(insert_data) > BATCH_INSERT_WARNING_THRESHOLD:
             log.warning(
@@ -585,85 +592,40 @@ class Datasets(SyncAPIResource):
     def retrieve(self, id: str) -> Dataset:
         """Retrieve a dataset by its id."""
         request = self.client.get(f"/datasets/{id}")
-        return Dataset(**self._handle_response(request))
+        return self._parse(Dataset, self._handle_response(request))
 
-    def stats(self, id: str) -> dict:
+    def stats(self, id: str) -> DatasetStats:
         """Retrieve a dataset's stats (row count, column count, etc.)."""
         request = self.client.get(f"/datasets/{id}/stats")
-        return self._handle_response(request)
+        return self._parse(DatasetStats, self._handle_response(request))
 
-    def permissions(self, id: str) -> List[dict]:
+    def permissions(self, id: str) -> List[Permission]:
         """Retrieve a dataset's permissions."""
         request = self.client.get(f"/datasets/{id}/permissions")
-        return self._handle_response(request)
+        return self._parse_list(Permission, self._handle_response(request))
 
-    def schema(self, id: str) -> List[dict]:
+    def schema(self, id: str) -> List[DatasetColumn]:
         """Retrieve a dataset's column schema.
 
-        Each field includes Postgres keys (``column_name``, ``data_type``,
-        ``is_nullable``) and agent-friendly aliases (``name``, ``type``).
-        Prefer either pair. Column names are lowercase snake_case — use them
-        unquoted in SQL.
+        Column names are lowercase snake_case — use them unquoted in SQL.
         """
         request = self.client.get(f"/datasets/{id}/schema")
-        fields = self._handle_response(request) or []
-        if not isinstance(fields, list):
-            return fields
-        for field in fields:
-            if not isinstance(field, dict):
-                continue
-            if "name" not in field and field.get("column_name") is not None:
-                field["name"] = field["column_name"]
-            if "type" not in field and field.get("data_type") is not None:
-                field["type"] = field["data_type"]
-        return fields
+        return self._parse_list(DatasetColumn, self._handle_response(request))
 
+    def query(self, id: str, sql: Optional[str] = None) -> pd.DataFrame:
+        """Query a dataset's rows into a DataFrame.
 
-    def query(
-        self,
-        id: str,
-        sql: Optional[str] = None,
-        *,
-        limit: Optional[int] = None,
-        offset: int = 0,
-        with_pagination: bool = False,
-        resolve_refs: bool = False,
-    ) -> Union[pd.DataFrame, Dict[str, Any]]:
-        """Query a dataset's data by its id.
+        Without ``sql``, fetches every row via the backend's paginated data
+        endpoint — fine for notebooks and small tables, slow on large ones.
+        Use :meth:`list_rows` to read one page at a time.
 
-        Three modes:
-
-        1. **Full table** (default): fetches every row via the backend's
-           paginated data endpoint and returns a single
-           :class:`pandas.DataFrame`. Fine for notebooks and small tables;
-           slow on large ones.
-        2. **Paginated** (``limit`` set): fetch a single server-side page
-           (``GET /datasets/{id}/data?limit=&offset=``). Combine with
-           ``with_pagination=True`` to walk pages. Agents and MCP tools should
-           use this path.
-        3. **SQL** (``sql`` set): runs a read-only PostgreSQL query against
-           the dataset's table. Use ``{{table}}`` as a placeholder for the
-           fully-qualified table name. Column names are lowercase snake_case
-           — use them unquoted. Read-only is enforced server-side and queries
-           time out after 10 seconds. ``limit``/``offset``/``with_pagination``
-           are not supported in this mode; include ``LIMIT``/``OFFSET``
-           directly in the SQL.
-
-        Args:
-            id: Dataset UUID.
-            sql: Optional SQL query. Use ``{{table}}`` for the dataset table.
-            limit: Single-page row count for the paginated mode.
-            offset: Zero-based row offset for the paginated mode.
-            with_pagination: If True (requires ``limit``), return
-                ``{"data": DataFrame, "pagination": {"hasMore": bool, ...}}``.
-
-        Returns:
-            A DataFrame, or — when ``with_pagination=True`` — a dict with
-            ``data`` (DataFrame) and ``pagination`` keys.
+        With ``sql``, runs a read-only PostgreSQL query against the dataset's
+        table. Use ``{{table}}`` as a placeholder for the fully-qualified table
+        name. Column names are lowercase snake_case — use them unquoted.
+        Queries time out after 10 seconds; put ``LIMIT``/``OFFSET`` in the SQL.
 
         Examples:
             >>> ouro.datasets.query(id)                           # all rows
-            >>> ouro.datasets.query(id, limit=100, offset=0)      # first page
             >>> ouro.datasets.query(id, "SELECT count(*) FROM {{table}}")
             >>> ouro.datasets.query(
             ...     id,
@@ -674,80 +636,53 @@ class Datasets(SyncAPIResource):
         if not id:
             raise ValueError("Dataset id is required")
 
-        if sql is not None:
-            if not sql.strip():
-                raise ValueError("sql query is required when sql is provided.")
-            if limit is not None or offset != 0 or with_pagination:
-                raise ValueError(
-                    "limit/offset/with_pagination are not compatible with "
-                    "sql; include LIMIT/OFFSET in the SQL query instead."
-                )
-            if resolve_refs:
-                raise ValueError(
-                    "resolve_refs is only supported for the paginated "
-                    "(non-sql) query path."
-                )
-            request = self.client.post(
-                f"/datasets/{id}/query-custom",
-                json={"query": sql},
-            )
-            rows = self._handle_response(request) or []
-            return pd.DataFrame(rows)
+        if sql is None:
+            return self._coerce_schema_dtypes(pd.DataFrame(self._fetch_all_rows(id)), id)
 
-        if with_pagination and limit is None:
-            raise ValueError("with_pagination=True requires a limit.")
-        if limit is not None and limit <= 0:
+        if not sql.strip():
+            raise ValueError("sql query is required when sql is provided.")
+        request = self.client.post(f"/datasets/{id}/query-custom", json={"query": sql})
+        return pd.DataFrame(self._handle_response(request) or [])
+
+    def list_rows(
+        self,
+        id: str,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        resolve_refs: bool = False,
+    ) -> DatasetRows:
+        """Fetch one page of a dataset's rows as plain dicts.
+
+        Pass ``resolve_refs=True`` to also get ``resolved_refs``, a map of
+        reference column -> id -> ``{kind, id, name, web_url, ...}`` for the
+        referenced objects the caller can see. Build a DataFrame with
+        ``pd.DataFrame(page.data)``.
+        """
+        if limit <= 0:
             raise ValueError("limit must be a positive integer.")
         if offset < 0:
             raise ValueError("offset must be non-negative.")
-
-        resolved_refs: Optional[Dict[str, Any]] = None
-        if limit is None:
-            rows = self._fetch_all_rows(id)
-            pagination: Dict[str, Any] = {"hasMore": False, "offset": 0, "limit": len(rows)}
-        else:
-            params: Dict[str, Any] = {"limit": limit, "offset": offset}
-            if resolve_refs:
-                params["resolve_refs"] = "true"
-            request = self.client.get(
-                f"/datasets/{id}/data",
-                params=params,
-            )
-            payload = self._handle_response(request, raw=True) or {}
-            rows = payload.get("data") or []
-            pagination = payload.get("pagination") or {"hasMore": False}
-            resolved_refs = payload.get("resolved_refs")
-
-        df = self._coerce_schema_dtypes(pd.DataFrame(rows), id)
-
-        # resolve_refs returns a sidecar map (column -> uuid -> resolved
-        # reference), so force a dict return when requested to carry it
-        # alongside the raw rows.
-        if with_pagination or resolve_refs:
-            result: Dict[str, Any] = {"data": df, "pagination": pagination}
-            if resolve_refs:
-                result["resolved_refs"] = resolved_refs or {}
-            return result
-        return df
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        if resolve_refs:
+            params["resolve_refs"] = "true"
+        request = self.client.get(f"/datasets/{id}/data", params=params)
+        body = self._handle_response(request, raw=True) or {}
+        return self._page(DatasetRows, body, resolved_refs=body.get("resolved_refs") or {})
 
     def _coerce_schema_dtypes(self, df: pd.DataFrame, id: str) -> pd.DataFrame:
         """Apply timestamp/date dtype coercion to a query result."""
         if df.empty:
             return df
-        schema = self.schema(id)
-        for definition in schema:
-            column_name = definition["column_name"]
-            if column_name not in df.columns:
+        for column in self.schema(id):
+            if column.name not in df.columns:
                 continue
-            if (
-                "timestamp" in definition["data_type"]
-                or "date" in definition["data_type"]
-            ):
-                df[column_name] = pd.to_datetime(df[column_name])
+            if "timestamp" in column.type or "date" in column.type:
+                df[column.name] = pd.to_datetime(df[column.name])
                 # Strips timezone info and converts to date; make configurable
                 # if callers need full datetime precision.
-                df[column_name] = df[column_name].dt.tz_localize(None)
-                df[column_name] = df[column_name].dt.date
+                df[column.name] = df[column.name].dt.tz_localize(None)
+                df[column.name] = df[column.name].dt.date
         return df
 
     def update(
@@ -838,8 +773,8 @@ class Datasets(SyncAPIResource):
         if response_data is None:
             updated = self.retrieve(id)
         else:
-            updated = Dataset(
-                **self._require_dataset_payload(response_data, operation="update")
+            updated = self._parse(
+                Dataset, self._require_dataset_payload(response_data, operation="update")
             )
         return _attach_ingest(updated, upload_body)
 
@@ -852,7 +787,7 @@ class Datasets(SyncAPIResource):
         nullable: bool = True,
         label: Optional[str] = None,
         enum_values: Optional[Sequence[str]] = None,
-    ) -> dict:
+    ) -> None:
         """Add a column to an existing dataset's table.
 
         Args:
@@ -879,7 +814,7 @@ class Datasets(SyncAPIResource):
             }
         )
         request = self.client.post(f"/datasets/{id}/columns", json=body)
-        return self._handle_response(request)
+        self._handle_response(request)
 
     def update_column(
         self,
@@ -890,7 +825,7 @@ class Datasets(SyncAPIResource):
         type: Optional[str] = None,
         label: Optional[str] = None,
         enum_values: Optional[Sequence[str]] = None,
-    ) -> dict:
+    ) -> None:
         """Rename a column, change its type, and/or set its enum values.
 
         Provide at least one of ``new_name``, ``type``, ``label``, or
@@ -916,19 +851,19 @@ class Datasets(SyncAPIResource):
             f"/datasets/{id}/columns/{quote(str(column), safe='')}",
             json=body,
         )
-        return self._handle_response(request)
+        self._handle_response(request)
 
-    def drop_column(self, id: str, column: str) -> dict:
+    def drop_column(self, id: str, column: str) -> None:
         """Drop a column from an existing dataset's table."""
         request = self.client.delete(
             f"/datasets/{id}/columns/{quote(str(column), safe='')}"
         )
-        return self._handle_response(request)
+        self._handle_response(request)
 
-    def list_views(self, id: str) -> List[dict]:
+    def list_views(self, id: str) -> List[DatasetView]:
         """List saved views (visualizations) for a dataset."""
         request = self.client.get(f"/datasets/{id}/visualizations")
-        return self._handle_response(request) or []
+        return self._parse_list(DatasetView, self._handle_response(request))
 
     def create_view(
         self,
@@ -938,7 +873,7 @@ class Datasets(SyncAPIResource):
         sql_query: Optional[str] = None,
         config: Optional[dict] = None,
         prompt: Optional[str] = None,
-    ) -> dict:
+    ) -> DatasetView:
         """Create a saved view (visualization) for a dataset.
 
         A view is a ``(sql_query, config)`` pair: it runs the SQL and renders the
@@ -954,7 +889,7 @@ class Datasets(SyncAPIResource):
             }
         )
         request = self.client.post(f"/datasets/{id}/visualizations", json=body)
-        return self._handle_response(request)
+        return self._parse(DatasetView, self._handle_response(request))
 
     def update_view(
         self,
@@ -965,7 +900,7 @@ class Datasets(SyncAPIResource):
         sql_query: Optional[str] = None,
         config: Optional[dict] = None,
         prompt: Optional[str] = None,
-    ) -> dict:
+    ) -> DatasetView:
         """Update a saved view (visualization) for a dataset."""
         body = _strip_none(
             {
@@ -977,7 +912,7 @@ class Datasets(SyncAPIResource):
             }
         )
         request = self.client.put(f"/datasets/{id}/visualizations/{view_id}", json=body)
-        return self._handle_response(request)
+        return self._parse(DatasetView, self._handle_response(request))
 
     def delete_view(self, id: str, view_id: str) -> None:
         """Delete a saved view (visualization) from a dataset."""
@@ -1004,7 +939,7 @@ class Datasets(SyncAPIResource):
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a dataset by its id.
 
         Args:
@@ -1014,17 +949,11 @@ class Datasets(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/datasets/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/datasets/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}
 
     def _serialize_dataframe(self, data: pd.DataFrame) -> List[dict]:
         """Make a DataFrame serializable for JSON insertion.

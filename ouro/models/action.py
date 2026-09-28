@@ -1,20 +1,19 @@
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from ._base import OuroModel, Page
+from .asset import AssetRef, UserProfile
 
 log = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from ouro import Ouro
-
 
 ActionStatus = Literal["queued", "in-progress", "timed-out", "success", "error"]
 
 
-class ActionLog(BaseModel):
+class ActionLog(OuroModel):
     """A log entry emitted while a route action is running."""
 
     id: UUID
@@ -31,13 +30,11 @@ class ActionLog(BaseModel):
     api_key_name: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
-
-    # Nested objects from joins
-    user: Optional[Dict[str, Any]] = None
-    asset: Optional[Dict[str, Any]] = None
+    user: Optional[UserProfile] = None
+    asset: Optional[AssetRef] = None
 
 
-class Action(BaseModel):
+class Action(OuroModel):
     """Represents an action (route execution) in the Ouro system."""
 
     id: UUID
@@ -61,13 +58,13 @@ class Action(BaseModel):
     finished_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
 
-    # Nested objects from joins
-    input_asset: Optional[Dict[str, Any]] = None
-    input_assets: Optional[list[Dict[str, Any]]] = None
-    output_asset: Optional[Dict[str, Any]] = None
-    output_assets: Optional[list[Dict[str, Any]]] = None
+    input_asset: Optional[AssetRef] = None
+    input_assets: Optional[List[Dict[str, Any]]] = None
+    output_asset: Optional[AssetRef] = None
+    # Named outputs: ``[{"name": ..., "asset": {...}}]``.
+    output_assets: Optional[List[Dict[str, Any]]] = None
     route: Optional[Dict[str, Any]] = None
-    user: Optional[Dict[str, Any]] = None
+    user: Optional[UserProfile] = None
     # Per-call billing record for monetized pay-per-use USD routes. NULL when
     # the route is free, paid in BTC, or the caller doesn't have visibility
     # into the charge. Shape: {id, total_cents, unit_cost_cents, quantity,
@@ -77,16 +74,7 @@ class Action(BaseModel):
     # sats) and seller "route_revenue" (positive sats). RLS filters to rows
     # visible to the caller, so usually 0 or 1 row. Each row has
     # {id, type, value, status, metadata, created_at}.
-    btc_charges: Optional[list[Dict[str, Any]]] = None
-
-    _ouro: Optional["Ouro"] = None
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        object.__setattr__(self, "_ouro", kwargs.get("_ouro"))
+    btc_charges: Optional[List[Dict[str, Any]]] = None
 
     @property
     def is_complete(self) -> bool:
@@ -115,14 +103,13 @@ class Action(BaseModel):
 
     @property
     def final_data(self) -> Any:
-        """Return the response payload for callers that need plain route data.
+        """The response payload with output assets merged in, as plain data.
 
         Output assets are merged into the response under their declared output
         name (e.g. ``{"report": {...}}`` for a route declaring a ``report``
         output). Legacy single-output routes merge under the asset type
         instead (e.g. ``{"dataset": {...}}``). Otherwise the raw ``response``
-        is returned unchanged. Useful for migrating callers that previously
-        expected the deprecated :meth:`Routes.use` dict return.
+        is returned unchanged.
         """
         response_data = self.response
         if self.output_assets:
@@ -140,9 +127,10 @@ class Action(BaseModel):
                 response_data = (
                     {"_raw": response_data} if response_data is not None else {}
                 )
-            asset_type = self.output_asset.get("asset_type")
-            if asset_type:
-                response_data[asset_type] = self.output_asset
+            if self.output_asset.asset_type:
+                response_data[self.output_asset.asset_type] = (
+                    self.output_asset.model_dump(mode="json")
+                )
         return response_data
 
     def log(
@@ -160,15 +148,14 @@ class Action(BaseModel):
             asset_id: Asset ID to associate with the log.
                 Defaults to this action's route_id.
         """
-        if not self._ouro:
-            raise RuntimeError("Action object not connected to Ouro client")
+        ouro = self._require_client()
         payload: Dict[str, Any] = {
             "message": message,
             "level": level,
             "asset_id": asset_id or str(self.route_id),
         }
         try:
-            self._ouro.client.post(f"/actions/{self.id}/log", json=payload)
+            ouro.client.post(f"/actions/{self.id}/log", json=payload)
         except Exception as e:
             log.warning(
                 "Failed to post action log (action_id=%s): %s",
@@ -185,33 +172,22 @@ class Action(BaseModel):
         offset: int = 0,
         sort_order: str = "desc",
         chronological: Optional[bool] = None,
-        with_pagination: bool = False,
-    ):
+    ) -> Page[ActionLog]:
         """Read logs for this action."""
-        if not self._ouro:
-            raise RuntimeError("Action object not connected to Ouro client")
-        return self._ouro.routes.get_action_logs(
+        return self._require_client().routes.get_action_logs(
             str(self.id),
             level=level,
             limit=limit,
             offset=offset,
             sort_order=sort_order,
             chronological=chronological,
-            with_pagination=with_pagination,
         )
 
     def refresh(self) -> "Action":
-        """
-        Refresh this action's data from the server.
-        Returns the updated Action instance.
-        """
-        if not self._ouro:
-            raise RuntimeError("Action object not connected to Ouro client")
-        updated = self._ouro.routes.retrieve_action(str(self.id))
-        # Update this instance with the new data
-        for field in self.model_fields:
-            if field != "_ouro":
-                setattr(self, field, getattr(updated, field))
+        """Re-fetch this action from the server and update it in place."""
+        updated = self._require_client().routes.retrieve_action(str(self.id))
+        for field in type(self).model_fields:
+            setattr(self, field, getattr(updated, field))
         return self
 
     def wait(
@@ -234,10 +210,16 @@ class Action(BaseModel):
             TimeoutError: If timeout is reached before completion
             Exception: If the action completed with an error
         """
-        if not self._ouro:
-            raise RuntimeError("Action object not connected to Ouro client")
-        return self._ouro.routes.poll_action(
+        return self._require_client().routes.poll_action(
             str(self.id),
             poll_interval=poll_interval,
             timeout=timeout,
         )
+
+
+class AssetActions(OuroModel):
+    """Route actions linked to one asset, in both directions."""
+
+    created_by: Optional[Action] = None
+    as_input: List[Action] = Field(default_factory=list)
+    has_more: bool = False

@@ -1,14 +1,28 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import List, Literal, Optional, Union, overload
 
 from ouro._resource import SyncAPIResource
+from ouro.models import (
+    BitcoinBalance,
+    BitcoinPurchase,
+    BitcoinTransaction,
+    BitcoinTransfer,
+    Page,
+    PendingEarnings,
+    UsageHistory,
+    UsdBalance,
+    UsdPurchase,
+    UsdTip,
+    UsdTransaction,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
 __all__ = ["Money"]
 
+Currency = Literal["btc", "usd"]
 VALID_CURRENCIES = ("btc", "usd")
 
 
@@ -20,65 +34,68 @@ def _validate_currency(currency: str) -> str:
 
 
 class Money(SyncAPIResource):
-    def get_balance(self, currency: str = "btc") -> dict:
-        """Get wallet balance.
+    @overload
+    def get_balance(self, currency: Literal["btc"] = "btc") -> BitcoinBalance: ...
+    @overload
+    def get_balance(self, currency: Literal["usd"]) -> UsdBalance: ...
 
-        Args:
-            currency: "btc" (returns sats) or "usd" (returns cents).
-        """
-        currency = _validate_currency(currency)
-
-        if currency == "btc":
+    def get_balance(self, currency: Currency = "btc") -> Union[BitcoinBalance, UsdBalance]:
+        """Get wallet balance: sats for ``"btc"``, cents for ``"usd"``."""
+        if _validate_currency(currency) == "btc":
             request = self.client.get("/wallet/balance")
-        else:
-            request = self.client.get("/stripe/wallet/balance")
+            return self._parse(BitcoinBalance, self._handle_response(request))
+        request = self.client.get("/stripe/wallet/balance")
+        return self._parse(UsdBalance, self._handle_response(request))
 
-        return self._handle_response(request) or {}
-
+    @overload
+    def get_transactions(self, currency: Literal["btc"] = "btc") -> List[BitcoinTransaction]: ...
+    @overload
     def get_transactions(
         self,
-        currency: str = "btc",
+        currency: Literal["usd"],
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         type: Optional[str] = None,
-        with_pagination: bool = False,
-    ) -> Union[list, dict]:
+    ) -> Page[UsdTransaction]: ...
+
+    def get_transactions(
+        self,
+        currency: Currency = "btc",
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        type: Optional[str] = None,
+    ) -> Union[List[BitcoinTransaction], Page[UsdTransaction]]:
         """Get transaction history.
 
-        Args:
-            currency: "btc" or "usd".
-            limit: Max number of transactions (USD only).
-            offset: Pagination offset (USD only).
-            type: Filter by transaction type (USD only).
+        Bitcoin history is returned whole; USD history is paginated and can be
+        filtered with ``limit``, ``offset``, and ``type``.
         """
-        currency = _validate_currency(currency)
-
-        if currency == "btc":
+        if _validate_currency(currency) == "btc":
             request = self.client.get("/wallet/transactions")
-        else:
-            params = {}
-            if limit is not None:
-                params["limit"] = limit
-            if offset is not None:
-                params["offset"] = offset
-            if type is not None:
-                params["type"] = type
-            request = self.client.get("/stripe/wallet/transactions", params=params)
+            return self._parse_list(BitcoinTransaction, self._handle_response(request))
 
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": [], "pagination": None}
-            result["data"] = result.get("data") or []
-            return result
-        return self._handle_response(request) or []
+        params = {"limit": limit, "offset": offset, "type": type}
+        request = self.client.get(
+            "/stripe/wallet/transactions",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+        return self._page(Page[UsdTransaction], self._handle_response(request, raw=True))
+
+    @overload
+    def unlock_asset(
+        self, asset_type: str, asset_id: str, currency: Literal["btc"] = "btc"
+    ) -> BitcoinPurchase: ...
+    @overload
+    def unlock_asset(
+        self, asset_type: str, asset_id: str, currency: Literal["usd"]
+    ) -> UsdPurchase: ...
 
     def unlock_asset(
         self,
         asset_type: str,
         asset_id: str,
-        currency: str = "btc",
-    ) -> dict:
+        currency: Currency = "btc",
+    ) -> Union[BitcoinPurchase, UsdPurchase]:
         """Unlock (purchase) a paid asset.
 
         Args:
@@ -86,23 +103,29 @@ class Money(SyncAPIResource):
             asset_id: The asset's UUID.
             currency: "btc" or "usd".
         """
-        currency = _validate_currency(currency)
         payload = {"assetType": asset_type, "assetId": asset_id}
-
-        if currency == "btc":
+        if _validate_currency(currency) == "btc":
             request = self.client.post("/wallet/purchase-asset", json=payload)
-        else:
-            request = self.client.post("/stripe/wallet/purchase-asset", json=payload)
+            return self._parse(BitcoinPurchase, self._handle_response(request))
+        request = self.client.post("/stripe/wallet/purchase-asset", json=payload)
+        return self._parse(UsdPurchase, self._handle_response(request))
 
-        return self._handle_response(request) or {}
+    @overload
+    def send(
+        self, recipient_id: str, amount: int, currency: Literal["btc"] = "btc", message: None = None
+    ) -> BitcoinTransfer: ...
+    @overload
+    def send(
+        self, recipient_id: str, amount: int, currency: Literal["usd"], message: Optional[str] = None
+    ) -> UsdTip: ...
 
     def send(
         self,
         recipient_id: str,
         amount: int,
-        currency: str = "btc",
+        currency: Currency = "btc",
         message: Optional[str] = None,
-    ) -> dict:
+    ) -> Union[BitcoinTransfer, UsdTip]:
         """Send money to another Ouro user.
 
         Args:
@@ -111,18 +134,16 @@ class Money(SyncAPIResource):
             currency: "btc" or "usd".
             message: Optional message (USD tips only).
         """
-        currency = _validate_currency(currency)
-
-        if currency == "btc":
+        if _validate_currency(currency) == "btc":
             payload = {"recipientId": recipient_id, "amount": amount}
             request = self.client.post("/wallet/send-sats", json=payload)
-        else:
-            payload = {"recipientId": recipient_id, "amountCents": amount}
-            if message is not None:
-                payload["message"] = message
-            request = self.client.post("/stripe/wallet/tip", json=payload)
+            return self._parse(BitcoinTransfer, self._handle_response(request))
 
-        return self._handle_response(request) or {}
+        payload = {"recipientId": recipient_id, "amountCents": amount}
+        if message is not None:
+            payload["message"] = message
+        request = self.client.post("/stripe/wallet/tip", json=payload)
+        return self._parse(UsdTip, self._handle_response(request))
 
     def get_deposit_address(self) -> str:
         """Get a Bitcoin L1 deposit address for receiving funds."""
@@ -135,9 +156,8 @@ class Money(SyncAPIResource):
         offset: Optional[int] = None,
         asset_id: Optional[str] = None,
         role: Optional[str] = None,
-        with_pagination: bool = False,
-    ) -> dict:
-        """Get usage-based billing history.
+    ) -> UsageHistory:
+        """Get a page of usage-based billing records, with a summary.
 
         Args:
             limit: Max number of records.
@@ -145,29 +165,23 @@ class Money(SyncAPIResource):
             asset_id: Filter by asset ID.
             role: "consumer" or "creator".
         """
-        params = {}
-        if limit is not None:
-            params["limit"] = limit
-        if offset is not None:
-            params["offset"] = offset
-        if asset_id is not None:
-            params["assetId"] = asset_id
-        if role is not None:
-            params["role"] = role
+        params = {"limit": limit, "offset": offset, "assetId": asset_id, "role": role}
+        request = self.client.get(
+            "/stripe/usage/history",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+        body = self._handle_response(request, raw=True) or {}
+        history = body.get("data") or {}
+        return self._page(
+            UsageHistory,
+            {"data": history.get("records"), "pagination": body.get("pagination")},
+            summary=history.get("summary") or {},
+        )
 
-        request = self.client.get("/stripe/usage/history", params=params)
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": {}, "pagination": None}
-            result["data"] = result.get("data") or {}
-            return result
-        return self._handle_response(request) or {}
-
-    def get_pending_earnings(self) -> dict:
+    def get_pending_earnings(self) -> PendingEarnings:
         """Get pending creator earnings (USD)."""
         request = self.client.get("/stripe/wallet/pending-earnings")
-        return self._handle_response(request) or {}
+        return self._parse(PendingEarnings, self._handle_response(request))
 
     def add_funds(self) -> str:
         """Returns instructions for adding USD funds.

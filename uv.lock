@@ -486,7 +486,7 @@ wheels = [
 
 [[package]]
 name = "ouro-py"
-version = "1.0.0"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -505,7 +505,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pydantic" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "python-dotenv" },
     { name = "python-socketio", extras = ["client"] },
 ]

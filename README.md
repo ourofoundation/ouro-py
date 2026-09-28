@@ -64,10 +64,29 @@ results = ouro.assets.search(
     limit=10,
 )
 
-asset = ouro.assets.retrieve(results[0]["id"])
+asset = ouro.assets.retrieve(results[0].id)
 ```
 
 Search scope can be `personal`, `org`, `global`, or `all`.
+
+### Returned objects
+
+Every method returns a typed model, so fields are attributes (`asset.name`,
+`request.id`) and your editor can complete them. List endpoints return a
+`Page`, which iterates, indexes, and measures like a list and also carries
+`has_more` and `total`:
+
+```python
+page = ouro.posts.list(limit=50)
+for post in page:
+    print(post.name)
+
+if page.has_more:
+    next_page = ouro.posts.list(limit=50, offset=page.offset + len(page))
+```
+
+Fields the API adds after your SDK version shipped are still readable as
+attributes. Call `model_dump()` on any object for a plain dict.
 
 ### Query a dataset
 
@@ -104,7 +123,7 @@ view = ouro.datasets.create_view(
 You can still pass `sql_query` and `config` if you already have them. List,
 update, and delete with `list_views`, `update_view`, and `delete_view`. Embed
 the chart in a post with
-`display_config={"visualizationId": view["id"]}` on `new_inline_asset`.
+`display_config={"visualizationId": str(view.id)}` on `new_inline_asset`.
 
 ### Upload a file
 
@@ -120,7 +139,7 @@ Download any supported asset through the shared asset interface:
 
 ```python
 download = ouro.assets.download(file.id, output_path="./downloads")
-print(download["path"])
+print(download.path)
 ```
 
 ### Publish a post

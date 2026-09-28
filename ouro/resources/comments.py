@@ -9,7 +9,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Comment
+from ouro.models import Comment, DeleteResult
 
 from .content import Content, Editor
 
@@ -53,17 +53,17 @@ class Comments(SyncAPIResource):
                 "content": content.to_dict(),
             },
         )
-        return Comment(**self._handle_response(request))
+        return self._parse(Comment, self._handle_response(request))
 
     def retrieve(self, id: str) -> Comment:
         """Retrieve a Comment by its id."""
         request = self.client.get(f"/comments/{id}")
-        return Comment(**self._handle_response(request))
+        return self._parse(Comment, self._handle_response(request))
 
     def list_by_parent(self, parent_id: str) -> List[Comment]:
         """List all comments for a parent asset or comment (one-level replies)."""
         request = self.client.get(f"/assets/{parent_id}/comments")
-        return [Comment(**c) for c in self._handle_response(request)]
+        return self._parse_list(Comment, self._handle_response(request))
 
     def list_replies(self, comment_id: str) -> List[Comment]:
         """List replies for a top-level comment (one-level deep)."""
@@ -91,11 +91,11 @@ class Comments(SyncAPIResource):
                 "content": content.to_dict() if content is not None else None,
             },
         )
-        return Comment(**self._handle_response(request))
+        return self._parse(Comment, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a Comment (and its reply thread) by its id.
 
         The backend's generic comment-delete path runs through

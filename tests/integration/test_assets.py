@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ouro import NotFoundError, PermissionDeniedError
-from ouro.models import Dataset, File, Post
+from ouro.models import Dataset, File, Page, Post
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +66,7 @@ def test_private_asset_is_invisible_until_shared(ouro, other, track):
         other.datasets.delete(str(dataset.id))
 
     permissions = ouro.datasets.permissions(str(dataset.id))
-    assert any(str(p.get("user_id") or p.get("user", {}).get("user_id")) == str(other.user.id) for p in permissions)
+    assert any(str(p.user_id) == str(other.user.id) for p in permissions)
 
 
 def test_write_share_allows_update(ouro, other, track):
@@ -80,42 +80,42 @@ def test_write_share_allows_update(ouro, other, track):
 
 def test_search_modes(ouro, private_dataset):
     browse = ouro.assets.search(asset_type="dataset", scope="personal", sort="recent", limit=100)
-    assert any(a["id"] == str(private_dataset.id) for a in browse)
+    assert any(a.id == private_dataset.id for a in browse)
 
     by_id = ouro.assets.search(str(private_dataset.id))
-    assert by_id and by_id[0]["id"] == str(private_dataset.id)
+    assert by_id and by_id[0].id == private_dataset.id
 
-    page = ouro.assets.search(asset_type=["dataset", "post"], scope="personal", limit=2, with_pagination=True)
-    assert len(page["data"]) <= 2
-    assert {"hasMore"} <= set(page["pagination"])
+    page = ouro.assets.search(asset_type=["dataset", "post"], scope="personal", limit=2)
+    assert len(page) <= 2
+    assert isinstance(page.has_more, bool)
 
 
 def test_search_treats_blank_filters_as_unset(ouro):
-    assert isinstance(ouro.assets.search(asset_type="dataset", org_id="", team_id="null", limit=5), list)
+    assert isinstance(ouro.assets.search(asset_type="dataset", org_id="", team_id="null", limit=5), Page)
 
 
 def test_search_paginates_past_server_cap(ouro):
     results = ouro.assets.search(scope="all", sort="recent", limit=250)
-    ids = [r["id"] for r in results]
+    ids = [r.id for r in results]
     assert len(ids) == len(set(ids))
     assert len(ids) <= 250
 
 
 def test_engagement_endpoints(ouro, private_dataset):
     asset_id = str(private_dataset.id)
-    assert isinstance(ouro.assets.counts(asset_id), dict)
-    assert isinstance(ouro.assets.connections(asset_id), list)
-    assert isinstance(ouro.assets.tags(asset_id), list)
-    assert isinstance(ouro.assets.children(asset_id), list)
-    assert isinstance(ouro.assets.impact(asset_id), dict)
+    assert ouro.assets.counts(asset_id).views >= 0
+    assert isinstance(ouro.assets.connections(asset_id), Page)
+    assert ouro.assets.tags(asset_id) == []
+    assert ouro.assets.children(asset_id) == []
+    assert [i.asset_id for i in ouro.assets.impact(asset_id)] == [private_dataset.id]
     actions = ouro.assets.actions(asset_id)
-    assert actions["created_by"] is None and actions["as_input"] == []
+    assert actions.created_by is None and actions.as_input == []
 
 
 def test_delete_via_assets_and_dry_run(ouro, track):
     post = track.add(ouro.posts.create(name=track.name("to-delete"), content_markdown="bye", visibility="private"))
     preview = ouro.assets.delete(str(post.id), dry_run=True)
-    assert preview["dry_run"] is True and preview["asset_type"] == "post"
+    assert preview.dry_run is True and preview.asset_type == "post"
     ouro.assets.retrieve(str(post.id))
 
     ouro.assets.delete(str(post.id))

@@ -89,11 +89,10 @@ class TestRouteActions(unittest.TestCase):
             "00000000-0000-0000-0000-000000000010",
             include_other_users=True,
             limit=5,
-            with_pagination=True,
         )
 
-        self.assertEqual(page["data"][0].status, "success")
-        self.assertEqual(page["pagination"]["hasMore"], False)
+        self.assertEqual(page[0].status, "success")
+        self.assertFalse(page.has_more)
         self.assertEqual(
             ouro.client.requests[1],
             {
@@ -137,10 +136,9 @@ class TestRouteActions(unittest.TestCase):
         page = Routes(ouro).get_action_logs(
             "00000000-0000-0000-0000-000000000001",
             chronological=True,
-            with_pagination=True,
         )
 
-        self.assertEqual([log.message for log in page["data"]], ["first", "second"])
+        self.assertEqual([log.message for log in page], ["first", "second"])
         self.assertEqual(
             ouro.client.requests[0]["path"],
             "/actions/00000000-0000-0000-0000-000000000001/logs",
@@ -259,44 +257,6 @@ class TestRouteActions(unittest.TestCase):
                 }
             },
         )
-
-    def test_use_wraps_execute_and_returns_final_data(self) -> None:
-        ouro = _FakeOuro(
-            [
-                _FakeResponse(
-                    {
-                        "data": {
-                            "id": "00000000-0000-0000-0000-000000000010",
-                            "user_id": "00000000-0000-0000-0000-000000000011",
-                            "org_id": "00000000-0000-0000-0000-000000000012",
-                            "team_id": "00000000-0000-0000-0000-000000000013",
-                            "parent_id": "00000000-0000-0000-0000-000000000014",
-                            "asset_type": "route",
-                            "name": "Predict",
-                            "visibility": "public",
-                            "created_at": "2026-01-01T00:00:00+00:00",
-                            "last_updated": "2026-01-01T00:00:00+00:00",
-                        }
-                    }
-                ),
-                _FakeResponse(
-                    {
-                        "data": {"responseData": {"ok": True}},
-                        "action": {
-                            "id": "00000000-0000-0000-0000-000000000001",
-                            "route_id": "00000000-0000-0000-0000-000000000010",
-                            "user_id": "00000000-0000-0000-0000-000000000003",
-                            "status": "success",
-                        },
-                        "metadata": {},
-                    }
-                ),
-            ]
-        )
-
-        response = Routes(ouro).use("00000000-0000-0000-0000-000000000010")
-
-        self.assertEqual(response, {"ok": True})
 
     def test_action_final_data_includes_keyed_output_assets(self) -> None:
         action = Action(

@@ -3,7 +3,7 @@
 Ouro renders ``.phonons`` files as an interactive phonon dispersion beside the
 phonon density of states, reporting whether the structure is dynamically
 stable and which elements move in each mode. The format is open and fully
-specified at https://ouro.foundation/docs/developers/phonon-format, so files
+specified at https://ouro.foundation/docs/developers/file-formats/phonons, so files
 written by any other tool render the same way.
 
     import json

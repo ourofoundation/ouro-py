@@ -1,19 +1,15 @@
-import warnings
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
-
-from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from ouro.utils import is_valid_uuid
 
+from ._base import OuroModel
+from .action import Action
 from .asset import Asset
-from .route import Route, RouteData, RouteMetrics
-
-if TYPE_CHECKING:
-    from ouro import Ouro
-    from ouro.models.action import Action
+from .route import Route
 
 
-class ServiceMetadata(BaseModel):
+class ServiceMetadata(OuroModel):
     base_url: str
     authentication: str
     version: Optional[str] = None
@@ -22,57 +18,37 @@ class ServiceMetadata(BaseModel):
     auth_url: Optional[str] = None
 
 
+class ServiceAuthentication(OuroModel):
+    """The service owner's stored authentication secret."""
+
+    id: UUID
+    secret_id: UUID
+    method: str
+    # False when the new secret matched the stored one.
+    rotated: bool
+
+
 class Service(Asset):
     metadata: Optional[ServiceMetadata] = None
-    _ouro: Optional["Ouro"] = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._ouro = kwargs.get("_ouro")
-
-    def _require_client(self) -> "Ouro":
-        if not self._ouro:
-            raise RuntimeError("Service object not connected to Ouro client")
-        return self._ouro
-
-    def read_spec(self) -> Dict:
+    def read_spec(self) -> Dict[str, Any]:
         """Get the OpenAPI specification for this service."""
-        ouro = self._require_client()
-        return ouro.services.read_spec(str(self.id))
+        return self._require_client().services.read_spec(str(self.id))
 
     def read_routes(self) -> List[Route]:
         """Get all routes for this service."""
-        ouro = self._require_client()
-        return ouro.services.read_routes(str(self.id))
+        return self._require_client().services.read_routes(str(self.id))
 
-    def _route_target(self, route_name_or_id: str) -> str:
-        if is_valid_uuid(route_name_or_id) or "/" in route_name_or_id:
-            return route_name_or_id
-        return f"{self.id}/{route_name_or_id}"
+    def execute_route(self, route_name_or_id: str, **kwargs) -> Action:
+        """Execute one of this service's routes and return the full Action.
 
-    def execute_route(self, route_name_or_id: str, **kwargs) -> "Action":
-        """Execute a specific route of this service and return the full Action."""
-        ouro = self._require_client()
-        return ouro.routes.execute(self._route_target(route_name_or_id), **kwargs)
-
-    def use_route(self, route_name_or_id: str, **kwargs) -> Union[Dict, "Action"]:
-        """Deprecated compatibility wrapper for :meth:`execute_route`.
-
-        ``route_name_or_id`` may be:
-          - a bare route slug (e.g. ``"predict"``), which is resolved relative
-            to this service's entity name;
-          - a fully-qualified ``"entity_name/route_name"``;
-          - or a route UUID.
-
-        The latter two are passed through unchanged so we don't accidentally
-        build a 3-segment identifier like ``"{service_id}/entity/route"``.
+        ``route_name_or_id`` may be a bare route slug (e.g. ``"predict"``),
+        which is resolved relative to this service, a fully-qualified
+        ``"entity_name/route_name"``, or a route UUID.
         """
-        warnings.warn(
-            "Service.use_route() is deprecated; use Service.execute_route(), which returns an Action.",
-            DeprecationWarning,
-            stacklevel=2,
+        target = (
+            route_name_or_id
+            if is_valid_uuid(route_name_or_id) or "/" in route_name_or_id
+            else f"{self.id}/{route_name_or_id}"
         )
-        wait = kwargs.get("wait", True)
-        kwargs.setdefault("raise_on_error", wait)
-        action = self.execute_route(route_name_or_id, **kwargs)
-        return action if not wait else action.final_data
+        return self._require_client().routes.execute(target, **kwargs)

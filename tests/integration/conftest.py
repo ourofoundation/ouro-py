@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import pytest
 
 from ouro import NotFoundError, Ouro
+from ouro.models import User
 
 from mock_service import MockService
 
@@ -61,7 +62,7 @@ class Tracker:
         return f"sdk-it-{self.run_id}-{label}"
 
     def add(self, asset):
-        self.ids.append(str(asset.id if hasattr(asset, "id") else asset["id"]))
+        self.ids.append(str(asset.id))
         return asset
 
     def cleanup(self) -> list[str]:
@@ -95,14 +96,13 @@ def other() -> Ouro:
 
 
 @pytest.fixture(scope="session")
-def me(ouro) -> dict:
+def me(ouro) -> User:
     return ouro.users.me()
 
 
 @pytest.fixture(scope="session")
-def other_me(other) -> dict:
-    profile = other.users.me()
-    return profile
+def other_me(other) -> User:
+    return other.users.me()
 
 
 @pytest.fixture(scope="session")

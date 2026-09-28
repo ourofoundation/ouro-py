@@ -2,11 +2,27 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
+from pydantic import Field, model_validator
+
+from ._base import OuroModel
 
 
-class LanguageToolProviderPreference(BaseModel):
+class RichText(OuroModel):
+    """TipTap document (``data``) paired with its plain-text rendering.
+
+    Plain strings from older records parse as ``RichText(text=...)``.
+    """
+
+    text: str = ""
+    data: Optional[Dict[str, Any]] = Field(default=None, alias="json")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_plain_text(cls, value: Any) -> Any:
+        return {"text": value} if isinstance(value, str) else value
+
+
+class LanguageToolProviderPreference(OuroModel):
     """Provider route and output-affecting options."""
 
     route_id: Optional[UUID] = None
@@ -17,7 +33,7 @@ class SpeechProviderPreference(LanguageToolProviderPreference):
     voice: Optional[str] = None
 
 
-class LanguageToolsPreferences(BaseModel):
+class LanguageToolsPreferences(OuroModel):
     """Preferred language and route-provider configuration."""
 
     language: str
@@ -26,7 +42,7 @@ class LanguageToolsPreferences(BaseModel):
     transcription: Optional[LanguageToolProviderPreference] = None
 
 
-class Preferences(BaseModel):
+class Preferences(OuroModel):
     """User preferences record returned by the preferences API."""
 
     id: UUID
@@ -37,41 +53,52 @@ class Preferences(BaseModel):
     language_tools: Optional[LanguageToolsPreferences] = None
 
 
-class UserProfile(BaseModel):
+class UserProfile(OuroModel):
+    """The public face of a user, as embedded in other objects."""
+
     user_id: UUID
     username: Optional[str] = None
+    name: Optional[str] = None
     avatar_path: Optional[str] = None
     bio: Optional[str] = None
     actor_type: Optional[str] = None
-    is_agent: bool = False
 
-    def __init__(self, **data):
-        if "is_agent" not in data and data.get("actor_type") is not None:
-            data["is_agent"] = data.get("actor_type") == "agent"
-        super().__init__(**data)
+    @property
+    def is_agent(self) -> bool:
+        return self.actor_type == "agent"
 
 
-class OrganizationProfile(BaseModel):
+class User(UserProfile):
+    """A full user profile from ``users.me()``, ``users.get()``, or search."""
+
+    plan_type: Optional[str] = None
+    last_active: Optional[datetime] = None
+    urls: Optional[List[Any]] = None
+    followers: Optional[int] = None
+    following: Optional[int] = None
+    level: Optional[int] = None
+    total_xp: Optional[int] = Field(default=None, alias="totalXp")
+    is_self: Optional[bool] = Field(default=None, alias="isSelf")
+    is_following: Optional[bool] = Field(default=None, alias="isFollowing")
+    is_followed: Optional[bool] = Field(default=None, alias="isFollowed")
+    badges: Optional[List[Dict[str, Any]]] = None
+    metrics: Optional[Dict[str, Any]] = None
+
+
+class OrganizationProfile(OuroModel):
     id: UUID
     name: str
     avatar_path: Optional[str] = None
     mission: Optional[str] = None
 
 
-class TeamProfile(BaseModel):
+class TeamProfile(OuroModel):
     id: Optional[UUID] = None
     org_id: Optional[UUID] = None
     name: Optional[str] = None
 
 
-class DescriptionDict(TypedDict, total=False):
-    """Shape of a structured description as returned by the API."""
-
-    json: dict
-    text: str
-
-
-class Citation(BaseModel):
+class Citation(OuroModel):
     """Structured bibliographic record for a related scholarly work."""
 
     doi: Optional[str] = None
@@ -84,7 +111,7 @@ class Citation(BaseModel):
     source: Optional[str] = None
 
 
-class Attribution(BaseModel):
+class Attribution(OuroModel):
     """Provenance and citation for an asset (assets.attribution column).
 
     Distinct from type-specific ``metadata`` (file storage, service config, …).
@@ -110,7 +137,7 @@ class Attribution(BaseModel):
     doi: Optional[str] = None
 
 
-class Asset(BaseModel):
+class Asset(OuroModel):
     id: UUID
     user_id: UUID
     user: Optional[UserProfile] = None
@@ -124,14 +151,15 @@ class Asset(BaseModel):
     created_at: datetime
     last_updated: datetime
     name: Optional[str] = None
-    description: Optional[Union[str, DescriptionDict]] = None
+    description: Optional[RichText] = None
     license_id: Optional[str] = None
     metadata: Optional[dict] = None
     attribution: Optional[Attribution] = None
     monetization: Optional[str] = None
     price: Optional[float] = None
     price_currency: Optional[str] = None
-    preview: Optional[dict] = None
+    # A TipTap doc for posts; the first rows for datasets and CSV files.
+    preview: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None
     unit_cost: Optional[float] = None
@@ -139,3 +167,134 @@ class Asset(BaseModel):
     source: Literal["web", "api"] = "web"
     slug: Optional[str] = None
     url: Optional[str] = None
+
+
+class AssetRef(OuroModel):
+    """A lightweight summary of an asset, as embedded in other objects."""
+
+    id: UUID
+    name: Optional[str] = None
+    asset_type: Optional[str] = None
+    org_id: Optional[UUID] = None
+    team_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    visibility: Optional[str] = None
+    description: Optional[RichText] = None
+    created_at: Optional[datetime] = None
+    slug: Optional[str] = None
+    url: Optional[str] = None
+
+
+class DeleteResult(OuroModel):
+    """What a delete removed — or would remove, when ``dry_run`` is true."""
+
+    id: UUID
+    name: Optional[str] = None
+    asset_type: str
+    deleted_children: List[AssetRef] = Field(default_factory=list)
+    dry_run: bool = False
+
+
+class Download(OuroModel):
+    """A downloaded asset saved to local disk."""
+
+    id: UUID
+    path: str
+    filename: str
+    content_type: Optional[str] = None
+    size: int
+
+
+class Permission(OuroModel):
+    """A direct grant of a role on an asset."""
+
+    id: UUID
+    asset_id: UUID
+    asset_type: Optional[str] = None
+    user_id: Optional[UUID] = None
+    user: Optional[UserProfile] = None
+    org_id: Optional[UUID] = None
+    role: str
+    visibility: Optional[str] = None
+    granter_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    last_updated: Optional[datetime] = None
+
+
+class Tag(OuroModel):
+    id: UUID
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+    parent_id: Optional[UUID] = None
+    asset_types: Optional[List[str]] = None
+    rank: Optional[int] = None
+
+
+class AssetTag(OuroModel):
+    """A tag applied to an asset, manually or by the auto-tagger."""
+
+    id: UUID
+    asset_id: UUID
+    tag_id: UUID
+    tag: Tag
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    user_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+
+
+class Connection(OuroModel):
+    """A graph edge between two assets (reference, component, action, …)."""
+
+    id: UUID
+    type: str
+    source_id: UUID
+    target_id: UUID
+    source_asset_type: Optional[str] = None
+    target_asset_type: Optional[str] = None
+    source: Optional[AssetRef] = None
+    target: Optional[AssetRef] = None
+    action_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    last_updated: Optional[datetime] = None
+
+
+class AssetCounts(OuroModel):
+    views: int = 0
+    comments: int = 0
+    reactions: int = 0
+    downloads: int = 0
+    earnings_total: int = 0
+
+
+class Engagement(AssetCounts):
+    """Engagement split into external (non-owner) and bot-filtered signals."""
+
+    quality_views: int = 0
+    external_comments: int = 0
+    external_reactions: int = 0
+    uses: int = 0
+
+
+class AssetImpact(Engagement):
+    asset_id: UUID
+    asset_type: Optional[str] = None
+    name: Optional[str] = None
+    owner_user_id: Optional[UUID] = None
+    popularity_7d: float = 0
+    median_dwell_ms: Optional[float] = None
+    quest_ids: List[UUID] = Field(default_factory=list)
+
+
+class ImpactTotals(Engagement):
+    assets: int = 0
+
+
+class UserImpact(OuroModel):
+    user_id: UUID
+    since: Optional[datetime] = None
+    aggregate: ImpactTotals
+    assets: List[AssetImpact] = Field(default_factory=list)

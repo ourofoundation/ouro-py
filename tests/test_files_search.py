@@ -121,85 +121,80 @@ class TestFileSearchHelpers(unittest.TestCase):
         )
 
 
-class TestFilesSearch(unittest.TestCase):
-    def _files(self, search_return) -> tuple[Files, MagicMock]:
-        ouro = MagicMock()
-        ouro.assets.search.return_value = search_return
-        return Files(ouro), ouro.assets.search
+def _files_with_pages(pages: list) -> tuple[Files, MagicMock]:
+    """Real Files/Assets search logic; mocked raw /search/assets page fetches."""
+    from ouro.resources.assets import Assets
 
+    ouro = MagicMock()
+    assets = Assets(ouro)
+    assets._search_page = MagicMock(side_effect=pages)
+    ouro.assets = assets
+    return Files(ouro), assets._search_page
+
+
+def _page(hits: list, **pagination) -> dict:
+    return {"data": hits, "pagination": {"hasMore": False, **pagination}}
+
+
+class TestFilesSearch(unittest.TestCase):
     def test_search_scopes_to_files_and_passes_extension(self) -> None:
-        files, search = self._files(
-            [_file_hit("00000000-0000-0000-0000-000000000001", "MnBi.cif")]
+        files, page_fetch = _files_with_pages(
+            [_page([_file_hit("00000000-0000-0000-0000-000000000001", "MnBi.cif")])]
         )
 
         results = files.search(extension=".CIF", scope="all", limit=50, offset=10)
 
-        search.assert_called_once()
-        kwargs = search.call_args.kwargs
-        self.assertEqual(kwargs["query"], "")
+        page_fetch.assert_called_once()
+        query, limit, offset, kwargs = page_fetch.call_args.args
+        self.assertEqual((query, limit, offset), ("", 50, 10))
         self.assertEqual(kwargs["asset_type"], "file")
         self.assertEqual(kwargs["scope"], "all")
-        self.assertEqual(kwargs["limit"], 50)
-        self.assertEqual(kwargs["offset"], 10)
         self.assertEqual(kwargs["metadata_filters"], {"extension": "cif"})
-        self.assertFalse(kwargs["with_pagination"])
         self.assertNotIn("org_id", kwargs)
         self.assertNotIn("team_id", kwargs)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, UUID("00000000-0000-0000-0000-000000000001"))
         self.assertIs(results[0]._ouro, files.ouro)
 
-    def test_search_with_pagination_wraps_file_objects(self) -> None:
-        files, search = self._files(
-            {
-                "data": [_file_hit("00000000-0000-0000-0000-000000000002", "FeCo.cif")],
-                "pagination": {"offset": 0, "limit": 100, "hasMore": True},
-            }
+    def test_search_returns_page_of_file_objects(self) -> None:
+        files, page_fetch = _files_with_pages(
+            [
+                _page(
+                    [_file_hit("00000000-0000-0000-0000-000000000002", "FeCo.cif")],
+                    offset=0,
+                    limit=100,
+                    hasMore=True,
+                )
+            ]
         )
 
-        page = files.search(
-            extension=["cif", "xyz"],
-            team_id="team-1",
-            with_pagination=True,
-        )
+        page = files.search(extension=["cif", "xyz"], team_id="team-1")
 
-        kwargs = search.call_args.kwargs
+        kwargs = page_fetch.call_args.args[3]
         self.assertEqual(kwargs["metadata_filters"], {"extension": ["cif", "xyz"]})
         self.assertEqual(kwargs["team_id"], "team-1")
-        self.assertTrue(kwargs["with_pagination"])
         self.assertNotIn("org_id", kwargs)
-        self.assertEqual(len(page["data"]), 1)
-        self.assertEqual(page["data"][0].name, "FeCo.cif")
-        self.assertEqual(page["pagination"]["hasMore"], True)
+        self.assertIsInstance(page[0], File)
+        self.assertEqual(page[0].name, "FeCo.cif")
+        self.assertTrue(page.has_more)
 
     def test_search_ignores_caller_asset_type_override(self) -> None:
-        files, search = self._files([])
+        files, page_fetch = _files_with_pages([_page([])])
         files.search(extension="cif", asset_type="post")
-        self.assertEqual(search.call_args.kwargs["asset_type"], "file")
+        self.assertEqual(page_fetch.call_args.args[3]["asset_type"], "file")
 
     def test_list_delegates_to_search(self) -> None:
-        files, search = self._files([])
+        files, page_fetch = _files_with_pages([_page([])])
         files.list(extension="cif", query="magnet", scope="all")
-        kwargs = search.call_args.kwargs
-        self.assertEqual(kwargs["query"], "magnet")
+        query, _, _, kwargs = page_fetch.call_args.args
+        self.assertEqual(query, "magnet")
         self.assertEqual(kwargs["asset_type"], "file")
         self.assertEqual(kwargs["metadata_filters"], {"extension": "cif"})
         self.assertEqual(kwargs["scope"], "all")
-        self.assertFalse(kwargs["with_pagination"])
 
 
 class TestSearchAutoPagination(unittest.TestCase):
     """assets.search transparently paginates for limit=None or limit > 200."""
-
-    def _files_with_pages(self, pages: list) -> tuple[Files, MagicMock]:
-        """Real Assets.search pagination logic; mocked page fetches."""
-        from ouro.resources.assets import Assets
-
-        ouro = MagicMock()
-        assets = Assets(ouro)
-        assets._search_page = MagicMock(side_effect=pages)
-        ouro.assets = assets
-        return Files(ouro), assets._search_page
 
     def test_limit_none_paginates_until_has_more_false(self) -> None:
         pages = [
@@ -217,17 +212,16 @@ class TestSearchAutoPagination(unittest.TestCase):
                 "pagination": {"offset": 2, "limit": 200, "hasMore": False},
             },
         ]
-        files, page_fetch = self._files_with_pages(pages)
+        files, page_fetch = _files_with_pages(pages)
 
         results = files.search(extension="cif", scope="all", limit=None)
 
         self.assertEqual([f.name for f in results], ["a.cif", "b.cif", "c.cif"])
         self.assertEqual(page_fetch.call_count, 2)
-        (q1, limit1, offset1, wp1, kw1), _ = page_fetch.call_args_list[0]
-        (_, limit2, offset2, _, _), _ = page_fetch.call_args_list[1]
+        (q1, limit1, offset1, kw1), _ = page_fetch.call_args_list[0]
+        (_, limit2, offset2, _), _ = page_fetch.call_args_list[1]
         self.assertEqual((limit1, offset1), (200, 0))
         self.assertEqual((limit2, offset2), (200, 2))
-        self.assertTrue(wp1)
         self.assertEqual(kw1["asset_type"], "file")
         self.assertEqual(kw1["metadata_filters"], {"extension": "cif"})
 
@@ -248,34 +242,34 @@ class TestSearchAutoPagination(unittest.TestCase):
                 "pagination": {"offset": 3, "limit": 200, "hasMore": False},
             },
         ]
-        files, page_fetch = self._files_with_pages(pages)
+        files, page_fetch = _files_with_pages(pages)
 
         results = files.search(extension="cif", limit=204)
 
         self.assertEqual(page_fetch.call_count, 2)
-        (_, limit1, offset1, _, _), _ = page_fetch.call_args_list[0]
-        (_, limit2, offset2, _, _), _ = page_fetch.call_args_list[1]
+        (_, limit1, offset1, _), _ = page_fetch.call_args_list[0]
+        (_, limit2, offset2, _), _ = page_fetch.call_args_list[1]
         self.assertEqual((limit1, offset1), (200, 0))
         # remaining = 204 - 3 collected = 201, capped at 200
         self.assertEqual((limit2, offset2), (200, 3))
         self.assertEqual(len(results), 5)
 
     def test_small_limit_uses_single_page(self) -> None:
-        files, page_fetch = self._files_with_pages(
-            [[_file_hit("00000000-0000-0000-0000-000000000001", "a.cif")]]
+        files, page_fetch = _files_with_pages(
+            [_page([_file_hit("00000000-0000-0000-0000-000000000001", "a.cif")])]
         )
         results = files.search(extension="cif", limit=50)
         self.assertEqual(page_fetch.call_count, 1)
-        (_, limit, offset, with_pagination, _), _ = page_fetch.call_args
-        self.assertEqual((limit, offset, with_pagination), (50, 0, False))
+        (_, limit, offset, _), _ = page_fetch.call_args
+        self.assertEqual((limit, offset), (50, 0))
         self.assertEqual(len(results), 1)
 
     def test_limit_none_stops_on_empty_page(self) -> None:
         pages = [
             {"data": [], "pagination": {"offset": 0, "limit": 200, "hasMore": True}},
         ]
-        files, page_fetch = self._files_with_pages(pages)
-        self.assertEqual(files.search(extension="cif", limit=None), [])
+        files, page_fetch = _files_with_pages(pages)
+        self.assertEqual(len(files.search(extension="cif", limit=None)), 0)
         self.assertEqual(page_fetch.call_count, 1)
 
 

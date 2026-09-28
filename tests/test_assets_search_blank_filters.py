@@ -22,7 +22,6 @@ class TestAssetSearchBlankFilters(unittest.TestCase):
             "energy gate",
             limit=20,
             offset=0,
-            with_pagination=True,
             kwargs={
                 "asset_type": "service",
                 "scope": "all",
@@ -61,7 +60,6 @@ class TestAssetSearchBlankFilters(unittest.TestCase):
             "energy gate",
             limit=20,
             offset=0,
-            with_pagination=True,
             kwargs={
                 "asset_type": "/null",
                 "scope": "all",

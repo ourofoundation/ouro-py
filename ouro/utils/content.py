@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from ouro.models import RichText
 
 __all__ = ["tiptap_to_markdown", "description_to_markdown"]
 
@@ -30,21 +33,26 @@ def tiptap_to_markdown(doc: dict) -> str:
 
 
 def description_to_markdown(
-    description: Union[str, dict, None],
+    description: Union["RichText", str, dict, None],
     max_length: Optional[int] = None,
 ) -> str:
     """Convert an asset description (any shape) to markdown text.
 
     Handles all the forms description can take:
     - None → ""
+    - RichText → converts its tiptap doc, falling back to its text
     - str → returned as-is
     - dict with "json" key → converts the tiptap doc
     - dict with "type": "doc" → treats as tiptap doc directly
     - dict with "text" key → falls back to the text field
     """
+    from ouro.models import RichText
+
     if description is None:
         return ""
-    if isinstance(description, str):
+    if isinstance(description, RichText):
+        text = tiptap_to_markdown(description.data) or description.text
+    elif isinstance(description, str):
         text = description
     elif isinstance(description, dict):
         if "json" in description and isinstance(description["json"], dict):

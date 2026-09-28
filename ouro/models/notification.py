@@ -1,22 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from ._base import DictCompatModel
+from ._base import OuroModel
+from .asset import AssetRef, UserProfile
 
 __all__ = ["Notification"]
 
 
-class Notification(DictCompatModel):
-    """A single user notification.
-
-    The backend response includes nested ``source_user`` and ``asset`` objects
-    with a variable shape; they're kept as ``dict`` here to avoid over-fitting
-    to a snapshot of the schema. Use ``.get("field")`` or attribute access for
-    the common fields below.
-    """
+class Notification(OuroModel):
+    """A single user notification."""
 
     id: UUID
     destination_user_id: Optional[UUID] = None
@@ -28,8 +23,8 @@ class Notification(DictCompatModel):
     org_id: Optional[UUID] = None
     type: Optional[str] = None
     viewed: Optional[bool] = None
-    content: Optional[dict] = None
-    source_user: Optional[dict] = None
-    asset: Optional[dict] = None
+    content: Optional[Dict[str, Any]] = None
+    source_user: Optional[UserProfile] = None
+    asset: Optional[AssetRef] = None
     created_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None

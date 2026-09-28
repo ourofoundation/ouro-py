@@ -17,7 +17,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import File
+from ouro.models import DeleteResult, File, FileData, Page
 
 from .content import Content
 
@@ -272,12 +272,10 @@ class Files(SyncAPIResource):
         extension: Optional[Union[str, List[str]]] = None,
         file_type: Optional[str] = None,
         **kwargs: Any,
-    ) -> List[File]:
+    ) -> Page[File]:
         """List files, optionally filtered by search query and scope.
 
-        Prefer :meth:`search` when you need pagination metadata or file-specific
-        filters (``extension``, ``file_type``). This method is a thin wrapper
-        that returns only the page of ``File`` objects.
+        Prefer :meth:`search` for the full set of file-specific filters.
 
         Args:
             sort: "relevant" | "recent" | "popular" | "updated"
@@ -297,7 +295,6 @@ class Files(SyncAPIResource):
             time_window=time_window,
             extension=extension,
             file_type=file_type,
-            with_pagination=False,
             **kwargs,
         )
 
@@ -317,9 +314,8 @@ class Files(SyncAPIResource):
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
         metadata_filters: Optional[dict] = None,
-        with_pagination: bool = False,
         **kwargs: Any,
-    ) -> Union[List[File], dict]:
+    ) -> Page[File]:
         """Search or browse file assets with file-specific filters.
 
         Always scopes to ``asset_type="file"``. Use ``extension`` to find CIFs
@@ -335,15 +331,12 @@ class Files(SyncAPIResource):
             # Every CIF file visible to you
             cifs = ouro.files.search(extension="cif", scope="all", limit=None)
 
-            # First page of a team, with pagination metadata
+            # First page of a team
             page = ouro.files.search(
-                extension="cif",
-                team_id=pm_team_id,
-                scope="all",
-                limit=100,
-                with_pagination=True,
+                extension="cif", team_id=pm_team_id, scope="all", limit=100
             )
-            files, pagination = page["data"], page["pagination"]
+            for file in page: ...
+            if page.has_more: ...
 
         Args:
             query: Hybrid search query, or empty to browse by recency.
@@ -359,11 +352,6 @@ class Files(SyncAPIResource):
             time_window: For ``sort="popular"``: ``"day"`` | ``"week"`` | ``"month"`` | ``"all"``.
             metadata_filters: Extra metadata key/value filters (merged with
                 ``extension`` / ``file_type``; those kwargs win on conflict).
-            with_pagination: When ``True``, return
-                ``{"data": list[File], "pagination": ...}`` instead of a bare list.
-
-        Returns:
-            ``list[File]``, or a pagination dict when ``with_pagination=True``.
         """
         merged = _merge_file_metadata_filters(
             extension=extension,
@@ -379,7 +367,6 @@ class Files(SyncAPIResource):
             "asset_type": "file",
             "limit": limit,
             "offset": offset,
-            "with_pagination": with_pagination,
             **kwargs,
         }
         if scope is not None:
@@ -399,18 +386,7 @@ class Files(SyncAPIResource):
         if merged is not None:
             search_kwargs["metadata_filters"] = merged
 
-        results = self.ouro.assets.search(query=query, **search_kwargs)
-
-        if with_pagination:
-            if not isinstance(results, dict):
-                return {"data": [], "pagination": None}
-            data = results.get("data") or []
-            return {
-                "data": [File(**item, _ouro=self.ouro) for item in data],
-                "pagination": results.get("pagination"),
-            }
-
-        return [File(**item, _ouro=self.ouro) for item in (results or [])]
+        return self.ouro.assets._search(File, query=query, **search_kwargs)
 
     def create(
         self,
@@ -485,8 +461,7 @@ class Files(SyncAPIResource):
         file["attribution"] = _ensure_attribution(attribution)
 
         request = self.client.post("/files/create", json={"file": file})
-        data = self._handle_response(request)
-        return File(**data, _ouro=self.ouro)
+        return self._parse(File, self._handle_response(request))
 
     def retrieve(self, id: str, *, include_data: bool = True) -> File:
         """Retrieve a File by its ID.
@@ -503,14 +478,11 @@ class Files(SyncAPIResource):
                 is logged; non-HTTP exceptions (bugs, cancellations) propagate
                 as before.
         """
-        data = self._handle_response(self.client.get(f"/files/{id}"))
-
-        file_data = None
+        file = self._parse(File, self._handle_response(self.client.get(f"/files/{id}")))
+        file.data = None
         if include_data:
             try:
-                file_data = self._handle_response(
-                    self.client.get(f"/files/{id}/data")
-                )
+                file.data = self.read_data(id)
             except (APIStatusError, APIConnectionError, httpx.HTTPError) as exc:
                 log.warning(
                     "Failed to fetch /files/%s/data (%s); returning File "
@@ -519,9 +491,12 @@ class Files(SyncAPIResource):
                     id,
                     exc.__class__.__name__,
                 )
+        return file
 
-        data["data"] = file_data
-        return File(**data, _ouro=self.ouro)
+    def read_data(self, id: str) -> FileData:
+        """Fetch a signed download URL for a file's bytes."""
+        request = self.client.get(f"/files/{id}/data")
+        return self._parse(FileData, self._handle_response(request))
 
     def update(
         self,
@@ -578,17 +553,15 @@ class Files(SyncAPIResource):
                 body["file"] = {"id": str(id), **update_params}
 
             request = self.client.put(f"/files/{id}/content", json=body)
-            data = self._handle_response(request)
-            return File(**data, data=None, _ouro=self.ouro)
+            return self._parse(File, self._handle_response(request))
 
         file = _strip_none({"id": str(id), **update_params})
         request = self.client.put(f"/files/{id}", json={"file": file})
-        data = self._handle_response(request)
-        return File(**data, data=None, _ouro=self.ouro)
+        return self._parse(File, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a file.
 
         Args:
@@ -598,17 +571,11 @@ class Files(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/files/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/files/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}
 
     def share(
         self,

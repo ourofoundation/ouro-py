@@ -1,13 +1,10 @@
-import warnings
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
+from ._base import OuroModel, Page
+from .action import Action
 from .asset import Asset
-
-if TYPE_CHECKING:
-    from ouro import Ouro
-    from ouro.models.action import Action
 
 
 RouteAssetType = Literal["file", "dataset", "post", "comment"]
@@ -22,15 +19,13 @@ RouteInputFilter = Literal[
 ]
 
 
-class RouteInputAssetDeclaration(BaseModel):
+class RouteInputAssetDeclaration(OuroModel):
     """A single keyed declaration in ``routes.input_assets``.
 
     Plural declarations are the canonical shape; legacy ``input_type`` and
     ``input_file_*`` fields on the route stay in sync as primary
     projections for older clients and indexing.
     """
-
-    model_config = ConfigDict(extra="allow")
 
     asset_type: RouteAssetType
     asset_types: Optional[List[RouteAssetType]] = Field(default=None, min_length=1)
@@ -59,10 +54,8 @@ class RouteInputAssetDeclaration(BaseModel):
         return declaration
 
 
-class RouteOutputAssetDeclaration(BaseModel):
+class RouteOutputAssetDeclaration(OuroModel):
     """A single keyed declaration in ``routes.output_assets``."""
-
-    model_config = ConfigDict(extra="allow")
 
     asset_type: RouteAssetType
     primary: Optional[bool] = None
@@ -70,10 +63,8 @@ class RouteOutputAssetDeclaration(BaseModel):
     contains_file_extensions: Optional[List[str]] = None
 
 
-class RouteCapabilityBase(BaseModel):
+class RouteCapabilityBase(OuroModel):
     """Shared behavior declared by a semantic route capability."""
-
-    model_config = ConfigDict(extra="allow")
 
     supported_languages: List[str] = Field(min_length=1)
     cache_scope: RouteCacheScope = "none"
@@ -86,10 +77,8 @@ class TextTranslationRouteCapability(RouteCapabilityBase):
     """Contract for the ``text.translate.v1`` capability."""
 
 
-class SpeechVoice(BaseModel):
+class SpeechVoice(OuroModel):
     """Provider voice advertised by a speech route."""
-
-    model_config = ConfigDict(extra="allow")
 
     id: str
     name: Optional[str] = None
@@ -107,10 +96,8 @@ class SpeechTranscribeRouteCapability(RouteCapabilityBase):
     """Contract for the ``speech.transcribe.v1`` capability."""
 
 
-class RouteCapabilities(BaseModel):
+class RouteCapabilities(OuroModel):
     """Semantic capabilities stored under ``x-ouro-capabilities``."""
-
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     text_translate_v1: Optional[TextTranslationRouteCapability] = Field(
         default=None, alias="text.translate.v1"
@@ -123,7 +110,7 @@ class RouteCapabilities(BaseModel):
     )
 
 
-class RouteData(BaseModel):
+class RouteData(OuroModel):
     description: Optional[str] = None
     path: str
     method: str
@@ -156,7 +143,7 @@ class RouteData(BaseModel):
     observed_execution_mode: Optional[str] = None
 
 
-class RouteMetrics(BaseModel):
+class RouteMetrics(OuroModel):
     """Per-route latency aggregates surfaced from ``asset_metrics``.
 
     All fields are optional because they don't exist until the platform has
@@ -175,48 +162,39 @@ class RouteMetrics(BaseModel):
     latency_sample_count: Optional[int] = None
 
 
+class RouteStats(OuroModel):
+    access: Optional[str] = None
+    total: int = 0
+    user_total: int = Field(default=0, alias="userTotal")
+    in_progress: List[Action] = Field(default_factory=list, alias="inProgress")
+    monetization: Optional[Dict[str, Any]] = None
+
+
+class RouteCost(OuroModel):
+    """Price of running a variable-cost route on a specific input asset."""
+
+    cost_accounting: Optional[str] = None
+    cost_unit: Optional[str] = None
+    unit_cost: Optional[float] = None
+    quantity: Optional[float] = None
+    total_cost: Optional[float] = None
+
+
 class Route(Asset):
     route: Optional[RouteData] = None
     metrics: Optional[RouteMetrics] = None
-    _ouro: Optional["Ouro"] = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._ouro = kwargs.get("_ouro")
+    def read_stats(self) -> RouteStats:
+        """Usage counts and in-progress actions for this route."""
+        return self._require_client().routes.stats(str(self.id))
 
-    def _require_client(self) -> "Ouro":
-        if not self._ouro:
-            raise RuntimeError("Route object not connected to Ouro client")
-        return self._ouro
+    def read_actions(self) -> Page[Action]:
+        """List this route's actions."""
+        return self._require_client().routes.list_actions(str(self.id))
 
-    def _api_get(self, path: str) -> Any:
-        """Make a GET request through the centralized response handler."""
-        ouro = self._require_client()
-        from ouro._resource import SyncAPIResource
-
-        resource = SyncAPIResource(ouro)
-        return resource._handle_response(ouro.client.get(path))
-
-    def read_stats(self) -> Dict:
-        """Get stats for a route."""
-        return self._api_get(f"/routes/{self.id}/stats")
-
-    def read_actions(self) -> List["Action"]:
-        """Get actions for a route."""
-        ouro = self._require_client()
-        return ouro.routes.list_actions(str(self.id))
-
-    def read_analytics(self) -> Dict:
-        """Get analytics for a route."""
-        return self._api_get(
-            f"/services/{self.parent_id}/routes/{self.id}/analytics"
-        )
-
-    def read_cost(self, asset_id: str) -> Dict:
-        """Calculate the cost for a route."""
-        return self._api_get(
-            f"/services/{self.parent_id}/routes/{self.id}/cost?input={asset_id}"
-        )
+    def read_cost(self, asset_id: str) -> RouteCost:
+        """Price of running this route on ``asset_id``."""
+        return self._require_client().routes.cost(str(self.id), asset_id)
 
     def execute(
         self,
@@ -225,54 +203,12 @@ class Route(Asset):
         poll_interval: Optional[float] = None,
         poll_timeout: Optional[float] = None,
         **kwargs,
-    ) -> "Action":
+    ) -> Action:
         """Execute this route and return the full Action."""
-        ouro = self._require_client()
-        return ouro.routes.execute(
+        return self._require_client().routes.execute(
             str(self.id),
             wait=wait,
             poll_interval=poll_interval,
             poll_timeout=poll_timeout,
             **kwargs,
         )
-
-    def use(
-        self,
-        *,
-        wait: bool = True,
-        poll_interval: Optional[float] = None,
-        poll_timeout: Optional[float] = None,
-        **kwargs,
-    ) -> Union[Dict, "Action"]:
-        """Deprecated compatibility wrapper for :meth:`execute`.
-
-        For routes that return 202 (async processing), this method will automatically
-        poll for updates until the action completes, unless wait=False.
-
-        Args:
-            wait: If True (default), wait for async routes to complete. If False,
-                send ``Prefer: respond-async`` to get the action handle back
-                immediately and check on it later via ``action.refresh()`` or
-                ``ouro.routes.poll_action``.
-            poll_interval: Seconds between status checks when waiting. If None
-                (default), the SDK derives an interval from this route's
-                ``avg_completion_ms`` metric.
-            poll_timeout: Maximum seconds to wait for completion. If None
-                (default), the SDK derives a timeout from this route's
-                ``p95_completion_ms`` metric.
-            **kwargs: Additional arguments (body, query, params, output, timeout).
-        """
-        warnings.warn(
-            "Route.use() is deprecated; use Route.execute(), which returns an Action.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        raise_on_error = kwargs.pop("raise_on_error", wait)
-        action = self.execute(
-            wait=wait,
-            poll_interval=poll_interval,
-            poll_timeout=poll_timeout,
-            raise_on_error=raise_on_error,
-            **kwargs,
-        )
-        return action if not wait else action.final_data

@@ -11,7 +11,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Entry, Quest, QuestItem, QuestLeaderboardRow
+from ouro.models import DeleteResult, Entry, ItemCompletion, LeaderboardPage, Page, Quest, QuestItem
 
 from .content import Content
 
@@ -70,9 +70,10 @@ class Quests(SyncAPIResource):
         sort: Optional[str] = None,
         time_window: Optional[str] = None,
         **kwargs: Any,
-    ) -> List[Quest]:
+    ) -> Page[Quest]:
         """List quests, optionally filtered by search query and scope."""
-        results = self.ouro.assets.search(
+        return self.ouro.assets._search(
+            Quest,
             query=query,
             asset_type="quest",
             limit=limit,
@@ -84,7 +85,6 @@ class Quests(SyncAPIResource):
             time_window=time_window,
             **kwargs,
         )
-        return [Quest(**item) for item in results]
 
     def list_assigned_items(
         self,
@@ -95,9 +95,8 @@ class Quests(SyncAPIResource):
         offset: int = 0,
         org_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        with_pagination: bool = False,
-    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-        """List quest items assigned to a user.
+    ) -> Page[QuestItem]:
+        """List quest items assigned to a user, across quests.
 
         Defaults to the authenticated user and actionable statuses
         (``pending,in_progress``). Pass ``status="all"`` to include terminal
@@ -117,12 +116,7 @@ class Quests(SyncAPIResource):
             params["team_id"] = team_id
 
         request = self.client.get("/quests/assigned-items", params=params)
-        data = self._handle_response(request)
-        if with_pagination:
-            return data
-        if isinstance(data, dict):
-            return data.get("data") or []
-        return data or []
+        return self._page(Page[QuestItem], self._handle_response(request, raw=True))
 
     def create(
         self,
@@ -173,12 +167,12 @@ class Quests(SyncAPIResource):
             "/quests/create",
             json={"quest": quest},
         )
-        return Quest(**self._handle_response(request))
+        return self._parse(Quest, self._handle_response(request))
 
     def retrieve(self, id: str) -> Quest:
         """Retrieve a Quest by its id, including items and progress."""
         request = self.client.get(f"/quests/{id}")
-        return Quest(**self._handle_response(request))
+        return self._parse(Quest, self._handle_response(request))
 
     def update(
         self,
@@ -213,11 +207,11 @@ class Quests(SyncAPIResource):
             f"/quests/{id}",
             json={"quest": quest},
         )
-        return Quest(**self._handle_response(request))
+        return self._parse(Quest, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = False, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a Quest by its id.
 
         Args:
@@ -227,27 +221,18 @@ class Quests(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children``. Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/quests/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/quests/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}
 
     # ── Quest Item methods ──
 
     def list_items(self, quest_id: str) -> List[QuestItem]:
         """List items for a quest, ordered by sort_order."""
         request = self.client.get(f"/quests/{quest_id}/items")
-        data = self._handle_response(request)
-        if isinstance(data, list):
-            return [QuestItem(**item) for item in data]
-        return []
+        return self._parse_list(QuestItem, self._handle_response(request))
 
     def create_items(
         self,
@@ -265,10 +250,7 @@ class Quests(SyncAPIResource):
             f"/quests/{quest_id}/items",
             json={"items": rows},
         )
-        data = self._handle_response(request)
-        if isinstance(data, list):
-            return [QuestItem(**item) for item in data]
-        return []
+        return self._parse_list(QuestItem, self._handle_response(request))
 
     def update_item(self, quest_id: str, item_id: str, **kwargs) -> QuestItem:
         """Update an item's metadata, status, rewards, or notes."""
@@ -279,7 +261,7 @@ class Quests(SyncAPIResource):
             f"/quests/{quest_id}/items/{item_id}",
             json={"item": item},
         )
-        return QuestItem(**self._handle_response(request))
+        return self._parse(QuestItem, self._handle_response(request))
 
     def complete_item(
         self,
@@ -288,7 +270,7 @@ class Quests(SyncAPIResource):
         *,
         assets: Optional[dict] = None,
         description: Optional[Union[str, Content, dict]] = None,
-    ) -> dict:
+    ) -> ItemCompletion:
         """Self-complete an item. Creates an auto-accepted entry and marks item done.
 
         The quest must be ``open``; draft, closed, and cancelled quests do not
@@ -309,7 +291,7 @@ class Quests(SyncAPIResource):
             f"/quests/{quest_id}/items/{item_id}/complete",
             json=body,
         )
-        return self._handle_response(request)
+        return self._parse(ItemCompletion, self._handle_response(request))
 
     def delete_item(self, quest_id: str, item_id: str) -> None:
         """Delete an item (blocked if it has entries)."""
@@ -360,7 +342,7 @@ class Quests(SyncAPIResource):
             f"/quests/{quest_id}/entries/create",
             json={"entry": entry},
         )
-        return Entry(**self._handle_response(request))
+        return self._parse(Entry, self._handle_response(request))
 
     def list_entries(
         self,
@@ -369,9 +351,8 @@ class Quests(SyncAPIResource):
         status: Optional[Literal["submitted", "accepted", "rejected"]] = None,
         limit: int = 50,
         offset: int = 0,
-        with_pagination: bool = False,
-    ) -> Union[List[Entry], dict]:
-        """List entries for a quest, optionally including pagination metadata."""
+    ) -> Page[Entry]:
+        """List a page of entries for a quest."""
         request = self.client.get(
             f"/quests/{quest_id}/entries",
             params=_strip_none(
@@ -382,17 +363,7 @@ class Quests(SyncAPIResource):
                 }
             ),
         )
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            return {
-                "data": [Entry(**entry) for entry in result.get("data", [])],
-                "pagination": result.get("pagination", {}),
-            }
-
-        data = self._handle_response(request)
-        if isinstance(data, list):
-            return [Entry(**entry) for entry in data]
-        return []
+        return self._page(Page[Entry], self._handle_response(request, raw=True))
 
     def list_leaderboard(
         self,
@@ -401,8 +372,7 @@ class Quests(SyncAPIResource):
         *,
         limit: int = 50,
         offset: int = 0,
-        with_pagination: bool = False,
-    ) -> Union[List[QuestLeaderboardRow], dict]:
+    ) -> LeaderboardPage:
         """List ranked scored entries for a leaderboard-enabled quest item.
 
         Rows are every non-rejected entry with a numeric ``eval_score``.
@@ -414,16 +384,7 @@ class Quests(SyncAPIResource):
             params=_strip_none({"limit": limit, "offset": offset}),
         )
         body = self._handle_response(request, raw=True) or {}
-        rows = [
-            QuestLeaderboardRow(**row) for row in (body.get("data") or [])
-        ]
-        if with_pagination:
-            return {
-                "data": rows,
-                "pagination": body.get("pagination") or {},
-                "item": body.get("item"),
-            }
-        return rows
+        return self._page(LeaderboardPage, body, item=body.get("item"))
 
     def review_entry(
         self,
@@ -443,4 +404,4 @@ class Quests(SyncAPIResource):
                 }
             ),
         )
-        return Entry(**self._handle_response(request))
+        return self._parse(Entry, self._handle_response(request))

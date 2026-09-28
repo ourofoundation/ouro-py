@@ -14,7 +14,7 @@ class TestRoutesDelete(unittest.TestCase):
         response.status_code = 200
         response.json.return_value = {
             "data": {
-                "id": "route-1",
+                "id": "00000000-0000-0000-0000-000000000001",
                 "name": "predict",
                 "asset_type": "route",
                 "deleted_children": [],
@@ -24,13 +24,13 @@ class TestRoutesDelete(unittest.TestCase):
         client.delete.return_value = response
 
         routes = Routes(SimpleNamespace(client=client, websocket=None))
-        result = routes.delete("route-1", dry_run=True)
+        result = routes.delete("00000000-0000-0000-0000-000000000001", dry_run=True)
 
         client.delete.assert_called_once_with(
-            "/routes/route-1",
+            "/routes/00000000-0000-0000-0000-000000000001",
             params={"delete_children": "false", "dry_run": "true"},
         )
-        self.assertEqual(result["asset_type"], "route")
+        self.assertEqual(result.asset_type, "route")
 
 
 if __name__ == "__main__":

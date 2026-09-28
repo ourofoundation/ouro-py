@@ -12,8 +12,7 @@ from ouro._resource import (
     _optional_attribution_payload,
     _strip_none,
 )
-from ouro.models import Route, Service
-from ouro.resources.routes import Routes
+from ouro.models import DeleteResult, Route, Service, ServiceAuthentication
 
 from .content import Content
 
@@ -45,15 +44,6 @@ def _service_metadata(
 
 
 class Services(SyncAPIResource):
-    @property
-    def routes(self) -> Routes:
-        """Deprecated alias for ``ouro.routes``.
-
-        Kept for backwards compatibility. Prefer ``ouro.routes`` directly — both
-        point to the same underlying ``Routes`` instance now.
-        """
-        return self.ouro.routes
-
     def create(
         self,
         name: str,
@@ -133,7 +123,7 @@ class Services(SyncAPIResource):
             else "/services/create/from-form"
         )
         request = self.client.post(endpoint, json={"service": service})
-        return Service(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Service, self._handle_response(request))
 
     def update(
         self,
@@ -222,11 +212,11 @@ class Services(SyncAPIResource):
             else f"/services/{id}"
         )
         request = self.client.put(endpoint, json={"service": service})
-        return Service(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Service, self._handle_response(request))
 
     def delete(
         self, id: str, *, delete_children: bool = True, dry_run: bool = False
-    ) -> dict:
+    ) -> DeleteResult:
         """Delete a Service by ID.
 
         Args:
@@ -236,28 +226,21 @@ class Services(SyncAPIResource):
             dry_run: When True, return the delete summary without deleting.
 
         Returns:
-            Summary with ``id``, ``name``, ``asset_type``, and
-            ``deleted_children`` (list of ``{id, name, asset_type}``).
-            Includes ``dry_run: true`` when previewing.
+            What was deleted, or would be when ``dry_run`` is true.
         """
-        request = self.client.delete(
-            f"/services/{id}",
-            params={
-                "delete_children": "true" if delete_children else "false",
-                "dry_run": "true" if dry_run else "false",
-            },
+        return self._delete(
+            f"/services/{id}", delete_children=delete_children, dry_run=dry_run
         )
-        return self._handle_response(request) or {}
 
     def retrieve(self, id: str) -> Service:
         """Retrieve a Service by its ID."""
         request = self.client.get(f"/services/{id}")
-        return Service(**self._handle_response(request), _ouro=self.ouro)
+        return self._parse(Service, self._handle_response(request))
 
     def list(self) -> List[Service]:
         """List all services in the current context."""
         request = self.client.get("/services")
-        return [Service(**s, _ouro=self.ouro) for s in self._handle_response(request)]
+        return self._parse_list(Service, self._handle_response(request))
 
     def read_spec(self, id: str) -> Dict:
         """Get the OpenAPI specification for a service."""
@@ -267,23 +250,22 @@ class Services(SyncAPIResource):
     def read_routes(self, id: str) -> List[Route]:
         """Get all routes for a service."""
         request = self.client.get(f"/services/{id}/routes")
-        return [Route(**r, _ouro=self.ouro) for r in self._handle_response(request)]
+        return self._parse_list(Route, self._handle_response(request))
 
     def set_authentication(
         self,
         id: str,
         secret: str,
         method: str = "Ouro",
-    ) -> Dict:
+    ) -> ServiceAuthentication:
         """Upsert the service owner's authentication secret (idempotent).
 
         Used for ``authentication="Ouro"`` (Basic token) and
         ``"Personal Access Token"`` services. Only the service owner may call
-        this. Returns ``{id, secret_id, method, rotated}`` where ``rotated`` is
-        False when the plaintext already matched.
+        this. ``rotated`` is False when the plaintext already matched.
         """
         request = self.client.put(
             f"/services/{id}/authentication",
             json={"method": method, "secret": secret},
         )
-        return self._handle_response(request) or {}
+        return self._parse(ServiceAuthentication, self._handle_response(request))

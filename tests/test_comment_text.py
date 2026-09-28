@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from ouro.models import Comment, PostContent
+from ouro.models import Comment
 
 
 def _base_kwargs(**extra):
@@ -30,13 +30,13 @@ class CommentTextTests(unittest.TestCase):
     def test_prefers_content_text(self) -> None:
         comment = Comment(
             **_base_kwargs(
-                content=PostContent.model_validate({"text": "full body", "json": {}}),
+                content={"text": "full body", "json": {}},
                 description={"text": "preview only"},
             )
         )
         self.assertEqual(comment.text, "full body")
 
-    def test_falls_back_to_description_dict(self) -> None:
+    def test_falls_back_to_description(self) -> None:
         comment = Comment(**_base_kwargs(description={"text": "preview"}))
         self.assertEqual(comment.text, "preview")
 

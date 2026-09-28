@@ -48,7 +48,7 @@ def test_team_policies_resolve(ouro, team, org):
 
 def test_update_team(ouro, team):
     updated = ouro.teams.update(str(team.id), description="Updated team description")
-    assert "Updated team description" in updated.description["text"]
+    assert "Updated team description" in updated.description.text
 
 
 def test_team_names_must_be_slugs(ouro, org):
@@ -78,7 +78,7 @@ def test_publish_into_team_and_read_activity(ouro, track, team, org):
     )
     assert post.team_id == team.id
     activity = ouro.teams.activity(str(team.id), limit=10)
-    assert any(item.get("id") == str(post.id) for item in activity["data"])
+    assert any(item.id == post.id for item in activity)
     in_team = ouro.posts.list(team_id=str(team.id), org_id=str(org.id), scope="all", sort="recent")
     assert any(p.id == post.id for p in in_team)
 
@@ -86,11 +86,12 @@ def test_publish_into_team_and_read_activity(ouro, track, team, org):
 def test_unreads(ouro, team):
     assert isinstance(ouro.teams.unreads(str(team.id)), int)
     preview = ouro.teams.unread_preview(str(team.id), limit=5)
-    assert "pagination" in preview
+    assert preview.team_id == team.id and preview.limit == 5
 
 
 def test_join_leave_ban(ouro, other, team):
-    other.teams.join(str(team.id))
+    joined = other.teams.join(str(team.id))
+    assert str(joined.user_membership.user_id) == str(other.user.id)
     members = ouro.teams.retrieve(str(team.id), include_members=True).members
     assert any(str(m.user_id) == str(other.user.id) for m in members)
 
@@ -100,19 +101,21 @@ def test_join_leave_ban(ouro, other, team):
 
     other.teams.join(str(team.id))
     ouro.teams.ban_member(str(team.id), str(other.user.id), reason="integration test")
-    assert any(str(b.get("user_id")) == str(other.user.id) for b in ouro.teams.list_bans(str(team.id)))
+    assert any(str(b.user_id) == str(other.user.id) for b in ouro.teams.list_bans(str(team.id)))
     with pytest.raises(OuroError):
         other.teams.join(str(team.id))
     ouro.teams.unban_member(str(team.id), str(other.user.id))
-    assert all(str(b.get("user_id")) != str(other.user.id) for b in ouro.teams.list_bans(str(team.id)))
+    assert all(str(b.user_id) != str(other.user.id) for b in ouro.teams.list_bans(str(team.id)))
 
 
 def test_join_requests(ouro, other, org, run_id):
     gated = ouro.teams.create(name=f"sdk-it-{run_id}-gated", org_id=str(org.id), join_policy="request")
     try:
-        other.teams.join(str(gated.id))
+        requested = other.teams.join(str(gated.id))
+        assert requested.user_join_request.status == "pending"
         [pending] = ouro.teams.list_join_requests(str(gated.id))
-        ouro.teams.approve_join_request(str(gated.id), str(pending["id"]))
+        assert pending.id == requested.user_join_request.id
+        ouro.teams.approve_join_request(str(gated.id), str(pending.id))
         members = ouro.teams.retrieve(str(gated.id), include_members=True).members
         assert any(str(m.user_id) == str(other.user.id) for m in members)
     finally:

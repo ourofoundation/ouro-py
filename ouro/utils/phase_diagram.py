@@ -5,7 +5,7 @@ quaternary phase diagrams. The file carries the thermodynamics pymatgen already
 computed — formation energies, hull distances, and the hull facets themselves —
 so the viewer draws exactly the hull the numbers were measured against rather
 than recomputing one. The format is open and fully specified at
-https://ouro.foundation/docs/developers/phase-diagram-format, so files written
+https://ouro.foundation/docs/developers/file-formats/phase-diagram, so files written
 by any other tool render the same way.
 
     import json

@@ -329,7 +329,7 @@ class TestDatasetsCreate(unittest.TestCase):
         )
 
         self.assertEqual(
-            getattr(created, "row_ingest"), {"inserted": 1, "skipped": 1}
+            created.row_ingest.model_dump(exclude_none=True), {"inserted": 1, "skipped": 1}
         )
         self.assertEqual(getattr(created, "ingest_warning"), warning)
 
@@ -386,7 +386,7 @@ class TestDatasetsCreate(unittest.TestCase):
 
         # The fake /data endpoint echoes inserted=len(rows) under `data`.
         self.assertEqual(
-            getattr(updated, "row_ingest"),
+            updated.row_ingest.model_dump(exclude_none=True),
             {"inserted": 2, "skipped": 0, "mode": "append"},
         )
 
@@ -652,7 +652,7 @@ class TestDatasetQueryResolveRefs(unittest.TestCase):
         ouro = _ResolveFakeOuro()
         datasets = Datasets(ouro)
 
-        result = datasets.query(
+        page = datasets.list_rows(
             "019df875-7957-7888-888f-f8140ff62564",
             limit=100,
             resolve_refs=True,
@@ -662,22 +662,12 @@ class TestDatasetQueryResolveRefs(unittest.TestCase):
             r for r in ouro.client.requests if r["path"].endswith("/data")
         )
         self.assertEqual(data_request["params"]["resolve_refs"], "true")
-        self.assertIn("resolved_refs", result)
         self.assertEqual(
-            result["resolved_refs"]["file_id"][
+            page.resolved_refs["file_id"][
                 "019df875-7957-7888-888f-f8140ff62564"
-            ]["name"],
+            ].name,
             "sample.cif",
         )
-
-    def test_query_resolve_refs_rejected_with_sql(self) -> None:
-        datasets = Datasets(_SqlFakeOuro([]))
-        with self.assertRaisesRegex(ValueError, "only supported for the paginated"):
-            datasets.query(
-                "019df875-7957-7888-888f-f8140ff62564",
-                "SELECT * FROM {{table}}",
-                resolve_refs=True,
-            )
 
 
 class TestDatasetsQuerySql(unittest.TestCase):
@@ -703,15 +693,6 @@ class TestDatasetsQuerySql(unittest.TestCase):
         )
         self.assertEqual(list(df.columns), ["species", "n"])
         self.assertEqual(len(df), 2)
-
-    def test_query_with_sql_rejects_pagination_args(self) -> None:
-        datasets = Datasets(_SqlFakeOuro([]))
-        with self.assertRaisesRegex(ValueError, "not compatible with sql"):
-            datasets.query(
-                "019df875-7957-7888-888f-f8140ff62564",
-                "SELECT * FROM {{table}}",
-                limit=10,
-            )
 
     def test_query_rejects_empty_sql_string(self) -> None:
         datasets = Datasets(_SqlFakeOuro([]))
@@ -811,7 +792,7 @@ class TestDatasetColumnOps(unittest.TestCase):
         request = ouro.client.requests[0]
         self.assertEqual(request["method"], "DELETE")
         self.assertEqual(request["path"], f"/datasets/{DATASET_ID}/columns/scratch")
-        self.assertEqual(result, {"dropped": "scratch"})
+        self.assertIsNone(result)
 
 
 class TestSerializeDataframe(unittest.TestCase):

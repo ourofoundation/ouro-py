@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Type, TypeVar, Union
 
 import httpx
+from ouro.models import DeleteResult, OuroModel, Page
 from ouro.realtime.websocket import OuroWebSocket
 
 if TYPE_CHECKING:
     from ouro.resources.content import Content
+
+M = TypeVar("M", bound=OuroModel)
+P = TypeVar("P", bound=Page)
 
 
 DEFAULT_ATTRIBUTION = {"originality": "original"}
@@ -139,13 +143,32 @@ class SyncAPIResource:
         self.websocket = ouro.websocket
         self.ouro = ouro
 
-    def _handle_response(
-        self,
-        response: httpx.Response,
-        *,
-        raw: bool = False,
-        with_pagination: bool = False,
-    ) -> Any:
+    def _parse(self, model: Type[M], data: Any) -> M:
+        """Validate *data* into *model*, binding this client to it and its children."""
+        return model.model_validate(data, context={"ouro": self.ouro})
+
+    def _parse_list(self, model: Type[M], items: Optional[list]) -> List[M]:
+        return [self._parse(model, item) for item in items or []]
+
+    def _page(self, page_type: Type[P], body: Any, **extra: Any) -> P:
+        """Build a page from a raw ``{data, pagination}`` response envelope."""
+        body = body if isinstance(body, dict) else {"data": body}
+        return self._parse(
+            page_type,
+            {**(body.get("pagination") or {}), "data": body.get("data") or [], **extra},
+        )
+
+    def _delete(self, path: str, *, delete_children: bool, dry_run: bool) -> DeleteResult:
+        request = self.client.delete(
+            path,
+            params={
+                "delete_children": "true" if delete_children else "false",
+                "dry_run": "true" if dry_run else "false",
+            },
+        )
+        return self._parse(DeleteResult, self._handle_response(request))
+
+    def _handle_response(self, response: httpx.Response, *, raw: bool = False) -> Any:
         """Parse JSON, check for errors, and return the data payload.
 
         Raises typed exceptions (NotFoundError, AuthenticationError, etc.)
@@ -155,9 +178,7 @@ class SyncAPIResource:
             response: The httpx response to process.
             raw: If True, return the full parsed body instead of just the
                  ``data`` field.  Useful for endpoints that return metadata
-                 alongside data.
-            with_pagination: If True, return ``{"data": ..., "pagination": ...}``
-                 when the response follows the standard envelope.
+                 (such as pagination) alongside data.
         """
         try:
             body = response.json()
@@ -186,12 +207,6 @@ class SyncAPIResource:
 
         if raw:
             return body
-
-        if with_pagination and isinstance(body, dict):
-            return {
-                "data": body.get("data"),
-                "pagination": body.get("pagination"),
-            }
 
         if isinstance(body, dict):
             return body.get("data")

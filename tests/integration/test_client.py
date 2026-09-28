@@ -33,8 +33,8 @@ def test_public_exports():
 
 def test_authenticates_and_exposes_current_user(ouro, me):
     assert ouro.access_token
-    assert str(ouro.user.id) == str(me["user_id"])
-    assert me["username"]
+    assert str(ouro.user.id) == str(me.user_id)
+    assert me.username
 
 
 def test_invalid_api_key_raises_authentication_error(base_url):
@@ -52,7 +52,7 @@ def test_refresh_session_keeps_client_usable(ouro):
     before = ouro.access_token
     ouro.refresh_session()
     assert ouro.access_token
-    assert ouro.users.me()["user_id"]
+    assert ouro.users.me().user_id
     assert isinstance(before, str)
 
 

@@ -2,24 +2,24 @@ from datetime import datetime
 from typing import Annotated, Any, Dict, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from ._base import OuroModel
 
 AssetRenditionKind = Literal["translation", "speech"]
 AssetRenditionStatus = Literal["queued", "in-progress", "timed-out", "success", "error"]
 AssetRenditionCacheScope = Literal["none", "user", "shared"]
 
 
-class RenditionContent(BaseModel):
+class RenditionContent(OuroModel):
     """Structured TipTap content and its plain-text rendition."""
 
     data: Dict[str, Any] = Field(alias="json")
     text: str
 
 
-class AssetRendition(BaseModel):
+class AssetRendition(OuroModel):
     """Common persisted record for a rendition of a post or comment."""
-
-    model_config = ConfigDict(extra="allow")
 
     id: UUID
     asset_id: UUID
@@ -44,10 +44,8 @@ class TranslationAssetRendition(AssetRendition):
     content: Optional[RenditionContent] = None
 
 
-class SpeechAudio(BaseModel):
+class SpeechAudio(OuroModel):
     """Stored audio metadata plus an optional permission-checked playback URL."""
-
-    model_config = ConfigDict(extra="allow")
 
     storage_path: Optional[str] = None
     url: Optional[str] = None

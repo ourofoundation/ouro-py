@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Optional
 
 from ouro._resource import SyncAPIResource
-from ouro.models import Notification
+from ouro.models import Notification, Page
 
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -21,13 +21,8 @@ class Notifications(SyncAPIResource):
         org_id: Optional[str] = None,
         unread_only: bool = False,
         category: Optional[str] = None,
-        with_pagination: bool = False,
-    ) -> Union[List[Notification], Dict[str, Any]]:
-        """Fetch paginated notifications for the authenticated user.
-
-        Returns a list of :class:`Notification` by default. When
-        ``with_pagination=True``, returns ``{"data": [Notification, ...],
-        "pagination": ...}`` so callers can implement their own paging.
+    ) -> Page[Notification]:
+        """Fetch a page of notifications for the authenticated user.
 
         ``category`` accepts a single category or a comma-separated list of
         categories (``mentions``, ``comments``, ``references``, ``shares``,
@@ -45,15 +40,7 @@ class Notifications(SyncAPIResource):
             params["category"] = category
 
         request = self.client.get("/user/notifications", params=params)
-        if with_pagination:
-            result = self._handle_response(request, with_pagination=True) or {}
-            if not isinstance(result, dict):
-                return {"data": [], "pagination": None}
-            items = result.get("data") or []
-            result["data"] = [Notification.model_validate(n) for n in items]
-            return result
-        data = self._handle_response(request) or []
-        return [Notification.model_validate(n) for n in data]
+        return self._page(Page[Notification], self._handle_response(request, raw=True))
 
     def unreads(self, org_id: Optional[str] = None) -> int:
         """Get the count of unread notifications."""
@@ -67,5 +54,4 @@ class Notifications(SyncAPIResource):
     def read(self, id: str) -> Notification:
         """Mark a single notification as read and return it."""
         request = self.client.get(f"/user/notifications/{id}")
-        data = self._handle_response(request) or {}
-        return Notification.model_validate(data)
+        return self._parse(Notification, self._handle_response(request))

@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from ouro._resource import SyncAPIResource, _coerce_description, _strip_none
-from ouro.models import Team
+from ouro.models import Asset, JoinRequest, Page, Team, TeamBan, TeamUnreads
 
 if TYPE_CHECKING:
     from .content import Content
@@ -45,7 +45,7 @@ class Teams(SyncAPIResource):
             **kwargs,
         })
         request = self.client.post("/teams/create", json={"team": team})
-        return Team.model_validate(self._handle_response(request) or {})
+        return self._parse(Team, self._handle_response(request))
 
     def update(
         self,
@@ -72,7 +72,7 @@ class Teams(SyncAPIResource):
             **kwargs,
         })
         request = self.client.put(f"/teams/{id}", json={"team": team})
-        return Team.model_validate(self._handle_response(request) or {})
+        return self._parse(Team, self._handle_response(request))
 
     def delete(self, id: str) -> None:
         """Delete a team (team or organization admins only).
@@ -106,8 +106,7 @@ class Teams(SyncAPIResource):
             params["public_only"] = str(public_only).lower()
 
         request = self.client.get("/teams", params=params)
-        data = self._handle_response(request) or []
-        return [Team.model_validate(t) for t in data]
+        return self._parse_list(Team, self._handle_response(request))
 
     def retrieve(self, id: str, *, include_members: bool = False) -> Team:
         """Retrieve a team by ID with organization policy fields and metrics.
@@ -116,36 +115,37 @@ class Teams(SyncAPIResource):
         """
         params = {"include_members": "true"} if include_members else None
         request = self.client.get(f"/teams/{id}", params=params)
-        return Team.model_validate(self._handle_response(request) or {})
+        return self._parse(Team, self._handle_response(request))
 
-    def join(self, id: str) -> dict:
+    def join(self, id: str) -> Team:
         """Join a team.
 
         On teams with ``join_policy="request"`` this submits a join request
-        instead of adding membership immediately. Invite-only teams and bans
-        return an error.
+        instead of adding membership immediately; check ``team.join_status``
+        and ``team.user_join_request``. Invite-only teams and bans return an
+        error.
         """
         request = self.client.post(f"/teams/{id}/join", json={})
-        return self._handle_response(request) or {}
+        return self._parse(Team, self._handle_response(request))
 
-    def list_join_requests(self, id: str) -> list:
+    def list_join_requests(self, id: str) -> List[JoinRequest]:
         """List pending join requests. Admins see all; others see their own."""
         request = self.client.get(f"/teams/{id}/join-requests")
-        return self._handle_response(request) or []
+        return self._parse_list(JoinRequest, self._handle_response(request))
 
-    def approve_join_request(self, id: str, request_id: str) -> dict:
+    def approve_join_request(self, id: str, request_id: str) -> None:
         """Approve a pending join request (team admin)."""
         request = self.client.post(
             f"/teams/{id}/join-requests/{request_id}/approve", json={}
         )
-        return self._handle_response(request) or {}
+        self._handle_response(request)
 
-    def reject_join_request(self, id: str, request_id: str) -> dict:
+    def reject_join_request(self, id: str, request_id: str) -> None:
         """Reject a pending join request (team admin)."""
         request = self.client.post(
             f"/teams/{id}/join-requests/{request_id}/reject", json={}
         )
-        return self._handle_response(request) or {}
+        self._handle_response(request)
 
     def ban_member(
         self,
@@ -153,7 +153,7 @@ class Teams(SyncAPIResource):
         user_id: str,
         reason: Optional[str] = None,
         remove_contributions: bool = False,
-    ) -> dict:
+    ) -> None:
         """Remove a member and prevent them from rejoining (team admin).
 
         Pass ``remove_contributions=True`` to move their assets to the
@@ -167,22 +167,22 @@ class Teams(SyncAPIResource):
                 "remove_contributions": remove_contributions or None,
             }),
         )
-        return self._handle_response(request) or {}
+        self._handle_response(request)
 
-    def unban_member(self, id: str, user_id: str) -> dict:
+    def unban_member(self, id: str, user_id: str) -> None:
         """Lift a team ban (team admin). Does not restore membership."""
         request = self.client.delete(f"/teams/{id}/bans/{user_id}")
-        return self._handle_response(request) or {}
+        self._handle_response(request)
 
-    def list_bans(self, id: str) -> list:
+    def list_bans(self, id: str) -> List[TeamBan]:
         """List users banned from a team (team admin)."""
         request = self.client.get(f"/teams/{id}/bans")
-        return self._handle_response(request) or []
+        return self._parse_list(TeamBan, self._handle_response(request))
 
-    def leave(self, id: str) -> dict:
+    def leave(self, id: str) -> None:
         """Leave a team as the authenticated user."""
         request = self.client.get(f"/teams/{id}/leave")
-        return self._handle_response(request) or {}
+        self._handle_response(request)
 
     def activity(
         self,
@@ -190,8 +190,8 @@ class Teams(SyncAPIResource):
         offset: int = 0,
         limit: int = 20,
         asset_type: Optional[str] = None,
-    ) -> dict:
-        """Get a team's activity feed.
+    ) -> Page[Asset]:
+        """Get a page of a team's activity feed, newest first.
 
         Args:
             id: Team ID.
@@ -204,7 +204,7 @@ class Teams(SyncAPIResource):
             params["assetType"] = asset_type
 
         request = self.client.get(f"/teams/{id}/activity", params=params)
-        return self._handle_response(request, raw=True)
+        return self._page(Page[Asset], self._handle_response(request, raw=True))
 
     def unreads(self, id: str, org_id: Optional[str] = None) -> int:
         """Get unread post count for a single team.
@@ -214,44 +214,24 @@ class Teams(SyncAPIResource):
             org_id: Organization ID containing the team. If omitted, this method
                 fetches the team to resolve its org automatically.
         """
-        resolved_org_id = org_id
-        if resolved_org_id is None:
-            team = self.retrieve(id)
-            resolved_org_id = team.get("org_id")
-
+        resolved_org_id = org_id or self.retrieve(id).org_id
         if not resolved_org_id:
             raise ValueError(f"Unable to resolve org_id for team '{id}'")
 
         request = self.client.get(
             "/teams/unreads",
-            params={"org_id": resolved_org_id, "view_mode": "count"},
+            params={"org_id": str(resolved_org_id), "view_mode": "count"},
         )
         data = self._handle_response(request) or {}
-        unreads = data.get("unreads") if isinstance(data, dict) else {}
-        if not isinstance(unreads, dict):
-            return 0
-        return int(unreads.get(id, 0) or 0)
+        return int((data.get("unreads") or {}).get(id, 0))
 
-    def unread_preview(self, id: str, offset: int = 0, limit: int = 20) -> dict:
-        """Get paginated unread post previews for a single team.
+    def unread_preview(self, id: str, offset: int = 0, limit: int = 20) -> TeamUnreads:
+        """Get a page of unread assets in a single team.
 
         Args:
             id: Team ID.
             offset: Zero-based pagination offset.
             limit: Number of unread items to return.
-
-        Returns:
-            A dict with the preview payload plus a ``pagination`` key
-            containing the standard ``{offset, limit, hasMore, total}``
-            envelope::
-
-                {
-                    "view_mode": "preview",
-                    "team_id": "...",
-                    "unread_count": 123,
-                    "results": [...],
-                    "pagination": {"offset": 0, "limit": 20, "hasMore": True, "total": 123},
-                }
         """
         params = {
             "view_mode": "preview",
@@ -260,13 +240,11 @@ class Teams(SyncAPIResource):
             "limit": limit,
         }
         request = self.client.get("/teams/unreads", params=params)
-        envelope = self._handle_response(request, with_pagination=True) or {}
-        data = envelope.get("data") if isinstance(envelope, dict) else None
-        if not isinstance(data, dict):
-            data = {}
-        pagination = envelope.get("pagination") if isinstance(envelope, dict) else None
-        if isinstance(pagination, dict):
-            return {**data, "pagination": pagination}
-        # Back-compat: older backends nested the pagination block inside the
-        # `data` object itself; if we see that, leave the shape alone.
-        return data
+        body = self._handle_response(request, raw=True)
+        preview = body.get("data") or {}
+        return self._page(
+            TeamUnreads,
+            {"data": preview.get("results"), "pagination": body.get("pagination")},
+            team_id=preview.get("team_id", id),
+            unread_count=preview.get("unread_count", 0),
+        )
