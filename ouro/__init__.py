@@ -29,6 +29,7 @@ from ouro.events import (
     WebhookTeamRef,
     normalize_event_type,
     parse_webhook_event,
+    verify_webhook_signature,
 )
 
 from .utils.plotly import build_plotly_asset_tags, inject_assets_into_html
@@ -63,6 +64,7 @@ __all__ = [
     "WebhookTeamRef",
     "normalize_event_type",
     "parse_webhook_event",
+    "verify_webhook_signature",
 ]
 
 

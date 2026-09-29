@@ -7,6 +7,9 @@ This mirrors the canonical event registry in `@ourofoundation/ouro-js`
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
@@ -261,3 +264,62 @@ def parse_webhook_event(
         source_id=data.get("source_id"),
         source_asset_type=data.get("source_asset_type"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Signature verification
+# ---------------------------------------------------------------------------
+
+WEBHOOK_SIGNATURE_HEADER = "X-Ouro-Signature"
+WEBHOOK_DELIVERY_HEADER = "X-Ouro-Delivery"
+WEBHOOK_ATTEMPT_HEADER = "X-Ouro-Attempt"
+DEFAULT_SIGNATURE_TOLERANCE_SECONDS = 300
+
+
+def verify_webhook_signature(
+    body: bytes | str,
+    header: Optional[str],
+    secret: str,
+    tolerance: int = DEFAULT_SIGNATURE_TOLERANCE_SECONDS,
+    *,
+    now: Optional[float] = None,
+) -> bool:
+    """Check an `X-Ouro-Signature` header against the raw request body.
+
+    The backend sends `t=<unix seconds>,v1=<hex HMAC-SHA256>` where the HMAC
+    is computed over `f"{t}.{body}"` keyed by the endpoint's `whsec_` secret.
+    `body` must be the exact bytes received (not re-serialized JSON). Multiple
+    `v1=` entries are accepted so secrets can be rotated. Returns False when the
+    header is missing/malformed, no signature matches, or `t` is more than
+    `tolerance` seconds away from `now` (pass `tolerance <= 0` to skip the
+    timestamp check).
+    """
+    if not header or not secret:
+        return False
+
+    timestamp: Optional[int] = None
+    signatures: list[str] = []
+    for part in header.split(","):
+        key, sep, value = part.strip().partition("=")
+        if not sep:
+            continue
+        if key == "t":
+            try:
+                timestamp = int(value)
+            except ValueError:
+                return False
+        elif key == "v1":
+            signatures.append(value.strip().lower())
+    if timestamp is None or not signatures:
+        return False
+
+    if tolerance > 0:
+        current = time.time() if now is None else now
+        if abs(current - timestamp) > tolerance:
+            return False
+
+    raw = body.encode("utf-8") if isinstance(body, str) else body
+    expected = hmac.new(
+        secret.encode("utf-8"), f"{timestamp}.".encode("ascii") + raw, hashlib.sha256
+    ).hexdigest()
+    return any(hmac.compare_digest(expected, sig) for sig in signatures)

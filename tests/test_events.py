@@ -129,3 +129,69 @@ def test_parse_webhook_event_handles_missing_actor_gracefully() -> None:
     assert event.actor is None
     assert event.actor_user_id is None
     assert event.sender_username is None
+
+
+# ---------------------------------------------------------------------------
+# verify_webhook_signature
+# ---------------------------------------------------------------------------
+
+import hashlib
+import hmac
+
+from ouro.events import verify_webhook_signature
+
+_SECRET = "whsec_" + "ab" * 24
+_BODY = b'{"event":"comment","delivery_id":"d-1","data":{}}'
+_NOW = 1_790_000_000
+
+
+def _sign(body: bytes, t: int, secret: str = _SECRET) -> str:
+    digest = hmac.new(
+        secret.encode(), f"{t}.".encode() + body, hashlib.sha256
+    ).hexdigest()
+    return f"t={t},v1={digest}"
+
+
+def test_verify_webhook_signature_accepts_valid_signature() -> None:
+    header = _sign(_BODY, _NOW)
+    assert verify_webhook_signature(_BODY, header, _SECRET, now=_NOW)
+    assert verify_webhook_signature(_BODY.decode(), header, _SECRET, now=_NOW)
+
+
+def test_verify_webhook_signature_matches_backend_vector() -> None:
+    # Node: createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")
+    header = (
+        "t=1790000000,"
+        "v1=" + hmac.new(
+            _SECRET.encode(), b"1790000000." + _BODY, hashlib.sha256
+        ).hexdigest()
+    )
+    assert verify_webhook_signature(_BODY, header, _SECRET, now=_NOW + 10)
+
+
+def test_verify_webhook_signature_rejects_tampered_body_or_wrong_secret() -> None:
+    header = _sign(_BODY, _NOW)
+    assert not verify_webhook_signature(_BODY + b" ", header, _SECRET, now=_NOW)
+    assert not verify_webhook_signature(_BODY, header, "whsec_other", now=_NOW)
+
+
+def test_verify_webhook_signature_enforces_tolerance() -> None:
+    header = _sign(_BODY, _NOW)
+    assert verify_webhook_signature(_BODY, header, _SECRET, now=_NOW + 300)
+    assert not verify_webhook_signature(_BODY, header, _SECRET, now=_NOW + 301)
+    assert not verify_webhook_signature(_BODY, header, _SECRET, now=_NOW - 301)
+    assert verify_webhook_signature(
+        _BODY, header, _SECRET, tolerance=0, now=_NOW + 10_000
+    )
+
+
+def test_verify_webhook_signature_accepts_any_v1_for_rotation() -> None:
+    good = _sign(_BODY, _NOW).split(",")[1]
+    header = f"t={_NOW},v1={'0' * 64},{good}"
+    assert verify_webhook_signature(_BODY, header, _SECRET, now=_NOW)
+
+
+def test_verify_webhook_signature_rejects_malformed_headers() -> None:
+    for header in (None, "", "garbage", f"t={_NOW}", "v1=abc", "t=soon,v1=abc"):
+        assert not verify_webhook_signature(_BODY, header, _SECRET, now=_NOW)
+    assert not verify_webhook_signature(_BODY, _sign(_BODY, _NOW), "", now=_NOW)
