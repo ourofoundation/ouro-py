@@ -34,6 +34,11 @@ class UsdBalance(OuroModel):
     available_cents: int
     pending_cents: int = 0
     escrowed_cents: int = 0
+    # The balance splits into top-up credits (spend-only) and earnings;
+    # earnings become withdrawable once they clear the hold period.
+    credits_cents: int = 0
+    earnings_cents: int = 0
+    withdrawable_cents: int = 0
     currency: str = "usd"
     onboarded: bool = False
     transfers_enabled: bool = False
@@ -81,11 +86,10 @@ class BitcoinTransfer(OuroModel):
 
 
 class UsdTip(OuroModel):
-    payment_intent_id: str
-    transfer_id: Optional[str] = None
+    transaction_id: UUID
     amount_cents: int
-    recipient_amount_cents: Optional[int] = None
-    platform_fee_cents: Optional[int] = None
+    recipient_amount_cents: int
+    platform_fee_cents: int = 0
 
 
 class BitcoinPurchase(OuroModel):
@@ -95,7 +99,7 @@ class BitcoinPurchase(OuroModel):
 
 
 class UsdPurchase(OuroModel):
-    payment_intent_id: str
+    transaction_id: UUID
     price_cents: int
     platform_fee_cents: int = 0
     total_cents: int
@@ -115,6 +119,7 @@ class UsageRecord(OuroModel):
     unit_cost_cents: int = 0
     total_cents: int = 0
     status: Optional[str] = None
+    ledger_transaction_id: Optional[UUID] = None
     metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
 
@@ -132,4 +137,6 @@ class PendingEarnings(OuroModel):
     total_pending_cents: int = 0
     in_progress_cents: int = 0
     total_paid_out_cents: int = 0
+    total_gross_earnings_cents: int = 0
+    platform_fee_percent: float = 0
     assets: List[Dict[str, Any]] = Field(default_factory=list)

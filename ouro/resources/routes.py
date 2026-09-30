@@ -246,6 +246,10 @@ class Routes(SyncAPIResource):
         execution_mode: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        price_currency: Optional[str] = None,
+        cost_accounting: Optional[str] = None,
+        cost_unit: Optional[str] = None,
+        unit_cost: Optional[float] = None,
         org_id: Optional[str] = None,
         team_id: Optional[str] = None,
         license_id: Optional[str] = None,
@@ -260,6 +264,11 @@ class Routes(SyncAPIResource):
         service. ``input_assets`` / ``output_assets`` are keyed asset
         declarations, e.g. ``{"structure": {"asset_type": "file"}}``.
         ``execution_mode`` is ``"sync"`` (default) or ``"async"``.
+
+        To charge per call, pass ``visibility="monetized"``,
+        ``monetization="pay-per-use"``, ``cost_accounting="fixed"``, and
+        ``unit_cost`` in ``price_currency`` units (dollars for ``"usd"``,
+        sats for ``"btc"``).
         """
         if visibility is None:
             visibility = "inherit"
@@ -284,6 +293,10 @@ class Routes(SyncAPIResource):
                 "execution_mode": execution_mode,
                 "monetization": monetization,
                 "price": price,
+                "price_currency": price_currency,
+                "cost_accounting": cost_accounting,
+                "cost_unit": cost_unit,
+                "unit_cost": unit_cost,
                 "org_id": org_id,
                 "team_id": team_id,
                 "license_id": license_id,
@@ -315,6 +328,10 @@ class Routes(SyncAPIResource):
         execution_mode: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        price_currency: Optional[str] = None,
+        cost_accounting: Optional[str] = None,
+        cost_unit: Optional[str] = None,
+        unit_cost: Optional[float] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
         **kwargs,
@@ -343,6 +360,10 @@ class Routes(SyncAPIResource):
                 "execution_mode": execution_mode,
                 "monetization": monetization,
                 "price": price,
+                "price_currency": price_currency,
+                "cost_accounting": cost_accounting,
+                "cost_unit": cost_unit,
+                "unit_cost": unit_cost,
                 "license_id": license_id,
                 "attribution": _optional_attribution(attribution),
                 **kwargs,

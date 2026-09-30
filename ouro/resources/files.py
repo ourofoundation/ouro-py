@@ -397,6 +397,7 @@ class Files(SyncAPIResource):
         file_name: Optional[str] = None,
         monetization: Optional[str] = None,
         price: Optional[float] = None,
+        price_currency: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
@@ -448,6 +449,7 @@ class Files(SyncAPIResource):
             "visibility": visibility,
             "monetization": monetization,
             "price": price,
+            "price_currency": price_currency,
             "description": _coerce_description(description),
             "license_id": license_id,
             **kwargs,
@@ -507,6 +509,9 @@ class Files(SyncAPIResource):
         name: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
+        monetization: Optional[str] = None,
+        price: Optional[float] = None,
+        price_currency: Optional[str] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
         **kwargs,
@@ -515,7 +520,7 @@ class Files(SyncAPIResource):
 
         Pass *one* of ``file_path`` or ``file_content`` + ``file_name`` to
         replace the file data in place (same storage path). Pass name,
-        description, or visibility to update metadata.
+        description, visibility, or pricing to update metadata.
         """
         log.debug("Updating a file")
         if file_path and file_content is not None:
@@ -527,6 +532,9 @@ class Files(SyncAPIResource):
             "name": name,
             "description": _coerce_description(description),
             "visibility": visibility,
+            "monetization": monetization,
+            "price": price,
+            "price_currency": price_currency,
             "license_id": license_id,
             "attribution": _optional_attribution(attribution),
         })

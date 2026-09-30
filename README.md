@@ -224,8 +224,17 @@ dataset = ouro.datasets.create(
 
 If you omit them, Ouro uses your global organization's catch-all team.
 
-Visibility can be `public`, `private`, or `monetized`. Private assets remain private until you
-share them explicitly:
+Visibility can be `public`, `private`, or `monetized`. Monetized assets also take a
+`monetization` model and a price in `price_currency` (`"usd"` in dollars, `"btc"` in sats):
+
+```python
+ouro.posts.update(post_id, visibility="monetized", monetization="pay-to-unlock",
+                  price=0.50, price_currency="usd")
+ouro.routes.update(route_id, visibility="monetized", monetization="pay-per-use",
+                   cost_accounting="fixed", unit_cost=10, price_currency="btc")
+```
+
+Private assets remain private until you share them explicitly:
 
 ```python
 ouro.assets.share(asset_id, user_id, role="read")
