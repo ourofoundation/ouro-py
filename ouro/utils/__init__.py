@@ -6,12 +6,14 @@ from .openapi import (
     ouro_capabilities,
     ouro_execution_mode,
     ouro_field,
+    ouro_pricing,
 )
 
 __all__ = [
     "ouro_field",
     "ouro_capabilities",
     "ouro_execution_mode",
+    "ouro_pricing",
     "get_custom_openapi",
     "generate_uuid",
     "is_valid_uuid",
