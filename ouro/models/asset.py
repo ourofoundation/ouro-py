@@ -298,7 +298,9 @@ class AssetCounts(OuroModel):
     comments: int = 0
     reactions: int = 0
     downloads: int = 0
-    earnings_total: int = 0
+    # Sats and USD cents; an asset can earn in both
+    earnings_btc: int = 0
+    earnings_usd: int = 0
 
 
 class Engagement(AssetCounts):
