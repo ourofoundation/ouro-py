@@ -186,6 +186,22 @@ action = ouro.routes.execute(
 
 Synchronous and asynchronous routes use the same interface. Pass `wait=False` to return
 immediately, then use `ouro.routes.poll_action(action.id)` when you are ready for the result.
+`ouro.routes.list_my_actions(status=["queued", "in-progress"])` finds everything you still
+have running, across every route.
+
+### Follow a run from the shell
+
+The `ouro` command (installed with the package, authenticated by `OURO_API_KEY`) blocks until
+an action finishes, so a script or a coding agent can run it in the background and be told
+when the result is ready instead of polling:
+
+```bash
+ouro action wait <action-id>      # exit 0 success, 1 failed, 124 still running after --timeout
+ouro action get <action-id>       # current status and outputs
+ouro action list --running        # your queued and in-progress runs
+```
+
+Add `--json` to any of them for machine-readable output.
 
 ## API overview
 

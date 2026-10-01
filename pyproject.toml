@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ouro-py"
-version = "2.1.4"
+version = "2.1.5"
 description = "The official Python library for the Ouro API"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,6 +28,9 @@ dependencies = [
     "python-dotenv",
     "python-socketio[client]",
 ]
+
+[project.scripts]
+ouro = "ouro.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ourofoundation/ouro-py"

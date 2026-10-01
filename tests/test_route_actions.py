@@ -1,12 +1,47 @@
 from __future__ import annotations
 
+import io
+import json
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
+from ouro import cli
 from ouro._exceptions import ExternalServiceError, InternalServerError
 from ouro.models.action import Action
 from ouro.resources.routes import Routes
+
+
+ROUTE_ID = "00000000-0000-0000-0000-000000000010"
+ACTION_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _route_payload(**route) -> dict:
+    return {
+        "id": ROUTE_ID,
+        "user_id": "00000000-0000-0000-0000-000000000011",
+        "org_id": "00000000-0000-0000-0000-000000000012",
+        "team_id": "00000000-0000-0000-0000-000000000013",
+        "parent_id": "00000000-0000-0000-0000-000000000014",
+        "asset_type": "route",
+        "name": "Predict",
+        "visibility": "public",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "last_updated": "2026-01-01T00:00:00+00:00",
+        "route": {"method": "POST", "path": "/predict", **route},
+    }
+
+
+def _action(status: str, **overrides) -> dict:
+    return {
+        "id": ACTION_ID,
+        "route_id": ROUTE_ID,
+        "user_id": "00000000-0000-0000-0000-000000000003",
+        "status": status,
+        **overrides,
+    }
 
 
 class _FakeResponse:
@@ -88,6 +123,7 @@ class TestRouteActions(unittest.TestCase):
         page = Routes(ouro).list_actions(
             "00000000-0000-0000-0000-000000000010",
             include_other_users=True,
+            status=["queued", "in-progress"],
             limit=5,
         )
 
@@ -102,6 +138,7 @@ class TestRouteActions(unittest.TestCase):
                 ),
                 "params": {
                     "global": "true",
+                    "status": "queued,in-progress",
                     "limit": 5,
                     "offset": 0,
                 },
@@ -418,6 +455,149 @@ class TestRouteActions(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 503)
         self.assertTrue(ctx.exception.retryable)
+
+    def test_execute_async_route_takes_handle_first_then_polls(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": _route_payload(execution_mode="async")}),
+                _FakeResponse(
+                    {"data": None, "action": _action("in-progress"), "metadata": {}},
+                    status_code=202,
+                ),
+                _FakeResponse({"data": _action("in-progress")}),
+                _FakeResponse({"data": _action("success", response={"ok": True})}),
+            ]
+        )
+
+        with patch("ouro.resources.routes.time.sleep") as sleep:
+            action = Routes(ouro).execute(ROUTE_ID, poll_interval=5.0)
+
+        self.assertEqual(action.status, "success")
+        self.assertEqual(
+            ouro.client.requests[1]["headers"], {"Prefer": "respond-async"}
+        )
+        # First check comes quickly rather than a full interval later
+        self.assertEqual(sleep.call_args_list[0].args, (0.5,))
+
+    def test_execute_sync_route_waits_inline(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": _route_payload(execution_mode="sync")}),
+                _FakeResponse(
+                    {
+                        "data": {"responseData": {"ok": True}},
+                        "action": _action("success"),
+                        "metadata": {},
+                    }
+                ),
+            ]
+        )
+
+        action = Routes(ouro).execute(ROUTE_ID)
+
+        self.assertEqual(action.response, {"ok": True})
+        self.assertEqual(ouro.client.requests[1]["headers"], {})
+
+    def test_poll_timeout_carries_action_id(self) -> None:
+        ouro = _FakeOuro([_FakeResponse({"data": _action("in-progress")})])
+
+        with self.assertRaises(TimeoutError) as ctx:
+            Routes(ouro).poll_action(ACTION_ID, timeout=0)
+
+        self.assertEqual(ctx.exception.action_id, ACTION_ID)
+
+    def test_list_my_actions_filters_by_status(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": [_action("in-progress", source="mcp")],
+                        "pagination": {"hasMore": True},
+                    }
+                )
+            ]
+        )
+
+        page = Routes(ouro).list_my_actions(
+            status=["queued", "in-progress"], limit=5
+        )
+
+        self.assertEqual(page[0].status, "in-progress")
+        self.assertTrue(page.has_more)
+        self.assertEqual(
+            ouro.client.requests[0],
+            {
+                "path": "/actions",
+                "params": {"status": "queued,in-progress", "limit": 5, "offset": 0},
+            },
+        )
+
+
+class TestActionCli(unittest.TestCase):
+    def _run(self, responses: list[_FakeResponse], argv: list[str]):
+        ouro = _FakeOuro(responses)
+        ouro.routes = Routes(ouro)
+        out = io.StringIO()
+        with patch("ouro.Ouro", return_value=ouro), redirect_stdout(out), patch(
+            "ouro.resources.routes.time.sleep"
+        ):
+            code = cli.main(argv)
+        return code, out.getvalue()
+
+    def test_wait_exits_zero_on_success(self) -> None:
+        code, out = self._run(
+            [
+                _FakeResponse({"data": _action("in-progress")}),
+                _FakeResponse(
+                    {
+                        "data": _action(
+                            "success",
+                            route={"name": "Relax"},
+                            output_assets=[
+                                {
+                                    "name": "report",
+                                    "asset": {"id": "abc", "asset_type": "post"},
+                                }
+                            ],
+                        )
+                    }
+                ),
+            ],
+            ["action", "wait", ACTION_ID],
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("success  Relax", out)
+        self.assertIn("output: report  post  abc", out)
+
+    def test_wait_exits_one_on_error(self) -> None:
+        code, out = self._run(
+            [
+                _FakeResponse(
+                    {
+                        "data": _action(
+                            "error", response={"error": {"message": "boom"}}
+                        )
+                    }
+                )
+            ],
+            ["action", "wait", ACTION_ID, "--json"],
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["error"], "boom")
+
+    def test_wait_timeout_exits_124(self) -> None:
+        code, out = self._run(
+            [
+                _FakeResponse({"data": _action("in-progress")}),
+                _FakeResponse({"data": _action("in-progress")}),
+            ],
+            ["action", "wait", ACTION_ID, "--timeout", "0"],
+        )
+
+        self.assertEqual(code, 124)
+        self.assertIn("in-progress", out)
 
 
 if __name__ == "__main__":

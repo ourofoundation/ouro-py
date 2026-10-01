@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 import warnings
 from typing import Any, Dict, List, Optional, Union
 
-from ouro._constants import DEFAULT_TIMEOUT
+from ouro._constants import (
+    DEFAULT_POLL_INTERVAL,
+    DEFAULT_POLL_TIMEOUT,
+    DEFAULT_TIMEOUT,
+)
 from ouro._exceptions import APIStatusError, ExternalServiceError, RouteExecutionError
 from ouro._resource import (
     SyncAPIResource,
@@ -24,8 +29,9 @@ log: logging.Logger = logging.getLogger(__name__)
 
 __all__ = ["Routes"]
 
-DEFAULT_POLL_INTERVAL = 10.0  # seconds
-DEFAULT_POLL_TIMEOUT = 600.0  # 10 minutes
+# First wait between status checks; doubles up to ``poll_interval`` so quick
+# actions return quickly without polling slow ones any harder.
+POLL_RAMP_START = 0.5  # seconds
 _COMPAT_INPUT_ASSET_METADATA_KEYS = {
     "assetType",
     "asset_type",
@@ -429,6 +435,7 @@ class Routes(SyncAPIResource):
         *,
         include_other_users: bool = False,
         exclude_self: bool = False,
+        status: Optional[Union[str, List[str]]] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> Page[Action]:
@@ -436,8 +443,11 @@ class Routes(SyncAPIResource):
 
         By default, the backend returns only actions owned by the authenticated
         user. Set ``include_other_users=True`` to include visible actions from
-        other users as well.
+        other users as well. ``status`` keeps one status or a list of them
+        ("queued" | "in-progress" | "success" | "error" | "timed-out").
         """
+        if isinstance(status, (list, tuple)):
+            status = ",".join(status)
         route = self.retrieve(route_id)
         if not route.parent_id:
             raise ValueError("Route has no parent service; cannot list actions.")
@@ -445,6 +455,7 @@ class Routes(SyncAPIResource):
         params = {
             "global": "true" if include_other_users else "false",
             "exclude_self": "true" if exclude_self else None,
+            "status": status or None,
             "limit": limit,
             "offset": offset,
         }
@@ -452,6 +463,38 @@ class Routes(SyncAPIResource):
             f"/services/{route.parent_id}/routes/{route.id}/actions",
             params=_strip_none(params),
         )
+        return self._page(Page[Action], self._handle_response(request, raw=True))
+
+    def list_my_actions(
+        self,
+        *,
+        status: Optional[Union[str, List[str]]] = None,
+        since: Optional[Union[str, datetime]] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Page[Action]:
+        """List your own actions across every route, newest first.
+
+        Use this to find runs you started earlier without knowing their route,
+        e.g. ``status=["queued", "in-progress"]`` for everything still running.
+
+        Args:
+            status: One status or a list of them: "queued" | "in-progress" |
+                "success" | "error" | "timed-out". All statuses by default.
+            since: Only actions created at or after this time (datetime or
+                ISO 8601 string).
+        """
+        if isinstance(status, (list, tuple)):
+            status = ",".join(status)
+        if isinstance(since, datetime):
+            since = since.isoformat()
+        params = {
+            "status": status or None,
+            "since": since,
+            "limit": limit,
+            "offset": offset,
+        }
+        request = self.client.get("/actions", params=_strip_none(params))
         return self._page(Page[Action], self._handle_response(request, raw=True))
 
     def get_action_logs(
@@ -516,13 +559,23 @@ class Routes(SyncAPIResource):
         """
         Poll an action until it completes (status is 'success', 'error', or 'timed-out').
 
+        Running out of ``timeout`` here is not an outcome: the action is still
+        running and can be polled again. That is unrelated to the final
+        ``timed-out`` status, where Ouro itself gave up on a silent run.
+
         Args:
             action_id: The ID of the action to poll
-            poll_interval: Seconds between status checks (default: 10.0)
+            poll_interval: Seconds between status checks (default: 10.0). The
+                first checks come sooner, backing off to this interval.
             timeout: Maximum seconds to wait (default: 600). None = wait forever.
             raise_on_error: If True, raise an exception when action status is 'error'
+
+        Raises:
+            TimeoutError: If ``timeout`` passes first. The action keeps
+                running; its id is on the exception's ``action_id``.
         """
         start_time = time.time()
+        delay = min(poll_interval, POLL_RAMP_START)
 
         while True:
             action = self.retrieve_action(action_id)
@@ -532,19 +585,25 @@ class Routes(SyncAPIResource):
                     _raise_action_failure(action)
                 return action
 
+            sleep_for = delay
             if timeout is not None:
-                elapsed = time.time() - start_time
-                if elapsed >= timeout:
-                    raise TimeoutError(
-                        f"Action {action_id} did not complete within {timeout} seconds. "
-                        f"Current status: {action.status}"
+                remaining = timeout - (time.time() - start_time)
+                if remaining <= 0:
+                    exc = TimeoutError(
+                        f"Stopped waiting for action {action_id} after {timeout} "
+                        f"seconds. It is still running (status: {action.status}); "
+                        "poll it again for the result."
                     )
+                    setattr(exc, "action_id", str(action_id))
+                    raise exc
+                sleep_for = min(delay, remaining)
 
             log.debug(
                 f"Action {action_id} status: {action.status}, "
-                f"waiting {poll_interval}s before next check..."
+                f"waiting {sleep_for}s before next check..."
             )
-            time.sleep(poll_interval)
+            time.sleep(sleep_for)
+            delay = min(poll_interval, delay * 2)
 
     def execute(
         self,
@@ -571,12 +630,15 @@ class Routes(SyncAPIResource):
         ``output_asset``, and timestamps so callers can reference it afterwards — e.g. to poll, log, or embed a route
         preview pinned to this action.
 
-        Handles both sync and async routes transparently. For routes declared
-        ``async`` (or any route returning HTTP 202), polls until terminal state
-        when ``wait=True``. When ``wait=False``, sends ``Prefer: respond-async``
-        so the backend returns the action handle immediately — useful for
-        long-running routes where you want to do something else and check back
-        later via :meth:`retrieve_action` / :meth:`poll_action`.
+        Handles both sync and async routes transparently. Routes declared
+        ``async`` always get the action handle back first (``Prefer:
+        respond-async``) and, when ``wait=True``, are polled from here until
+        they reach a terminal state, so a long run never depends on one HTTP
+        request staying open and its id is never lost. Sync routes answer
+        inline. When ``wait=False`` the handle comes back immediately for
+        either kind — useful for long-running routes where you want to do
+        something else and check back later via :meth:`retrieve_action` /
+        :meth:`poll_action`.
 
         Polling cadence is adapted from the route's observed latency
         (``avg_completion_ms`` / ``p95_completion_ms`` from ``asset_metrics``)
@@ -632,8 +694,12 @@ class Routes(SyncAPIResource):
             payload["currency"] = currency
         request_timeout = timeout or DEFAULT_TIMEOUT
         # RFC 7240: signal "I don't want to block on this" so the backend
-        # returns the action handle the moment work is committed.
-        request_headers = {"Prefer": "respond-async"} if not wait else {}
+        # returns the action handle the moment work is committed. Async routes
+        # always take this path: holding the request open until they finish
+        # would outlive the HTTP timeout and drop the action id with it.
+        execution_mode = getattr(route.route, "execution_mode", None)
+        respond_async = not wait or execution_mode == "async"
+        request_headers = {"Prefer": "respond-async"} if respond_async else {}
         http_response = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",
             json=payload,
@@ -667,17 +733,13 @@ class Routes(SyncAPIResource):
             effective_interval, effective_timeout = _adaptive_poll_params(
                 route, poll_interval, poll_timeout
             )
-            try:
-                return self.poll_action(
-                    str(action.id),
-                    poll_interval=effective_interval,
-                    timeout=effective_timeout,
-                    raise_on_error=raise_on_error,
-                )
-            except TimeoutError as exc:
-                # Attach the action id so callers can resume polling later.
-                setattr(exc, "action_id", str(action.id))
-                raise
+            # A TimeoutError from here carries ``action_id`` for resuming later.
+            return self.poll_action(
+                str(action.id),
+                poll_interval=effective_interval,
+                timeout=effective_timeout,
+                raise_on_error=raise_on_error,
+            )
 
         # Sync 200 path — synthesize an Action from the envelope. The backend
         # always returns `action` (see backend/src/controllers/elements/routes.ts)

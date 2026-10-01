@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import Field
 
+from ouro._constants import DEFAULT_POLL_INTERVAL, DEFAULT_POLL_TIMEOUT
+
 from ._base import OuroModel, Page
 from .asset import AssetRef, UserProfile
 
@@ -98,7 +100,13 @@ class Action(OuroModel):
 
     @property
     def is_timed_out(self) -> bool:
-        """Check if the action was marked stale but may still resolve later."""
+        """Check if Ouro gave up on the action after the service went silent.
+
+        This is final: the run is recorded as not having succeeded, its charge
+        is released, and a late result is not accepted. Not to be confused
+        with a wait running out (``TimeoutError`` from ``wait`` /
+        ``poll_action``), after which the action is still running.
+        """
         return self.status == "timed-out"
 
     @property
@@ -193,27 +201,36 @@ class Action(OuroModel):
     def wait(
         self,
         *,
-        poll_interval: float = 1.0,
-        timeout: Optional[float] = None,
+        poll_interval: float = DEFAULT_POLL_INTERVAL,
+        timeout: Optional[float] = DEFAULT_POLL_TIMEOUT,
+        raise_on_error: bool = True,
     ) -> "Action":
         """
         Wait for this action to complete by polling.
 
+        Same defaults and behavior as ``ouro.routes.poll_action``.
+
         Args:
-            poll_interval: Seconds between status checks (default: 1.0)
-            timeout: Maximum seconds to wait (default: None = wait forever)
+            poll_interval: Seconds between status checks (default: 10.0). The
+                first checks come sooner, backing off to this interval.
+            timeout: Maximum seconds to wait (default: 600). None = wait forever.
+            raise_on_error: If True, raise when the action status is 'error'
 
         Returns:
             The completed Action
 
         Raises:
-            TimeoutError: If timeout is reached before completion
-            Exception: If the action completed with an error
+            TimeoutError: If ``timeout`` passes first. The action is still
+                running; call ``wait`` again for the result.
+            RouteExecutionError: If the action ended in error (or its
+                ``ExternalServiceError`` subclass when the service failed)
+                and ``raise_on_error`` is true.
         """
         return self._require_client().routes.poll_action(
             str(self.id),
             poll_interval=poll_interval,
             timeout=timeout,
+            raise_on_error=raise_on_error,
         )
 
 
