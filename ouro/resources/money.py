@@ -101,7 +101,9 @@ class Money(SyncAPIResource):
         Args:
             asset_type: The type of asset (e.g. "post", "file", "dataset").
             asset_id: The asset's UUID.
-            currency: "btc" or "usd".
+            currency: "btc" or "usd". An asset can be sold in both, each at
+                its own price (``price_sats`` / ``price_usd``); pick one it
+                is sold in.
         """
         payload = {"assetType": asset_type, "assetId": asset_id}
         if _validate_currency(currency) == "btc":

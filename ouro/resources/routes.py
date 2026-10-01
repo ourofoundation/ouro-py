@@ -250,6 +250,9 @@ class Routes(SyncAPIResource):
         cost_accounting: Optional[str] = None,
         cost_unit: Optional[str] = None,
         unit_cost: Optional[float] = None,
+        unit_cost_usd: Optional[float] = None,
+        unit_cost_sats: Optional[float] = None,
+        max_billable_seconds: Optional[int] = None,
         org_id: Optional[str] = None,
         team_id: Optional[str] = None,
         license_id: Optional[str] = None,
@@ -266,9 +269,13 @@ class Routes(SyncAPIResource):
         ``execution_mode`` is ``"sync"`` (default) or ``"async"``.
 
         To charge per call, pass ``visibility="monetized"``,
-        ``monetization="pay-per-use"``, ``cost_accounting="fixed"``, and
-        ``unit_cost`` in ``price_currency`` units (dollars for ``"usd"``,
-        sats for ``"btc"``).
+        ``monetization="pay-per-use"``, ``cost_accounting="fixed"``, and a
+        price: ``unit_cost_usd`` (dollars), ``unit_cost_sats`` (sats), or
+        both to let callers pick which currency to pay in. With both,
+        ``price_currency`` is the one charged when a caller doesn't pick.
+        ``unit_cost`` with ``price_currency`` still sets a single price.
+        To charge per second of runtime use ``cost_accounting="runtime"``
+        with ``max_billable_seconds``.
         """
         if visibility is None:
             visibility = "inherit"
@@ -297,6 +304,9 @@ class Routes(SyncAPIResource):
                 "cost_accounting": cost_accounting,
                 "cost_unit": cost_unit,
                 "unit_cost": unit_cost,
+                "unit_cost_usd": unit_cost_usd,
+                "unit_cost_sats": unit_cost_sats,
+                "max_billable_seconds": max_billable_seconds,
                 "org_id": org_id,
                 "team_id": team_id,
                 "license_id": license_id,
@@ -332,6 +342,9 @@ class Routes(SyncAPIResource):
         cost_accounting: Optional[str] = None,
         cost_unit: Optional[str] = None,
         unit_cost: Optional[float] = None,
+        unit_cost_usd: Optional[float] = None,
+        unit_cost_sats: Optional[float] = None,
+        max_billable_seconds: Optional[int] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
         **kwargs,
@@ -341,6 +354,9 @@ class Routes(SyncAPIResource):
         Only the fields you pass are changed. The backend re-derives the
         route's display name from ``name`` (or ``method``/``path``), so the
         current name is preserved when ``name`` is omitted.
+
+        ``unit_cost_usd`` / ``unit_cost_sats`` price the route per currency;
+        pass ``0`` to stop selling in one.
         """
         existing = self.retrieve(id)
         service_id = existing.parent_id
@@ -364,6 +380,9 @@ class Routes(SyncAPIResource):
                 "cost_accounting": cost_accounting,
                 "cost_unit": cost_unit,
                 "unit_cost": unit_cost,
+                "unit_cost_usd": unit_cost_usd,
+                "unit_cost_sats": unit_cost_sats,
+                "max_billable_seconds": max_billable_seconds,
                 "license_id": license_id,
                 "attribution": _optional_attribution(attribution),
                 **kwargs,
@@ -468,12 +487,21 @@ class Routes(SyncAPIResource):
         request = self.client.get(f"/routes/{id}/stats")
         return self._parse(RouteStats, self._handle_response(request))
 
-    def cost(self, id: str, asset_id: str) -> RouteCost:
-        """Price of running a variable-cost route on the input asset ``asset_id``."""
+    def cost(
+        self, id: str, asset_id: str, currency: Optional[str] = None
+    ) -> RouteCost:
+        """Price of running a variable-cost route on the input asset ``asset_id``.
+
+        ``currency`` (``"usd"`` or ``"btc"``) prices the run in that currency
+        for routes sold in both; the route's primary currency by default.
+        """
         route = self.retrieve(id)
+        params = {"input": asset_id}
+        if currency:
+            params["currency"] = currency
         request = self.client.get(
             f"/services/{route.parent_id}/routes/{route.id}/cost",
-            params={"input": asset_id},
+            params=params,
         )
         return self._parse(RouteCost, (self._handle_response(request) or {}).get("cost"))
 
@@ -533,6 +561,7 @@ class Routes(SyncAPIResource):
         poll_interval: Optional[float] = None,
         poll_timeout: Optional[float] = None,
         raise_on_error: bool = False,
+        currency: Optional[str] = None,
         **kwargs,
     ) -> Action:
         """
@@ -572,6 +601,10 @@ class Routes(SyncAPIResource):
                 (default), derived from route's p95_completion_ms.
             raise_on_error: If True, raise route execution exceptions for
                 terminal error actions instead of returning the errored Action.
+            currency: ``"usd"`` or ``"btc"``: what to pay in on a paid route
+                sold in both. Left out, the route's primary currency
+                (``price_currency``) is charged. A currency the route isn't
+                sold in is refused, never swapped for the other.
             **kwargs: Additional keyword arguments to send to the route
 
         Raises:
@@ -595,6 +628,8 @@ class Routes(SyncAPIResource):
                 **kwargs,
             },
         }
+        if currency:
+            payload["currency"] = currency
         request_timeout = timeout or DEFAULT_TIMEOUT
         # RFC 7240: signal "I don't want to block on this" so the backend
         # returns the action handle the moment work is committed.

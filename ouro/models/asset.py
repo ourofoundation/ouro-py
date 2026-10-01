@@ -178,12 +178,21 @@ class Asset(OuroModel):
     attribution: Optional[Attribution] = None
     monetization: Optional[str] = None
     price: Optional[float] = None
+    # The seller's primary currency; price / unit_cost mirror its price
     price_currency: Optional[str] = None
+    # Dual pricing: an independent price per currency (dollars / sats).
+    # None = not sold in that currency.
+    price_usd: Optional[float] = None
+    price_sats: Optional[int] = None
+    unit_cost_usd: Optional[float] = None
+    unit_cost_sats: Optional[float] = None
     # A TipTap doc for posts; the first rows for datasets and CSV files.
     preview: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None
     unit_cost: Optional[float] = None
+    # Runtime pricing: the most seconds one run can be billed
+    max_billable_seconds: Optional[int] = None
     state: Literal["queued", "in-progress", "success", "error"] = "success"
     source: Literal["web", "api"] = "web"
     slug: Optional[str] = None

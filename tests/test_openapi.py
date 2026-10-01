@@ -61,6 +61,32 @@ def test_pricing_models() -> None:
     assert _pricing(free=True) == {"model": "free"}
 
 
+def test_pricing_in_both_currencies() -> None:
+    # The first currency listed is the primary (charged when a caller
+    # doesn't pick)
+    assert _pricing(per_call={"usd": 0.05, "btc": 50}) == {
+        "model": "per_call",
+        "unit_cost": 0.05,
+        "currency": "usd",
+        "unit_cost_usd": 0.05,
+        "unit_cost_sats": 50,
+    }
+    assert _pricing(per_second={"btc": 1, "usd": 0.0003}, max_seconds=600) == {
+        "model": "per_second",
+        "unit_cost": 1,
+        "currency": "btc",
+        "unit_cost_usd": 0.0003,
+        "unit_cost_sats": 1,
+        "max_billable_seconds": 600,
+    }
+    # `currency` overrides the order
+    assert _pricing(per_call={"usd": 0.05, "btc": 50}, currency="btc")[
+        "currency"
+    ] == "btc"
+    # One currency in a mapping is the same as the plain form
+    assert _pricing(per_call={"btc": 21}) == _pricing(per_call=21, currency="btc")
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -74,6 +100,10 @@ def test_pricing_models() -> None:
         {"per_call": "0.05"},
         {"per_call": 1, "max_seconds": 60},
         {"per_call": 1, "currency": "eur"},
+        {"per_call": {}},
+        {"per_call": {"usd": 0.05, "eur": 1}},
+        {"per_call": {"usd": 0.05, "btc": 0}},
+        {"per_call": {"usd": 0.05}, "currency": "btc"},
     ],
 )
 def test_pricing_rejects_declarations_ouro_would_refuse(kwargs) -> None:

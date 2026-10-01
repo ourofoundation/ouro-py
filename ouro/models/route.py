@@ -176,6 +176,8 @@ class RouteCost(OuroModel):
     cost_accounting: Optional[str] = None
     cost_unit: Optional[str] = None
     unit_cost: Optional[float] = None
+    # Currency the cost is quoted in ("usd" dollars / "btc" sats)
+    currency: Optional[str] = None
     quantity: Optional[float] = None
     total_cost: Optional[float] = None
 

@@ -234,6 +234,19 @@ ouro.routes.update(route_id, visibility="monetized", monetization="pay-per-use",
                    cost_accounting="fixed", unit_cost=10, price_currency="btc")
 ```
 
+An asset can be sold in both currencies, each at its own price. Set `price_usd` and
+`price_sats` (or `unit_cost_usd` and `unit_cost_sats` on routes); buyers pick which to pay in,
+and `price_currency` is what's charged when they don't. Pass `0` to stop selling in a currency.
+
+```python
+ouro.posts.update(post_id, visibility="monetized", monetization="pay-to-unlock",
+                  price_usd=0.50, price_sats=500)
+ouro.routes.update(route_id, unit_cost_usd=0.10, unit_cost_sats=100)
+
+ouro.money.unlock_asset("post", post_id, currency="btc")
+ouro.routes.execute(route_id, body={...}, currency="usd")
+```
+
 Private assets remain private until you share them explicitly:
 
 ```python

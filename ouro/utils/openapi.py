@@ -45,13 +45,20 @@ def ouro_capabilities(capabilities):
     return ouro_field("x-ouro-capabilities", normalized)
 
 
+_PRICING_CURRENCIES = ("usd", "btc")
+
+
+def _is_price(value):
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
 def ouro_pricing(
     *,
     per_second=None,
     per_call=None,
     free=False,
     max_seconds=None,
-    currency="usd",
+    currency=None,
 ):
     """
     Declare a route's price in code. Ouro applies it whenever the service's
@@ -65,11 +72,21 @@ def ouro_pricing(
       - ``per_call``: price per successful call.
       - ``free=True``: make a paid route free again.
 
-    Prices are in ``currency``: dollars for "usd", sats for "btc".
+    A number is a price in ``currency``: dollars for "usd" (the default), sats
+    for "btc".
 
         @app.post("/simulate")
         @ouro_pricing(per_second=0.0003, max_seconds=3600)
         def simulate(...): ...
+
+    To sell in both currencies, give a price for each. Callers pick which to
+    pay in; one who doesn't pays in the first currency listed (or
+    ``currency``, when given).
+
+        @ouro_pricing(per_call={"usd": 0.05, "btc": 50})
+
+    The declaration is the route's whole price: a currency it leaves out is
+    one the route is no longer sold in.
 
     Emits ``x-ouro-pricing`` on the operation.
     """
@@ -92,16 +109,42 @@ def ouro_pricing(
     if model == "free":
         return ouro_field("x-ouro-pricing", {"model": "free"})
 
-    if currency not in ("usd", "btc"):
+    if currency is not None and currency not in _PRICING_CURRENCIES:
         raise ValueError(
             f"ouro_pricing: currency must be 'usd' or 'btc', got {currency!r}"
         )
-    unit_cost = per_second if model == "per_second" else per_call
-    if isinstance(unit_cost, bool) or not isinstance(unit_cost, (int, float)):
-        raise ValueError(f"ouro_pricing: {model} must be a number")
-    if not unit_cost > 0:
-        raise ValueError(f"ouro_pricing: {model} must be above 0")
-    pricing = {"model": model, "unit_cost": unit_cost, "currency": currency}
+    price = per_second if model == "per_second" else per_call
+    if isinstance(price, dict):
+        # A price per currency; the first listed is the primary
+        if not price:
+            raise ValueError(f"ouro_pricing: {model} needs at least one price")
+        unknown = [key for key in price if key not in _PRICING_CURRENCIES]
+        if unknown:
+            raise ValueError(
+                f"ouro_pricing: {model} prices are keyed by 'usd' or 'btc', "
+                f"got {unknown[0]!r}"
+            )
+        if currency is not None and currency not in price:
+            raise ValueError(
+                f"ouro_pricing: currency {currency!r} has no price in {model}"
+            )
+        prices = dict(price)
+        primary = currency or next(iter(prices))
+    else:
+        primary = currency or "usd"
+        prices = {primary: price}
+    for unit_cost in prices.values():
+        if not _is_price(unit_cost):
+            raise ValueError(f"ouro_pricing: {model} must be a number")
+        if not unit_cost > 0:
+            raise ValueError(f"ouro_pricing: {model} must be above 0")
+
+    # unit_cost + currency is the primary price (and all a single-currency
+    # route declares)
+    pricing = {"model": model, "unit_cost": prices[primary], "currency": primary}
+    if len(prices) > 1:
+        pricing["unit_cost_usd"] = prices["usd"]
+        pricing["unit_cost_sats"] = prices["btc"]
     if model == "per_second":
         if (
             isinstance(max_seconds, bool)
