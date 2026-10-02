@@ -32,6 +32,8 @@ __all__ = ["Routes"]
 # First wait between status checks; doubles up to ``poll_interval`` so quick
 # actions return quickly without polling slow ones any harder.
 POLL_RAMP_START = 0.5  # seconds
+# In-app notification levels a caller may ask for when executing a route.
+NOTIFY_LEVELS = ("all", "failure", "none")
 _COMPAT_INPUT_ASSET_METADATA_KEYS = {
     "assetType",
     "asset_type",
@@ -621,6 +623,7 @@ class Routes(SyncAPIResource):
         poll_timeout: Optional[float] = None,
         raise_on_error: bool = False,
         currency: Optional[str] = None,
+        notify: Optional[str] = None,
         **kwargs,
     ) -> Action:
         """
@@ -667,6 +670,11 @@ class Routes(SyncAPIResource):
                 sold in both. Left out, the route's primary currency
                 (``price_currency``) is charged. A currency the route isn't
                 sold in is refused, never swapped for the other.
+            notify: Which in-app notifications this action sends you when it
+                finishes: ``"all"`` (the default), ``"failure"`` (only if it
+                errors or times out), or ``"none"``. Use ``"none"`` when a
+                program runs many actions as one workflow and reports on them
+                itself. Webhook endpoints still receive the action event.
             **kwargs: Additional keyword arguments to send to the route
 
         Raises:
@@ -675,6 +683,10 @@ class Routes(SyncAPIResource):
                 :meth:`retrieve_action` or :meth:`poll_action` later with the
                 id from the raised exception's ``action_id`` attribute.
         """
+        if notify is not None and notify not in NOTIFY_LEVELS:
+            raise ValueError(
+                f"notify must be one of {', '.join(NOTIFY_LEVELS)}; got {notify!r}"
+            )
         route_id = self._resolve_name_to_id(name_or_id, "route")
         route = self.retrieve(route_id)
         normalized_input_assets = _normalize_input_assets(input_assets, assets)
@@ -700,6 +712,8 @@ class Routes(SyncAPIResource):
         execution_mode = getattr(route.route, "execution_mode", None)
         respond_async = not wait or execution_mode == "async"
         request_headers = {"Prefer": "respond-async"} if respond_async else {}
+        if notify:
+            request_headers["Ouro-Notify"] = notify
         http_response = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",
             json=payload,

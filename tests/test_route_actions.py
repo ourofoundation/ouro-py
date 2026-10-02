@@ -479,6 +479,26 @@ class TestRouteActions(unittest.TestCase):
         # First check comes quickly rather than a full interval later
         self.assertEqual(sleep.call_args_list[0].args, (0.5,))
 
+    def test_execute_sends_notify_level(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": _route_payload(execution_mode="async")}),
+                _FakeResponse(
+                    {"data": None, "action": _action("in-progress"), "metadata": {}},
+                    status_code=202,
+                ),
+            ]
+        )
+
+        Routes(ouro).execute(ROUTE_ID, wait=False, notify="none")
+
+        self.assertEqual(
+            ouro.client.requests[1]["headers"],
+            {"Prefer": "respond-async", "Ouro-Notify": "none"},
+        )
+        with self.assertRaises(ValueError):
+            Routes(ouro).execute(ROUTE_ID, notify="quiet")
+
     def test_execute_sync_route_waits_inline(self) -> None:
         ouro = _FakeOuro(
             [
