@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from ouro import NotFoundError
 from ouro.models import File
 
 CIF = """data_Fe
@@ -123,3 +124,55 @@ def test_list_is_search_without_pagination(ouro, cif_file):
 def test_create_requires_file_data(ouro):
     with pytest.raises(ValueError):
         ouro.files.create(name="x", visibility="private")
+
+
+def _put(upload: dict, content: bytes) -> None:
+    """Upload the way a shell would: a raw body to the signed URL."""
+    response = httpx.request(
+        upload["method"], upload["upload_url"], headers=upload["headers"], content=content
+    )
+    response.raise_for_status()
+
+
+def test_create_from_signed_upload(ouro, track):
+    content = b"x,y\n1,2\n"
+    upload = ouro.files.create_upload_url("points.csv", visibility="private")
+    assert upload["upload_id"] == f"{upload['bucket']}/{upload['path']}"
+    assert upload["headers"]["content-type"] == "text/csv"
+
+    _put(upload, content)
+    created = track.add(
+        ouro.files.create(
+            name=track.name("signed-upload"),
+            visibility="private",
+            upload_id=upload["upload_id"],
+            file_name="points.csv",
+        )
+    )
+    assert created.metadata.extension == "csv"
+    assert created.metadata.size == len(content)
+    assert created.metadata.type == "text/csv"
+    assert httpx.get(ouro.files.retrieve(str(created.id)).data.url).content == content
+
+
+def test_update_from_signed_upload(ouro, cif_file):
+    replacement = b"data_replaced\n"
+    upload = ouro.files.create_upload_url("fe.cif")
+    _put(upload, replacement)
+    updated = ouro.files.update(str(cif_file.id), upload_id=upload["upload_id"], file_name="fe.cif")
+    # The asset keeps its own storage path; only the bytes change.
+    assert updated.metadata.path == cif_file.metadata.path
+    assert httpx.get(ouro.files.retrieve(str(cif_file.id)).data.url).content == replacement
+
+
+def test_signed_upload_must_be_uploaded_first(ouro):
+    upload = ouro.files.create_upload_url("never.txt")
+    with pytest.raises(NotFoundError):
+        ouro.files.create(name="x", visibility="private", upload_id=upload["upload_id"])
+
+
+def test_one_file_source_only(ouro):
+    with pytest.raises(ValueError):
+        ouro.files.create(name="x", visibility="private", upload_id="files/a/b.txt", file_path="a")
+    with pytest.raises(ValueError):
+        ouro.files.update("00000000-0000-0000-0000-000000000000", upload_id="files/a/b.txt", file_content=b"x", file_name="b.txt")

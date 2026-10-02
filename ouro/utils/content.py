@@ -188,6 +188,13 @@ def _render_block(node: dict, indent: str = "") -> Optional[str]:
         display_config = attrs.get("displayConfig")
         block = {"id": asset_id, "assetType": asset_type, "viewMode": view_mode}
         if display_config:
+            # The markdown parser keeps displayConfig as the JSON text it was
+            # written as; emitting that string would quote it again each trip.
+            if isinstance(display_config, str):
+                try:
+                    display_config = _json.loads(display_config)
+                except ValueError:
+                    pass
             block["displayConfig"] = display_config
         return f"```assetComponent\n{_json.dumps(block)}\n```"
 

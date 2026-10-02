@@ -27,6 +27,29 @@ log: logging.Logger = logging.getLogger(__name__)
 __all__ = ["Files"]
 
 
+def _require_one_source(
+    file_path: Optional[str],
+    file_content: Optional[bytes],
+    upload_id: Optional[str],
+    *,
+    required: bool,
+) -> None:
+    """Reject more than one source of file bytes, or none when one is needed."""
+    given = [
+        name
+        for name, is_set in (
+            ("file_path", bool(file_path)),
+            ("file_content", file_content is not None),
+            ("upload_id", bool(upload_id)),
+        )
+        if is_set
+    ]
+    if len(given) > 1:
+        raise ValueError(f"Provide only one of file_path, file_content or upload_id (got {', '.join(given)}).")
+    if required and not given:
+        raise ValueError("Provide file_path, file_content with file_name, or upload_id.")
+
+
 def _build_file_metadata(
     file_id: str,
     file_name: str,
@@ -247,6 +270,62 @@ class Files(SyncAPIResource):
             raise RuntimeError("Upload failed: missing file object id")
         return data
 
+    def create_upload_url(
+        self,
+        file_name: str,
+        visibility: str = "private",
+        content_type: Optional[str] = None,
+    ) -> dict:
+        """Reserve a storage path and get a signed URL to upload a file to.
+
+        For callers that hold the bytes somewhere this client cannot read,
+        such as an agent talking to a hosted MCP server: PUT the file to
+        ``upload_url`` with the returned ``headers``, then pass ``upload_id``
+        to :meth:`create` or :meth:`update`.
+
+        Returns ``upload_id``, ``upload_url``, ``method``, ``headers`` and
+        ``expires_in`` (seconds), plus the ``bucket``, ``path`` and
+        ``mime_type`` the upload was reserved with.
+        """
+        request = self.client.post(
+            "/files/upload-url",
+            json=_strip_none({
+                "file_name": file_name,
+                "visibility": visibility,
+                "content_type": content_type,
+            }),
+        )
+        return self._handle_response(request)
+
+    def _complete_upload(self, upload_id: str, file_name: Optional[str] = None) -> dict:
+        """Describe an object uploaded through :meth:`create_upload_url`."""
+        request = self.client.post(
+            "/files/upload/complete",
+            json=_strip_none({"upload_id": upload_id, "file_name": file_name}),
+        )
+        return self._handle_response(request)
+
+    def read_upload(self, upload_id: str, *, discard: bool = True) -> bytes:
+        """Return the bytes uploaded through :meth:`create_upload_url`.
+
+        For content that is not going to be a file asset: a post body, dataset
+        rows. The upload is deleted afterwards unless ``discard`` is false.
+        """
+        request = self.client.post(
+            "/files/upload/complete", json={"upload_id": upload_id, "download": True}
+        )
+        url = self._handle_response(request)["download_url"]
+        response = httpx.get(url, follow_redirects=True, timeout=120)
+        response.raise_for_status()
+        if discard:
+            self.discard_upload(upload_id)
+        return response.content
+
+    def discard_upload(self, upload_id: str) -> None:
+        """Delete an upload that did not become a file asset."""
+        request = self.client.request("DELETE", "/files/upload", json={"upload_id": upload_id})
+        self._handle_response(request)
+
     def _upload_local_file(
         self,
         file_path: str,
@@ -403,6 +482,7 @@ class Files(SyncAPIResource):
         description: Optional[Union[str, "Content"]] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
+        upload_id: Optional[str] = None,
         **kwargs,
     ) -> File:
         """Create a File.
@@ -411,16 +491,20 @@ class Files(SyncAPIResource):
         - ``file_path`` — path to a local file.
         - ``file_content`` + ``file_name`` — raw bytes and the original
           filename (with extension, e.g. ``"report.pdf"``).
+        - ``upload_id`` — bytes already uploaded through
+          :meth:`create_upload_url`. ``file_name`` is optional and keeps the
+          original filename.
         """
         log.debug("Creating a file")
-        if file_path and file_content is not None:
-            raise ValueError("Provide file_path or file_content, not both.")
-        if not file_path and file_content is None:
-            raise ValueError("Provide file_path, or file_content with file_name.")
+        _require_one_source(file_path, file_content, upload_id, required=True)
         if file_content is not None and not file_name:
             raise ValueError("file_name is required when using file_content.")
 
-        if file_path:
+        if upload_id:
+            upload_data = self._complete_upload(upload_id, file_name)
+            mime_type = upload_data["mime_type"]
+            local_file_size = upload_data.get("size") or 0
+        elif file_path:
             mime_type = _resolve_content_type(file_path)
             local_file_size = os.path.getsize(file_path)
             upload_data = self._upload_local_file(file_path, visibility, mime_type)
@@ -521,17 +605,18 @@ class Files(SyncAPIResource):
         price_sats: Optional[int] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
+        upload_id: Optional[str] = None,
         **kwargs,
     ) -> File:
         """Update a file by ID.
 
-        Pass *one* of ``file_path`` or ``file_content`` + ``file_name`` to
-        replace the file data in place (same storage path). Pass name,
-        description, visibility, or pricing to update metadata.
+        Pass *one* of ``file_path``, ``file_content`` + ``file_name``, or an
+        ``upload_id`` from :meth:`create_upload_url` to replace the file data
+        in place (same storage path). Pass name, description, visibility, or
+        pricing to update metadata.
         """
         log.debug("Updating a file")
-        if file_path and file_content is not None:
-            raise ValueError("Provide file_path or file_content, not both.")
+        _require_one_source(file_path, file_content, upload_id, required=False)
         if file_content is not None and not file_name:
             raise ValueError("file_name is required when using file_content.")
 
@@ -548,6 +633,22 @@ class Files(SyncAPIResource):
             "attribution": _optional_attribution(attribution),
         })
         update_params.update(kwargs)
+
+        if upload_id:
+            # The backend copies these bytes onto the asset's own storage
+            # path and removes the upload.
+            uploaded = self._complete_upload(upload_id, file_name)
+            file = _strip_none({"id": str(id), **update_params})
+            file["metadata"] = {
+                "bucket": uploaded["bucket"],
+                "path": uploaded["path"],
+                "size": uploaded.get("size"),
+                "type": uploaded["mime_type"],
+                "name": uploaded["file_name"],
+            }
+            self._scope_update(file)
+            request = self.client.put(f"/files/{id}", json={"file": file})
+            return self._parse(File, self._handle_response(request))
 
         has_upload = bool(file_path) or file_content is not None
         if has_upload:

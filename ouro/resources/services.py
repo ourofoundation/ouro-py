@@ -30,6 +30,7 @@ def _service_metadata(
     spec_path: Optional[str] = None,
     spec_url: Optional[str] = None,
     auth_url: Optional[str] = None,
+    spec_upload_id: Optional[str] = None,
 ) -> dict:
     return _strip_none(
         {
@@ -38,6 +39,7 @@ def _service_metadata(
             "version": version,
             "spec_path": spec_path,
             "spec_url": spec_url,
+            "spec_upload_id": spec_upload_id,
             "auth_url": auth_url,
         }
     )
@@ -66,6 +68,7 @@ class Services(SyncAPIResource):
         doi_url: Optional[str] = None,
         external_url: Optional[str] = None,
         relation_type: Optional[str] = None,
+        spec_upload_id: Optional[str] = None,
         **kwargs,
     ) -> Service:
         """Create a Service — an external API published as an Ouro asset.
@@ -73,9 +76,11 @@ class Services(SyncAPIResource):
         ``base_url`` must be unique across Ouro. ``authentication`` is one of
         "None", "Ouro", "Personal Access Token", or "OAuth 2.0".
 
-        Pass ``spec_url`` (or ``spec_path`` for an already-uploaded file) to
-        register the service from an OpenAPI spec — its routes are parsed and
-        created automatically. Omit both to create a service with no routes yet.
+        Pass ``spec_url``, or ``spec_upload_id`` for a spec file uploaded
+        through ``files.create_upload_url()``, to register the service from an
+        OpenAPI spec — its routes are parsed and created automatically.
+        ``spec_path`` names a spec already in Ouro's spec storage. Omit all
+        three to create a service with no routes yet.
 
         Attribution (stored on ``attribution``, not ``metadata``): ``license_id``
         (SPDX id, default MIT), ``originality`` (``original`` | ``derivative`` |
@@ -89,6 +94,7 @@ class Services(SyncAPIResource):
             version=version,
             spec_path=spec_path,
             spec_url=spec_url,
+            spec_upload_id=spec_upload_id,
             auth_url=auth_url,
         )
         if attribution is not None:
@@ -123,7 +129,7 @@ class Services(SyncAPIResource):
 
         endpoint = (
             "/services/create/from-file"
-            if spec_path or spec_url
+            if spec_path or spec_url or spec_upload_id
             else "/services/create/from-form"
         )
         request = self.client.post(endpoint, json={"service": service})
@@ -153,18 +159,21 @@ class Services(SyncAPIResource):
         external_url: Optional[str] = None,
         relation_type: Optional[str] = None,
         refresh_spec: bool = False,
+        spec_upload_id: Optional[str] = None,
         **kwargs,
     ) -> Service:
         """Update a Service by its ID.
 
         Service config fields (``base_url``, ``authentication``, …) merge into
         ``metadata``. Provenance fields merge into ``attribution``. Providing
-        ``spec_path`` or ``spec_url`` re-parses the OpenAPI spec and syncs routes.
+        ``spec_url``, ``spec_upload_id`` (a spec file uploaded through
+        ``files.create_upload_url()``) or ``spec_path`` re-parses the OpenAPI
+        spec and syncs routes.
         Set ``refresh_spec=True`` to re-fetch the service's stored remote
         ``spec_url`` without having to pass it again.
         """
         current = None
-        if refresh_spec and spec_path is None and spec_url is None:
+        if refresh_spec and spec_path is None and spec_url is None and spec_upload_id is None:
             current = self.retrieve(id)
             spec_url = current.metadata.spec_url if current.metadata else None
             if not spec_url:
@@ -178,6 +187,7 @@ class Services(SyncAPIResource):
             version=version,
             spec_path=spec_path,
             spec_url=spec_url,
+            spec_upload_id=spec_upload_id,
             auth_url=auth_url,
         )
         if attribution is not None:
@@ -214,7 +224,7 @@ class Services(SyncAPIResource):
 
         endpoint = (
             f"/services/{id}/update/from-file"
-            if spec_path or spec_url
+            if spec_path or spec_url or spec_upload_id
             else f"/services/{id}"
         )
         self._scope_update(service)

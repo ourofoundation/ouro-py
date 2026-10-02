@@ -259,15 +259,17 @@ class Assets(SyncAPIResource):
         id: str,
         output_path: Optional[str] = None,
         asset_type: Optional[str] = None,
+        format: Optional[str] = None,
     ) -> Download:
         """Download an asset to disk and describe the saved file.
 
         Files are downloaded as their original bytes, datasets as CSV, and posts
-        as HTML. If ``output_path`` points to a directory (or is omitted), the
-        server-provided filename is used inside that directory.
+        as HTML, or as markdown with ``format="markdown"``. If ``output_path``
+        points to a directory (or is omitted), the server-provided filename is
+        used inside that directory.
         """
         self.ouro.ensure_valid_token()
-        body = {"asset_type": asset_type} if asset_type else None
+        body = _strip_none({"asset_type": asset_type, "format": format}) or None
 
         with self.ouro._raw_client.stream(
             "POST",
@@ -310,6 +312,27 @@ class Assets(SyncAPIResource):
             content_type=content_type,
             size=bytes_written,
         )
+
+    def create_download_url(
+        self,
+        id: str,
+        asset_type: Optional[str] = None,
+        format: Optional[str] = None,
+    ) -> dict:
+        """Get a link that downloads an asset without credentials.
+
+        For a caller that fetches the bytes itself, such as an agent running
+        ``curl``. Files keep their original bytes, datasets download as CSV,
+        and posts as markdown (or ``format="html"``).
+
+        Returns ``download_url``, ``file_name``, ``content_type``,
+        ``expires_in`` (seconds) and ``asset_type``.
+        """
+        request = self.client.post(
+            f"/assets/{id}/download-url",
+            json=_strip_none({"asset_type": asset_type, "format": format}),
+        )
+        return self._handle_response(request)
 
     def share(
         self,
