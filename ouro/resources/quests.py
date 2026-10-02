@@ -162,6 +162,7 @@ class Quests(SyncAPIResource):
             }
         )
         quest["attribution"] = _ensure_attribution(attribution)
+        quest = self._scope_create(quest)
 
         request = self.client.post(
             "/quests/create",
@@ -203,6 +204,7 @@ class Quests(SyncAPIResource):
             }
         )
 
+        self._scope_update(quest)
         request = self.client.put(
             f"/quests/{id}",
             json={"quest": quest},

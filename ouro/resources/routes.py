@@ -324,6 +324,8 @@ class Routes(SyncAPIResource):
             }
         )
         route["attribution"] = _ensure_attribution(attribution)
+        # Org and team come from the parent service; only check the pin.
+        route = self._scope_create(route, default_team=False)
 
         request = self.client.post(
             f"/services/{service_id}/routes/create",
@@ -402,6 +404,7 @@ class Routes(SyncAPIResource):
         if "name" not in route:
             route["name"] = existing.name
 
+        self._scope_update(route)
         request = self.client.put(
             f"/services/{service_id}/routes/{existing.id}",
             json={"route": route},

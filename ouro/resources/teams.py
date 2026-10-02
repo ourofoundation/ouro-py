@@ -18,7 +18,7 @@ class Teams(SyncAPIResource):
     def create(
         self,
         name: str,
-        org_id: str,
+        org_id: Optional[str] = None,
         description: Optional[Union[str, dict, "Content"]] = None,
         visibility: Optional[str] = None,
         default_role: Optional[str] = None,
@@ -31,7 +31,8 @@ class Teams(SyncAPIResource):
 
         ``name`` must be a slug (lowercase letters, numbers, and single dashes)
         and unique within the organization; otherwise the request fails with
-        ``BadRequestError`` or ``ConflictError``.
+        ``BadRequestError`` or ``ConflictError``. ``org_id`` may be omitted
+        when the client is pinned to an organization.
         """
         team = _strip_none({
             "name": name,
@@ -44,6 +45,9 @@ class Teams(SyncAPIResource):
             "join_policy": join_policy,
             **kwargs,
         })
+        team = self._scope_create(team, default_team=False)
+        if not team.get("org_id"):
+            raise ValueError("org_id is required unless the client is pinned to an organization")
         request = self.client.post("/teams/create", json={"team": team})
         return self._parse(Team, self._handle_response(request))
 

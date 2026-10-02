@@ -240,7 +240,40 @@ dataset = ouro.datasets.create(
 
 If you omit them, Ouro uses your global organization's catch-all team.
 
-Visibility can be `public`, `private`, or `monetized`. Monetized assets also take a
+### Working in one organization
+
+Most sessions stay in one organization. Pin the client to it and everything you create goes
+there:
+
+```python
+ouro = Ouro(organization="acme-lab")           # name or UUID; or set OURO_ORG_ID
+ouro = Ouro(organization="acme-lab", team=team_id)  # or OURO_TEAM_ID
+
+post = ouro.posts.create(name="Run notes", content_markdown="...")  # lands in acme-lab
+```
+
+New assets go to `team` when a call doesn't name one, and to the organization's default team
+when no team is pinned. A pinned client refuses to create in, or move an asset to, any other
+organization (`OuroError`); reads are not restricted. Switch with
+`ouro.use_organization("other-org")`, unpin with `ouro.use_organization(None)`, and pass
+`organization=""` to ignore `OURO_ORG_ID`.
+
+### Visibility follows the team
+
+A team is the boundary for what's in it. Everything in an internal (organization-only) team
+stays inside the organization: `public` and `monetized` are refused there with
+`PermissionDeniedError`. Leave `visibility` unset and a new asset takes the team's audience,
+`public` in a public team and `organization` in an internal one. To publish internal work,
+move it to a public team:
+
+```python
+ouro.posts.update(post_id, team_id=public_team_id, visibility="public")
+```
+
+Whether an organization has public teams, and who may move work into them, is the
+organization's own setting.
+
+Visibility can be `public`, `organization`, `private`, or `monetized`. Monetized assets also take a
 `monetization` model and a price in `price_currency` (`"usd"` in dollars, `"btc"` in sats):
 
 ```python
@@ -321,6 +354,8 @@ when its terms permit redistribution.
 |---|---|---|
 | `OURO_API_KEY` | required | Personal Access Token |
 | `OURO_BACKEND_URL` | `https://api.ouro.foundation` | Ouro API base URL |
+| `OURO_ORG_ID` | unset | Pin the client to this organization (UUID or name) |
+| `OURO_TEAM_ID` | unset | Team new assets go to when pinned (default: the org's default team) |
 
 For local development:
 
@@ -328,7 +363,7 @@ For local development:
 export OURO_BACKEND_URL="http://localhost:8003"
 ```
 
-You can also pass `api_key` and `base_url` directly to `Ouro(...)`.
+You can also pass `api_key`, `base_url`, `organization`, and `team` directly to `Ouro(...)`.
 
 ## Error handling
 

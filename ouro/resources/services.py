@@ -119,6 +119,8 @@ class Services(SyncAPIResource):
             }
         )
 
+        service = self._scope_create(service)
+
         endpoint = (
             "/services/create/from-file"
             if spec_path or spec_url
@@ -215,6 +217,7 @@ class Services(SyncAPIResource):
             if spec_path or spec_url
             else f"/services/{id}"
         )
+        self._scope_update(service)
         request = self.client.put(endpoint, json={"service": service})
         return self._parse(Service, self._handle_response(request))
 

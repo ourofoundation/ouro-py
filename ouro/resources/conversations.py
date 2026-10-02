@@ -99,6 +99,7 @@ class Conversations(SyncAPIResource):
             }
         )
         conversation["attribution"] = _ensure_attribution(attribution)
+        conversation = self._scope_create(conversation)
 
         request = self.client.post(
             "/conversations/create",

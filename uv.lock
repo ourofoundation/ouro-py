@@ -486,7 +486,7 @@ wheels = [
 
 [[package]]
 name = "ouro-py"
-version = "2.1.6"
+version = "2.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

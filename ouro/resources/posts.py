@@ -148,6 +148,7 @@ class Posts(SyncAPIResource):
             }
         )
         post["attribution"] = _ensure_attribution(attribution)
+        post = self._scope_create(post)
 
         request = self.client.post(
             "/posts/create",
@@ -196,6 +197,7 @@ class Posts(SyncAPIResource):
             }
         )
 
+        self._scope_update(post)
         request = self.client.put(
             f"/posts/{id}",
             json={

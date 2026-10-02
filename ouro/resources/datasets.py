@@ -531,6 +531,7 @@ class Datasets(SyncAPIResource):
             "metadata": metadata,
         })
         base_body["attribution"] = _ensure_attribution(attribution)
+        base_body = self._scope_create(base_body)
         inline_body = {**base_body, "rows": insert_data}
         inline_create = self._json_size_bytes({"dataset": inline_body}) <= DATASET_UPLOAD_TARGET_BYTES
         body = inline_body if inline_create else base_body
@@ -762,6 +763,7 @@ class Datasets(SyncAPIResource):
         if df is not None and (df.empty or len(df.columns) == 0):
             raise ValueError("data must contain at least one row and one column.")
 
+        self._scope_update(body)
         skip_put = df is not None and not body
         response_data: Any = None
         if not skip_put:

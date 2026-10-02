@@ -465,6 +465,7 @@ class Files(SyncAPIResource):
 
         file = _strip_none(file)
         file["attribution"] = _ensure_attribution(attribution)
+        file = self._scope_create(file)
 
         request = self.client.post("/files/create", json={"file": file})
         return self._parse(File, self._handle_response(request))
@@ -567,11 +568,13 @@ class Files(SyncAPIResource):
             }
             if update_params:
                 body["file"] = {"id": str(id), **update_params}
+                self._scope_update(body["file"])
 
             request = self.client.put(f"/files/{id}/content", json=body)
             return self._parse(File, self._handle_response(request))
 
         file = _strip_none({"id": str(id), **update_params})
+        self._scope_update(file)
         request = self.client.put(f"/files/{id}", json={"file": file})
         return self._parse(File, self._handle_response(request))
 

@@ -6,6 +6,7 @@ import threading
 import time
 from base64 import urlsafe_b64decode
 from types import SimpleNamespace
+from uuid import UUID
 
 import httpx
 from ouro._logs import setup_logging
@@ -107,6 +108,14 @@ def _translate_httpx_errors(
             message=str(exc) or "Connection error.",
             request=_request_for_exception(exc, method, url),
         ) from exc
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 class AutoRefreshClient:
@@ -229,6 +238,7 @@ class Ouro:
         *,
         api_key: str | None = None,
         organization: str | None = None,
+        team: str | None = None,
         project: str | None = None,
         base_url: str | None = None,
         client: str | None = None,
@@ -239,7 +249,17 @@ class Ouro:
         This automatically infers the following arguments from their corresponding environment variables if they are not provided:
         - `api_key` from `OURO_API_KEY`
         - `organization` from `OURO_ORG_ID`
+        - `team` from `OURO_TEAM_ID`
         - `project` from `OURO_PROJECT_ID`
+
+        ``organization`` (a UUID or the org's name) pins the client to one
+        organization: everything it creates goes there, and creating in or
+        moving to another organization raises ``OuroError``. Reads are not
+        restricted. ``team`` (a UUID) is where new assets go when a call
+        doesn't name a team; it defaults to the organization's default team.
+        Pass ``organization=""`` to ignore ``OURO_ORG_ID`` and stay unpinned.
+        Visibility left unset follows the team: public in a public team,
+        organization-only in an internal one.
 
         ``access_token`` authenticates with an Ouro access token issued
         elsewhere (for example by the OAuth flow) instead of exchanging an API
@@ -263,7 +283,11 @@ class Ouro:
 
         if organization is None:
             organization = os.environ.get("OURO_ORG_ID")
-        self.organization = organization
+        if team is None:
+            team = os.environ.get("OURO_TEAM_ID")
+        self.organization = None
+        self.team = None
+        self._default_team_id = None
 
         if project is None:
             project = os.environ.get("OURO_PROJECT_ID")
@@ -318,6 +342,72 @@ class Ouro:
         self.notifications = Notifications(self)
         self.organizations = Organizations(self)
         self.teams = Teams(self)
+
+        if organization:
+            self.use_organization(organization, team=team or None)
+
+    def use_organization(
+        self, organization: str | None, team: str | None = None
+    ) -> None:
+        """Pin this client to an organization, or unpin it with ``None``.
+
+        ``organization`` is a UUID or the organization's name. ``team`` is the
+        UUID of the team new assets go to when a call doesn't name one; it
+        defaults to the organization's default team.
+        """
+        if not organization:
+            self.organization = None
+            self.team = None
+            self._default_team_id = None
+            return
+
+        organization = str(organization).strip()
+        if not _is_uuid(organization):
+            response = self.client.get(f"/organizations/by-name/{organization}")
+            data = (response.json() or {}).get("data") if response.is_success else None
+            if not data or not data.get("id"):
+                raise OuroError(f"Organization '{organization}' was not found")
+            organization = str(data["id"])
+
+        self.organization = organization.lower()
+        self.team = str(team).strip() if team else None
+        self._default_team_id = None
+
+    def _check_organization(self, org_id: object) -> None:
+        """Refuse a write aimed at an organization other than the pinned one."""
+        if not self.organization or org_id is None:
+            return
+        if str(org_id).lower() != self.organization:
+            raise OuroError(
+                f"This client is pinned to organization {self.organization} and "
+                f"can't write to {org_id}. Call use_organization() to switch."
+            )
+
+    def _resolve_default_team(self) -> str | None:
+        if self.team:
+            return self.team
+        if self._default_team_id is None:
+            response = self.client.get(f"/organizations/{self.organization}")
+            data = (response.json() or {}).get("data") if response.is_success else None
+            default_team = (data or {}).get("default_team") or {}
+            if not default_team.get("id"):
+                raise OuroError(
+                    f"Couldn't read the default team of organization {self.organization}. "
+                    "Check that this account is a member, or pass team=."
+                )
+            self._default_team_id = str(default_team["id"])
+        return self._default_team_id
+
+    def _scope_create(self, asset: dict, *, default_team: bool = True) -> dict:
+        """Place a new asset in the pinned organization (no-op when unpinned)."""
+        if not self.organization:
+            return asset
+        self._check_organization(asset.get("org_id"))
+        asset["org_id"] = self.organization
+        if default_team and not asset.get("team_id"):
+            asset["team_id"] = self._resolve_default_team()
+        return asset
+
     def _make_status_error(
         self,
         err_msg: str,

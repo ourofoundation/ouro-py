@@ -143,6 +143,18 @@ class SyncAPIResource:
         self.websocket = ouro.websocket
         self.ouro = ouro
 
+    def _scope_create(self, asset: dict, *, default_team: bool = True) -> dict:
+        """Place a new asset in the client's pinned organization, if any."""
+        if not getattr(self.ouro, "organization", None):
+            return asset
+        return self.ouro._scope_create(asset, default_team=default_team)
+
+    def _scope_update(self, asset: dict) -> dict:
+        """Keep an update inside the client's pinned organization, if any."""
+        if getattr(self.ouro, "organization", None):
+            self.ouro._check_organization(asset.get("org_id"))
+        return asset
+
     def _parse(self, model: Type[M], data: Any) -> M:
         """Validate *data* into *model*, binding this client to it and its children."""
         return model.model_validate(data, context={"ouro": self.ouro})
