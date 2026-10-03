@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from ouro.models import Comment, Post
+from ouro.utils.content import tiptap_to_markdown
 
 MARKDOWN = """# Findings
 
@@ -133,3 +134,70 @@ def test_comment_thread(ouro, other, post):
 
     ouro.comments.delete(str(comment.id))
     assert ouro.comments.list_by_parent(str(post.id)) == []
+
+
+CALLOUT = """Before the callout.
+
+> [!WARNING]
+> Check the units before trusting this number.
+
+After the callout.
+"""
+
+
+def test_callout_round_trips_through_markdown(ouro, track):
+    created = track.add(
+        ouro.posts.create(name=track.name("callout"), content_markdown=CALLOUT, visibility="private")
+    )
+    fetched = ouro.posts.retrieve(str(created.id))
+    callouts = [n for n in fetched.content.data["content"] if n["type"] == "callout"]
+    assert len(callouts) == 1
+    markdown = tiptap_to_markdown(fetched.content.data)
+    assert "> [!WARNING]" in markdown
+    assert "Check the units" in markdown
+
+
+def test_post_downloads_as_markdown_without_credentials(ouro, track):
+    import httpx
+
+    post = track.add(
+        ouro.posts.create(name=track.name("download"), content_markdown=MARKDOWN, visibility="private")
+    )
+    link = ouro.assets.create_download_url(str(post.id))
+    assert link["asset_type"] == "post"
+    assert link["file_name"].endswith(".md")
+    response = httpx.get(link["download_url"], follow_redirects=True)
+    assert response.status_code == 200
+    assert "Findings" in response.text
+    assert "- first" in response.text
+
+    html = ouro.assets.create_download_url(str(post.id), format="html")
+    response = httpx.get(html["download_url"], follow_redirects=True)
+    assert response.status_code == 200
+    assert "<" in response.text and "Findings" in response.text
+
+
+def test_embedded_partials_become_children(ouro, track):
+    editor = ouro.posts.Editor()
+    editor.new_paragraph("Results below.")
+    editor.new_partial_asset(
+        ouro.datasets.partial(
+            pd.DataFrame([{"x": 1, "y": 2}, {"x": 3, "y": 4}]), name=track.name("partial-ds")
+        )
+    )
+    editor.new_partial_asset(ouro.posts.partial("## Method\n\nNotes.", name=track.name("partial-post")))
+    parent = track.add(
+        ouro.posts.create(name=track.name("with-partials"), content=editor, visibility="private")
+    )
+    embeds = [
+        n["attrs"] for n in ouro.posts.retrieve(str(parent.id)).content.data["content"]
+        if n["type"] == "assetComponent"
+    ]
+    assert sorted(e["assetType"] for e in embeds) == ["dataset", "post"]
+    children = {str(c.id): c for c in ouro.assets.children(str(parent.id))}
+    assert {e["id"] for e in embeds} <= set(children)
+    # Children take their audience from the post that embeds them.
+    for child in children.values():
+        assert child.visibility == "inherit"
+    dataset_id = next(e["id"] for e in embeds if e["assetType"] == "dataset")
+    assert len(ouro.datasets.list_rows(dataset_id, limit=10).data) == 2

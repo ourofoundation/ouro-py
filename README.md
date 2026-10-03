@@ -135,11 +135,31 @@ file = ouro.files.create(
 )
 ```
 
+When the bytes live somewhere this client can't read (an agent's sandbox, a browser), reserve a
+signed upload URL, have the holder `PUT` the bytes to it, and create the file from the upload:
+
+```python
+upload = ouro.files.create_upload_url("structure.cif")   # upload_url, method, headers, expires_in
+file = ouro.files.create(name="Crystal structure", upload_id=upload["upload_id"])
+```
+
+Just after upload, Ouro inspects structure files and records what it found in `file.metadata`:
+a `classification` (for example `{"kind": "crystal", "inspector": "cif"}`) and, for CIFs, a
+`structure` summary. These always come from the bytes; values you send for them are ignored.
+
 Download any supported asset through the shared asset interface:
 
 ```python
 download = ouro.assets.download(file.id, output_path="./downloads")
 print(download.path)
+```
+
+Or get a link that downloads it without credentials, for a caller that fetches the bytes itself.
+Files keep their bytes, datasets download as CSV, and posts as markdown (or `format="html"`):
+
+```python
+link = ouro.assets.create_download_url(file.id)
+print(link["download_url"], link["expires_in"])
 ```
 
 ### Publish a post
@@ -257,6 +277,12 @@ when no team is pinned. A pinned client refuses to create in, or move an asset t
 organization (`OuroError`); reads are not restricted. Switch with
 `ouro.use_organization("other-org")`, unpin with `ouro.use_organization(None)`, and pass
 `organization=""` to ignore `OURO_ORG_ID`.
+
+An API key can itself be bound to one context when it is created. A key bound to an organization
+pins the client to it automatically and sees only public work elsewhere. A key bound to your
+personal context can't be pinned to an organization (`OuroError`) and can't create or change
+anything in one (`PermissionDeniedError`). A key that acts everywhere runs in your personal
+context unless you pin the client.
 
 ### Visibility follows the team
 
@@ -392,12 +418,16 @@ pytest
 `tests/integration` exercises the SDK against a live backend. It creates real
 assets (named `sdk-it-<run>-...`) and deletes them when the session ends, and
 it only runs when an API key is set. A second key enables the sharing,
-membership, and multi-user tests. The suite refuses non-local backends unless
+membership, and multi-user tests, and two bound keys enable the key-context
+tests. The boundary tests need the primary user to administer an organization
+the second user is outside of. The suite refuses non-local backends unless
 `OURO_TEST_ALLOW_REMOTE=1`.
 
 ```bash
 export OURO_TEST_API_KEY=...        # primary user
 export OURO_TEST_API_KEY_2=...      # optional second user
+export OURO_TEST_API_KEY_PERSONAL=...  # optional: primary user's key bound to the personal context
+export OURO_TEST_API_KEY_ORG=...       # optional: primary user's key bound to an organization
 export OURO_TEST_BASE_URL=http://localhost:8003
 pytest tests/integration
 ```

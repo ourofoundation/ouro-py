@@ -5,6 +5,8 @@ assets. They are skipped unless ``OURO_TEST_API_KEY`` is set.
 
     OURO_TEST_API_KEY=...     # primary user (owns everything the tests create)
     OURO_TEST_API_KEY_2=...   # optional second user for sharing / membership tests
+    OURO_TEST_API_KEY_PERSONAL=...  # optional key of the primary user bound to the personal context
+    OURO_TEST_API_KEY_ORG=...       # optional key of the primary user bound to an organization
     OURO_TEST_BASE_URL=http://localhost:8003
     pytest tests/integration
 
@@ -29,6 +31,8 @@ from mock_service import MockService
 BASE_URL = os.environ.get("OURO_TEST_BASE_URL", "http://localhost:8003")
 PRIMARY_KEY = os.environ.get("OURO_TEST_API_KEY")
 SECONDARY_KEY = os.environ.get("OURO_TEST_API_KEY_2")
+PERSONAL_BOUND_KEY = os.environ.get("OURO_TEST_API_KEY_PERSONAL")
+ORG_BOUND_KEY = os.environ.get("OURO_TEST_API_KEY_ORG")
 
 log = logging.getLogger("ouro.integration")
 
@@ -93,6 +97,25 @@ def other() -> Ouro:
         pytest.skip("set OURO_TEST_API_KEY_2 for multi-user tests")
     client = Ouro(api_key=SECONDARY_KEY, base_url=BASE_URL, client="ouro-py-integration")
     return client
+
+
+@pytest.fixture(scope="session")
+def personal_bound() -> Ouro:
+    if not PERSONAL_BOUND_KEY:
+        pytest.skip("set OURO_TEST_API_KEY_PERSONAL for bound-key tests")
+    return Ouro(
+        api_key=PERSONAL_BOUND_KEY,
+        organization="",
+        base_url=BASE_URL,
+        client="ouro-py-integration",
+    )
+
+
+@pytest.fixture(scope="session")
+def org_bound() -> Ouro:
+    if not ORG_BOUND_KEY:
+        pytest.skip("set OURO_TEST_API_KEY_ORG for bound-key tests")
+    return Ouro(api_key=ORG_BOUND_KEY, base_url=BASE_URL, client="ouro-py-integration")
 
 
 @pytest.fixture(scope="session")

@@ -176,3 +176,63 @@ def test_one_file_source_only(ouro):
         ouro.files.create(name="x", visibility="private", upload_id="files/a/b.txt", file_path="a")
     with pytest.raises(ValueError):
         ouro.files.update("00000000-0000-0000-0000-000000000000", upload_id="files/a/b.txt", file_content=b"x", file_name="b.txt")
+
+
+def _classification(ouro, file_id: str, *, timeout: float = 30.0):
+    """A file is inspected just after its bytes land; wait for the result."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        metadata = ouro.files.retrieve(file_id, include_data=False).metadata.model_dump()
+        if metadata.get("classification") or time.monotonic() > deadline:
+            return metadata.get("classification")
+        time.sleep(1)
+
+
+def test_upload_is_classified(ouro, track):
+    created = track.add(
+        ouro.files.create(
+            name=track.name("classified-cif"),
+            visibility="private",
+            file_path=str(Path(__file__).parent.parent / "Fe.cif"),
+        )
+    )
+    classification = _classification(ouro, str(created.id))
+    assert classification, "the CIF was never inspected"
+    assert classification["inspector"] == "cif"
+    assert classification["kind"] == "crystal"
+
+    # New bytes are inspected again rather than keeping the old answer.
+    ouro.files.update(str(created.id), file_content=b"not a structure\n", file_name="Fe.cif")
+    replaced = _classification(ouro, str(created.id))
+    assert replaced is None or replaced["kind"] != "crystal"
+
+
+def test_classification_is_never_taken_from_the_client(ouro, track):
+    created = track.add(
+        ouro.files.create(
+            name=track.name("forged-classification"),
+            visibility="private",
+            file_content=b"plain text\n",
+            file_name="notes.txt",
+            metadata={"classification": {"kind": "forged", "inspector": "client", "version": 99}},
+        )
+    )
+    metadata = ouro.files.retrieve(str(created.id), include_data=False).metadata.model_dump()
+    assert (metadata.get("classification") or {}).get("kind") != "forged"
+
+
+def test_download_link_needs_no_credentials(ouro, track):
+    created = track.add(
+        ouro.files.create(
+            name=track.name("download"), visibility="private", file_content=CIF.encode(), file_name="fe.cif"
+        )
+    )
+    link = ouro.assets.create_download_url(str(created.id))
+    assert link["asset_type"] == "file"
+    assert link["file_name"].endswith(".cif")
+    assert link["expires_in"] > 0
+    response = httpx.get(link["download_url"], follow_redirects=True)
+    assert response.status_code == 200
+    assert response.text == CIF

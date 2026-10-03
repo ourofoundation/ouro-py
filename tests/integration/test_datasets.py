@@ -224,7 +224,7 @@ def test_views(ouro, dataset):
         str(dataset.id),
         name="Score by sample",
         sql_query="select sample, score from {{table}} order by sample",
-        config={"type": "bar", "dataKey": "score", "nameKey": "sample"},
+        config={"type": "bar", "category": {"dataKey": "sample"}, "series": [{"dataKey": "score"}]},
     )
     assert any(v.id == view.id for v in ouro.datasets.list_views(str(dataset.id)))
     updated = ouro.datasets.update_view(str(dataset.id), str(view.id), name="Renamed view")
