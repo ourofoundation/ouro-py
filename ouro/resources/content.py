@@ -15,6 +15,12 @@ DEFAULT_CONTENT_JSON = {
 }
 
 
+def _text_nodes(text: str) -> list:
+    """Inline content for a block. The editor rejects empty text nodes, so
+    empty text is no content at all."""
+    return [{"text": text, "type": "text"}] if text else []
+
+
 class Content:
     """A Post's content."""
 
@@ -55,7 +61,7 @@ class Content:
             "content": [
                 {
                     "type": "paragraph",
-                    "content": [{"text": line, "type": "text"}],
+                    "content": _text_nodes(line),
                 }
                 for line in text.split("\n")
             ],
@@ -109,7 +115,7 @@ class Editor(Content):
         element = {
             "type": "heading",
             "attrs": {"level": level},
-            "content": [{"text": text, "type": "text"}],
+            "content": _text_nodes(text),
         }
         self.json["content"].append(element)
         self.text += f"{'#' * level} {text}\n"
@@ -117,7 +123,7 @@ class Editor(Content):
     def new_paragraph(self, text: str) -> None:
         element = {
             "type": "paragraph",
-            "content": [{"text": text, "type": "text"}],
+            "content": _text_nodes(text),
         }
         self.json["content"].append(element)
         self.text += f"{text}\n"
@@ -126,7 +132,7 @@ class Editor(Content):
         element = {
             "type": "codeBlock",
             "attrs": {"language": language},
-            "content": [{"text": code, "type": "text"}],
+            "content": _text_nodes(code),
         }
         self.json["content"].append(element)
         self.text += f"```{language}\n{code}\n```"
@@ -146,7 +152,7 @@ class Editor(Content):
                     "content": [
                         {
                             "type": "paragraph",
-                            "content": [{"text": str(col), "type": "text"}],
+                            "content": _text_nodes(str(col)),
                         }
                     ],
                 }
@@ -164,7 +170,7 @@ class Editor(Content):
                         "content": [
                             {
                                 "type": "paragraph",
-                                "content": [{"text": str(val), "type": "text"}],
+                                "content": _text_nodes(str(val)),
                             }
                         ],
                     }
