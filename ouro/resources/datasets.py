@@ -111,6 +111,42 @@ class Datasets(SyncAPIResource):
             **kwargs,
         )
 
+    def partial(
+        self,
+        data: DatasetRowsInput,
+        *,
+        name: str,
+        description: str = "",
+        view: Optional[dict] = None,
+    ) -> dict:
+        """Build a partial dataset payload to embed in a post.
+
+        The returned dict is passed to ``Editor.new_partial_asset()`` so the
+        backend creates the dataset together with the post, as its child.
+        ``view`` (``{"name", "description", "sql_query", "config"}``) saves a
+        chart view on it, and the embed then shows that chart.
+
+        >>> partial = ouro.datasets.partial(df, name="Runs", view={
+        ...     "name": "Runs per day",
+        ...     "sql_query": "SELECT day, n FROM {{table}} ORDER BY day",
+        ...     "config": {"type": "line", "category": {"dataKey": "day"},
+        ...                "series": [{"dataKey": "n"}]},
+        ... })
+        >>> editor.new_partial_asset(partial, view_mode="preview")
+        """
+        df = self._coerce_dataframe(data, parameter_name="data")
+        if df is None or df.empty or len(df.columns) == 0:
+            raise ValueError("data must contain at least one row and one column.")
+        return _strip_none(
+            {
+                "asset_type": "dataset",
+                "name": name,
+                "description": description,
+                "data": self._serialize_dataframe(df),
+                "view": view,
+            }
+        )
+
     def _coerce_dataframe(
         self,
         data: Optional[DatasetRowsInput],

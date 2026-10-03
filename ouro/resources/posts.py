@@ -22,6 +22,30 @@ __all__ = ["Posts"]
 
 
 class Posts(SyncAPIResource):
+    @staticmethod
+    def partial(
+        content: Union["Content", str],
+        *,
+        name: str,
+        description: str = "",
+    ) -> dict:
+        """Build a partial post payload to embed in another post.
+
+        The returned dict is passed to ``Editor.new_partial_asset()`` so the
+        backend creates this post together with the one embedding it, as its
+        child. ``content`` is a ``Content`` / ``Editor`` or a markdown string.
+
+        >>> partial = ouro.posts.partial("## Method\n...", name="Method notes")
+        >>> editor.new_partial_asset(partial)
+        """
+        body = {"text": content} if isinstance(content, str) else content.to_dict()
+        return {
+            "asset_type": "post",
+            "name": name,
+            "description": description,
+            "content": body,
+        }
+
     def _resolve_content(
         self,
         content: Optional["Content"],
