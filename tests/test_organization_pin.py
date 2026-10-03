@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from ouro._exceptions import OuroError
-from ouro.client import Ouro
+from ouro.client import PERSONAL_ORG_ID, Ouro
 
 ORG = "01a0fcf5-0765-7463-b0e2-ffe2d0fa994d"
 OTHER_ORG = "01a0fcf5-0765-7463-b0e2-ffe2d0fa0000"
@@ -35,6 +35,39 @@ class OrganizationPinTests(unittest.TestCase):
             ouro = Ouro(api_key="test-key", **kwargs)
         ouro.client = MagicMock()
         return ouro
+
+    def test_requests_name_the_pinned_organization(self) -> None:
+        ouro = self._construct(organization=ORG)
+        self.assertEqual(ouro._raw_client.headers["X-Ouro-Org"], ORG)
+        ouro.use_organization(OTHER_ORG)
+        self.assertEqual(ouro._raw_client.headers["X-Ouro-Org"], OTHER_ORG)
+
+    def test_unpinned_requests_name_no_organization(self) -> None:
+        ouro = self._construct(organization="")
+        self.assertNotIn("X-Ouro-Org", ouro._raw_client.headers)
+        ouro.use_organization(ORG)
+        ouro.use_organization(None)
+        self.assertNotIn("X-Ouro-Org", ouro._raw_client.headers)
+
+    def test_org_bound_key_pins_the_client(self) -> None:
+        with patch.object(Ouro, "api_key_org_id", ORG, create=True):
+            ouro = self._construct(organization="")
+        self.assertEqual(ouro.organization, ORG)
+        self.assertEqual(ouro._raw_client.headers["X-Ouro-Org"], ORG)
+
+    def test_bound_key_refuses_another_organization(self) -> None:
+        with patch.object(Ouro, "api_key_org_id", PERSONAL_ORG_ID, create=True):
+            with self.assertRaisesRegex(OuroError, "personal context"):
+                self._construct(organization=ORG)
+        with patch.object(Ouro, "api_key_org_id", ORG, create=True):
+            with self.assertRaisesRegex(OuroError, "bound to organization"):
+                self._construct(organization=OTHER_ORG)
+
+    def test_personal_key_leaves_the_client_unpinned(self) -> None:
+        with patch.object(Ouro, "api_key_org_id", PERSONAL_ORG_ID, create=True):
+            ouro = self._construct(organization="")
+        self.assertIsNone(ouro.organization)
+        self.assertNotIn("X-Ouro-Org", ouro._raw_client.headers)
 
     def test_unpinned_client_leaves_assets_alone(self) -> None:
         ouro = self._construct(organization="")

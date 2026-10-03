@@ -118,6 +118,10 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
+# The organization every user is in; naming it means the personal context.
+PERSONAL_ORG_ID = "00000000-0000-0000-0000-000000000000"
+
+
 class AutoRefreshClient:
     """
     A wrapper around httpx.Client that automatically refreshes tokens before requests.
@@ -253,8 +257,13 @@ class Ouro:
         - `project` from `OURO_PROJECT_ID`
 
         ``organization`` (a UUID or the org's name) pins the client to one
-        organization: everything it creates goes there, and creating in or
-        moving to another organization raises ``OuroError``. Reads are not
+        organization: everything it creates goes there, its requests run in
+        that organization's context (so an organization that pays for its
+        members' usage pays for this client's), and creating in or moving to
+        another organization raises ``OuroError``. An unpinned client runs in
+        the personal context. An API key bound to an organization pins the
+        client to it; a key bound to the personal context can't be pinned to
+        an organization. Reads are not
         restricted. ``team`` (a UUID) is where new assets go when a call
         doesn't name a team; it defaults to the organization's default team.
         Pass ``organization=""`` to ignore ``OURO_ORG_ID`` and stay unpinned.
@@ -316,6 +325,7 @@ class Ouro:
             timeout=DEFAULT_TIMEOUT,
             limits=DEFAULT_CONNECTION_LIMITS,
         )
+        self._apply_org_context()
         if access_token is not None:
             self.access_token = access_token
             self.refresh_token = None
@@ -343,6 +353,11 @@ class Ouro:
         self.organizations = Organizations(self)
         self.teams = Teams(self)
 
+        # A key bound to one organization can't act anywhere else, so it
+        # decides the pin unless the caller named one
+        key_org = getattr(self, "api_key_org_id", None)
+        if not organization and key_org and key_org != PERSONAL_ORG_ID:
+            organization = key_org
         if organization:
             self.use_organization(organization, team=team or None)
 
@@ -359,6 +374,7 @@ class Ouro:
             self.organization = None
             self.team = None
             self._default_team_id = None
+            self._apply_org_context()
             return
 
         organization = str(organization).strip()
@@ -369,9 +385,36 @@ class Ouro:
                 raise OuroError(f"Organization '{organization}' was not found")
             organization = str(data["id"])
 
-        self.organization = organization.lower()
+        organization = organization.lower()
+        # The backend refuses this on every request; say so once, up front
+        key_org = getattr(self, "api_key_org_id", None)
+        if key_org and organization != key_org:
+            bound_to = (
+                "your personal context"
+                if key_org == PERSONAL_ORG_ID
+                else f"organization {key_org}"
+            )
+            raise OuroError(
+                f"This API key is bound to {bound_to} and can't act in "
+                f"organization {organization}. Use a key made for it."
+            )
+
+        self.organization = organization
         self.team = str(team).strip() if team else None
         self._default_team_id = None
+        self._apply_org_context()
+
+    def _apply_org_context(self) -> None:
+        """Name the organization this client's requests run in.
+
+        A pinned client names its organization on every request. An unpinned
+        one names none and runs in the personal context (or wherever its API
+        key is bound).
+        """
+        if self.organization:
+            self._raw_client.headers["X-Ouro-Org"] = self.organization
+        else:
+            self._raw_client.headers.pop("X-Ouro-Org", None)
 
     def _check_organization(self, org_id: object) -> None:
         """Refuse a write aimed at an organization other than the pinned one."""
@@ -505,6 +548,8 @@ class Ouro:
         # wrapper identity (e.g. ouro-mcp) set via the constructor.
         self._raw_client.headers["X-Ouro-Client"] = self._ouro_client
         self._raw_client.headers["User-Agent"] = self._user_agent
+        # The context the key is bound to; None when it is unbound
+        self.api_key_org_id = data.get("api_key_org_id")
         api_key_name = data.get("api_key_name")
         if api_key_name:
             self.api_key_name = api_key_name
