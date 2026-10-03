@@ -152,6 +152,11 @@ def _render_block(node: dict, indent: str = "") -> Optional[str]:
         lines = inner.split("\n")
         return "\n".join(f"> {line}" for line in lines)
 
+    if node_type == "callout":
+        kind = str(attrs.get("kind") or "note").upper()
+        lines = [f"[!{kind}]", *_render_children(content, indent="").split("\n")]
+        return "\n".join(f"> {line}" if line else ">" for line in lines)
+
     if node_type == "bulletList":
         items = []
         for child in content:
