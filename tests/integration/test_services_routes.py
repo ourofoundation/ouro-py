@@ -204,6 +204,10 @@ def test_compatible_routes_for_file(ouro, track, routes):
     compatible = ouro.assets.compatible_routes(str(file.id), limit=200)
     assert all(isinstance(route, Route) for route in compatible)
 
+    searched = ouro.assets.compatible_routes(str(file.id), query="relax the structure", limit=5)
+    assert all(isinstance(route, Route) for route in searched)
+    assert len(list(searched)) <= 5
+
 
 def test_other_user_cannot_run_private_route(other, routes):
     with pytest.raises(OuroError):

@@ -483,6 +483,7 @@ class Assets(SyncAPIResource):
         self,
         id: str,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
         sort: str = "popular",
@@ -497,8 +498,13 @@ class Assets(SyncAPIResource):
         ``limit`` every compatible route is returned in one page. Output
         filters match both the primary route output and any structured
         ``output_assets`` metadata.
+
+        Pass ``query`` to search the compatible routes by intent (e.g.
+        "relax the structure"). Matches come back most relevant first,
+        ``sort`` is ignored, and routes that don't match are left out.
         """
         params = {
+            "query": query.strip() if query and query.strip() else None,
             "limit": limit,
             "offset": offset if limit is not None else None,
             "sort": sort,
