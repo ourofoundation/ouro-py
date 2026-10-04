@@ -627,6 +627,8 @@ class Routes(SyncAPIResource):
         raise_on_error: bool = False,
         currency: Optional[str] = None,
         notify: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         **kwargs,
     ) -> Action:
         """
@@ -678,6 +680,17 @@ class Routes(SyncAPIResource):
                 errors or times out), or ``"none"``. Use ``"none"`` when a
                 program runs many actions as one workflow and reports on them
                 itself. Webhook endpoints still receive the action event.
+            org_id: Organization (UUID) to run this one call in. The context
+                a route runs in is who pays for it (an organization that
+                sponsors usage pays from its treasury) and where the assets
+                it creates land. Left out, the call runs in the client's
+                pinned organization, or the personal context when unpinned.
+                Refused when it differs from the pinned organization or the
+                one the API key is bound to.
+            team_id: Team (UUID) the assets this route creates go to. It must
+                be in the organization the route runs in; outputs never leave
+                it. Left out, they go beside the input asset when it is in
+                that organization, else to the organization's default team.
             **kwargs: Additional keyword arguments to send to the route
 
         Raises:
@@ -690,6 +703,11 @@ class Routes(SyncAPIResource):
             raise ValueError(
                 f"notify must be one of {', '.join(NOTIFY_LEVELS)}; got {notify!r}"
             )
+        if org_id:
+            org_id = str(org_id).strip().lower()
+            self.ouro._check_organization(org_id)
+        if team_id:
+            output = {**(output or {}), "team_id": str(team_id)}
         route_id = self._resolve_name_to_id(name_or_id, "route")
         route = self.retrieve(route_id)
         normalized_input_assets = _normalize_input_assets(input_assets, assets)
@@ -717,6 +735,8 @@ class Routes(SyncAPIResource):
         request_headers = {"Prefer": "respond-async"} if respond_async else {}
         if notify:
             request_headers["Ouro-Notify"] = notify
+        if org_id:
+            request_headers["X-Ouro-Org"] = org_id
         http_response = self.client.post(
             f"/services/{route.parent_id}/routes/{route_id}/use",
             json=payload,

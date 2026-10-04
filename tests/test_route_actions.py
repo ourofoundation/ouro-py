@@ -83,6 +83,9 @@ class _FakeOuro:
     def _make_status_error(self, err_msg: str, *, body, response, status_override=None):
         return InternalServerError(err_msg, response=response, body=body)
 
+    def _check_organization(self, org_id) -> None:
+        self.checked_org_id = org_id
+
 
 class TestRouteActions(unittest.TestCase):
     def test_list_actions_returns_action_models_with_pagination(self) -> None:
@@ -498,6 +501,27 @@ class TestRouteActions(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             Routes(ouro).execute(ROUTE_ID, notify="quiet")
+
+    def test_execute_names_the_organization_and_output_team(self) -> None:
+        org_id = "00000000-0000-0000-0000-0000000000AA"
+        team_id = "00000000-0000-0000-0000-0000000000bb"
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": _route_payload(execution_mode="async")}),
+                _FakeResponse(
+                    {"data": None, "action": _action("in-progress"), "metadata": {}},
+                    status_code=202,
+                ),
+            ]
+        )
+
+        Routes(ouro).execute(ROUTE_ID, wait=False, org_id=org_id, team_id=team_id)
+
+        request = ouro.client.requests[1]
+        self.assertEqual(request["headers"]["X-Ouro-Org"], org_id.lower())
+        self.assertEqual(request["json"]["config"]["output"], {"team_id": team_id})
+        # A pinned client refuses another organization before sending
+        self.assertEqual(ouro.checked_org_id, org_id.lower())
 
     def test_execute_sync_route_waits_inline(self) -> None:
         ouro = _FakeOuro(
