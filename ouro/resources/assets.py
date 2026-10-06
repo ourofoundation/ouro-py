@@ -117,7 +117,9 @@ class Assets(SyncAPIResource):
         Keyword arguments (all optional):
             asset_type:  "dataset", "post", "file", "service", "route", "quest"
                          (may also be a list, e.g. ["file", "dataset"])
-            scope:       "personal" | "org" | "global" | "all"
+            scope:       "personal" | "org" | "shared" | "purchased" |
+                         "global" | "all" ("shared" and "purchased": others'
+                         assets shared with you, and ones you bought)
             org_id:      scope to an organization (UUID)
             team_id:     scope to a team within an org (UUID)
             user_id:     filter by asset owner (UUID)

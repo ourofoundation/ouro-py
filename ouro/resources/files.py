@@ -425,7 +425,7 @@ class Files(SyncAPIResource):
             limit: Max results (default 20). Values above 200 paginate
                 internally; ``None`` fetches all matches.
             offset: Pagination offset.
-            scope: ``"personal"`` | ``"org"`` | ``"global"`` | ``"all"``.
+            scope: ``"personal"`` | ``"org"`` | ``"shared"`` | ``"purchased"`` | ``"global"`` | ``"all"``.
             org_id / team_id / user_id / visibility: Standard asset filters.
             sort: ``"relevant"`` | ``"recent"`` | ``"popular"`` | ``"updated"``.
             time_window: For ``sort="popular"``: ``"day"`` | ``"week"`` | ``"month"`` | ``"all"``.
