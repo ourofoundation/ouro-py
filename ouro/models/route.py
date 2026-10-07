@@ -153,11 +153,14 @@ class RouteMetrics(OuroModel):
     # Average HTTP-hop latency in milliseconds: time from request start until
     # upstream returned 200 or 202.
     avg_ack_ms: Optional[int] = None
+    p50_ack_ms: Optional[int] = None
     p95_ack_ms: Optional[int] = None
     # Average end-to-end latency in milliseconds: started_at to finished_at,
     # includes webhook completion for async routes. This is the value an
-    # agent should consider when deciding whether to wait or poll.
+    # agent should consider when deciding whether to wait or poll. p50 is the
+    # typical run; a long tail pulls the average well above it.
     avg_completion_ms: Optional[int] = None
+    p50_completion_ms: Optional[int] = None
     p95_completion_ms: Optional[int] = None
     latency_sample_count: Optional[int] = None
 
