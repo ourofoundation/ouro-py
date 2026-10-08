@@ -21,6 +21,7 @@ import httpx
 
 from ouro._exceptions import (
     APIStatusError,
+    BadRequestError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -43,6 +44,31 @@ def _make_resource(client: httpx.Client | None = None) -> SyncAPIResource:
 def _response(body: object, *, status_code: int = 200) -> httpx.Response:
     request = httpx.Request("PUT", "https://api.example.test/posts/abc")
     return httpx.Response(status_code=status_code, json=body, request=request)
+
+
+class TestErrorFields(unittest.TestCase):
+    def test_code_comes_from_the_error_object(self) -> None:
+        resource = _make_resource()
+        body = {
+            "data": None,
+            "error": {
+                "name": "HttpError",
+                "message": 'Column name "group" is a reserved SQL word.',
+                "code": "reserved_column_name",
+                "status": 400,
+            },
+        }
+        with self.assertRaises(BadRequestError) as raised:
+            resource._handle_response(_response(body, status_code=400))
+        self.assertEqual(raised.exception.code, "reserved_column_name")
+        self.assertIn('"group"', str(raised.exception))
+
+    def test_code_still_read_from_a_flat_body(self) -> None:
+        resource = _make_resource()
+        body = {"message": "nope", "code": "flat_code"}
+        with self.assertRaises(BadRequestError) as raised:
+            resource._handle_response(_response(body, status_code=400))
+        self.assertEqual(raised.exception.code, "flat_code")
 
 
 class TestEnvelopeStatusMapping(unittest.TestCase):

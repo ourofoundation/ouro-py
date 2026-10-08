@@ -53,9 +53,13 @@ class APIError(OuroError):
         self.body = body
 
         if is_dict(body):
-            self.code = body.get("code")
-            self.param = body.get("param")
-            self.type = body.get("type")
+            # Ouro replies with { data, error: { message, code, ... } }, so the
+            # error's own fields are one level down.
+            error = body.get("error")
+            detail = error if is_dict(error) else body
+            self.code = detail.get("code")
+            self.param = detail.get("param")
+            self.type = detail.get("type")
         else:
             self.code = None
             self.param = None
