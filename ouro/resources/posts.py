@@ -13,7 +13,7 @@ from ouro._resource import (
 )
 from ouro.models import DeleteResult, Page, Post
 
-from .content import Content, Editor
+from .content import Content, Editor, parse_unconnected_text
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class Posts(SyncAPIResource):
             )
 
         if content is not None:
-            return content
+            return parse_unconnected_text(content, self.ouro)
 
         markdown: Optional[str] = content_markdown
         if content_path is not None:
@@ -148,6 +148,9 @@ class Posts(SyncAPIResource):
 
         Provide one of content, content_markdown, or content_path.
         When using content_markdown or content_path, omit content (or pass None).
+
+        ``Content(text=...)`` built without a client is parsed as markdown here,
+        the same as ``content_markdown``. Already-structured content is uploaded as given.
         """
         content = self._resolve_content(
             content=content,
@@ -205,6 +208,9 @@ class Posts(SyncAPIResource):
         **kwargs,
     ) -> Post:
         """Update a Post by its id."""
+        if content is not None:
+            content = parse_unconnected_text(content, self.ouro)
+
         post = _strip_none(
             {
                 "name": name,

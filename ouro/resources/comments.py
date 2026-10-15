@@ -11,7 +11,7 @@ from ouro._resource import (
 )
 from ouro.models import Comment, DeleteResult, Page
 
-from .content import Content, Editor
+from .content import Content, Editor, parse_unconnected_text
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -36,7 +36,12 @@ class Comments(SyncAPIResource):
         attribution: Optional[dict] = None,
         **kwargs,
     ) -> Comment:
-        """Create a new Comment."""
+        """Create a new Comment.
+
+        ``Content(text=...)`` built without a client is parsed as markdown here.
+        Already-structured content is uploaded as given.
+        """
+        content = parse_unconnected_text(content, self.ouro)
         comment = _strip_none({
             "license_id": license_id,
             **kwargs,
@@ -94,6 +99,8 @@ class Comments(SyncAPIResource):
         **kwargs,
     ) -> Comment:
         """Update a Comment by its id."""
+        if content is not None:
+            content = parse_unconnected_text(content, self.ouro)
         comment = _strip_none({
             "license_id": license_id,
             "attribution": _optional_attribution(attribution),

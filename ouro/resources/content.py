@@ -21,6 +21,47 @@ def _text_nodes(text: str) -> list:
     return [{"text": text, "type": "text"}] if text else []
 
 
+def _naive_text_json(text: str) -> dict:
+    """Paragraph-per-line JSON used when no client is available to parse markdown."""
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": _text_nodes(line),
+            }
+            for line in text.split("\n")
+        ],
+    }
+
+
+def _is_unparsed_text(content: object) -> bool:
+    """True when ``Content(text=...)`` was built without a client.
+
+    That constructor cannot call the markdown converter, so ``{@username}``,
+    bold, and lists stay literal. Content with structured JSON, or built via
+    ``client.posts.Content``, is not unparsed.
+    """
+    return (
+        isinstance(content, Content)
+        and content._ouro is None
+        and bool(content.text)
+        and content.json == _naive_text_json(content.text)
+    )
+
+
+def parse_unconnected_text(content: "Content", ouro: "Ouro") -> "Content":
+    """Return ``content`` parsed as markdown if it was built from text without a client.
+
+    Anything else is returned unchanged. The original is never mutated.
+    """
+    if not _is_unparsed_text(content):
+        return content
+    parsed = Content(_ouro=ouro)
+    parsed.from_markdown(content.text)
+    return parsed
+
+
 class Content:
     """A Post's content."""
 
@@ -56,16 +97,7 @@ class Content:
             return
 
         self.text = text
-        self.json = {
-            "type": "doc",
-            "content": [
-                {
-                    "type": "paragraph",
-                    "content": _text_nodes(line),
-                }
-                for line in text.split("\n")
-            ],
-        }
+        self.json = _naive_text_json(text)
 
     def append(self, content: "Content") -> None:
         self.json["content"].extend(content.json["content"])
