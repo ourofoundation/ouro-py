@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from ouro._resource import (
     SyncAPIResource,
@@ -11,7 +11,7 @@ from ouro._resource import (
 )
 from ouro.models import Comment, DeleteResult, Page
 
-from .content import Content, Editor, parse_unconnected_text
+from .content import Content, Editor, rich_text_payload
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class Comments(SyncAPIResource):
 
     def create(
         self,
-        content: "Content",
+        content: Union["Content", str],
         parent_id: str,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
@@ -38,10 +38,9 @@ class Comments(SyncAPIResource):
     ) -> Comment:
         """Create a new Comment.
 
-        ``Content(text=...)`` built without a client is parsed as markdown here.
-        Already-structured content is uploaded as given.
+        ``content`` may be Content or a markdown string. Markdown, including
+        ``Content(text=...)`` built without a client, is parsed by the server.
         """
-        content = parse_unconnected_text(content, self.ouro)
         comment = _strip_none({
             "license_id": license_id,
             **kwargs,
@@ -55,7 +54,7 @@ class Comments(SyncAPIResource):
             "/comments/create",
             json={
                 "comment": comment,
-                "content": content.to_dict(),
+                "content": rich_text_payload(content),
             },
         )
         return self._parse(Comment, self._handle_response(request))
@@ -93,14 +92,12 @@ class Comments(SyncAPIResource):
     def update(
         self,
         id: str,
-        content: Optional["Content"] = None,
+        content: Optional[Union["Content", str]] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
         **kwargs,
     ) -> Comment:
         """Update a Comment by its id."""
-        if content is not None:
-            content = parse_unconnected_text(content, self.ouro)
         comment = _strip_none({
             "license_id": license_id,
             "attribution": _optional_attribution(attribution),
@@ -111,7 +108,7 @@ class Comments(SyncAPIResource):
             f"/comments/{id}",
             json={
                 "comment": comment,
-                "content": content.to_dict() if content is not None else None,
+                "content": rich_text_payload(content) if content is not None else None,
             },
         )
         return self._parse(Comment, self._handle_response(request))

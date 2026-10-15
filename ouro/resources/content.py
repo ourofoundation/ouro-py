@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 import pandas as pd
 
@@ -38,9 +38,9 @@ def _naive_text_json(text: str) -> dict:
 def _is_unparsed_text(content: object) -> bool:
     """True when ``Content(text=...)`` was built without a client.
 
-    That constructor cannot call the markdown converter, so ``{@username}``,
-    bold, and lists stay literal. Content with structured JSON, or built via
-    ``client.posts.Content``, is not unparsed.
+    That constructor cannot call the markdown converter, so its JSON is plain
+    paragraphs with ``{@username}``, bold, and lists left literal. Content with
+    structured JSON, or built via ``client.posts.Content``, is not unparsed.
     """
     return (
         isinstance(content, Content)
@@ -50,16 +50,19 @@ def _is_unparsed_text(content: object) -> bool:
     )
 
 
-def parse_unconnected_text(content: "Content", ouro: "Ouro") -> "Content":
-    """Return ``content`` parsed as markdown if it was built from text without a client.
+def rich_text_payload(value: Union["Content", str, dict]) -> Union[str, dict]:
+    """The API value for a description or a post/comment body.
 
-    Anything else is returned unchanged. The original is never mutated.
+    Markdown strings are sent as-is; the server parses them, resolving
+    ``{@username}`` mentions and Ouro links. ``Content(text=...)`` built
+    without a client is sent as its markdown text for the same reason.
+    Other Content is sent as structured ``{json, text}``, and dicts as given.
     """
-    if not _is_unparsed_text(content):
-        return content
-    parsed = Content(_ouro=ouro)
-    parsed.from_markdown(content.text)
-    return parsed
+    if isinstance(value, (str, dict)):
+        return value
+    if _is_unparsed_text(value):
+        return value.text
+    return value.to_dict()
 
 
 class Content:

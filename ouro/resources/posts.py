@@ -13,7 +13,7 @@ from ouro._resource import (
 )
 from ouro.models import DeleteResult, Page, Post
 
-from .content import Content, Editor, parse_unconnected_text
+from .content import Content, Editor, rich_text_payload
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ class Posts(SyncAPIResource):
         content: Optional["Content"],
         content_markdown: Optional[str],
         content_path: Optional[str],
-    ) -> "Content":
+    ) -> Union["Content", str]:
+        """Return the post body as Content, or as markdown for the server to parse."""
         provided = [
             ("content", content is not None),
             ("content_markdown", content_markdown is not None),
@@ -64,7 +65,7 @@ class Posts(SyncAPIResource):
             )
 
         if content is not None:
-            return parse_unconnected_text(content, self.ouro)
+            return content
 
         markdown: Optional[str] = content_markdown
         if content_path is not None:
@@ -81,10 +82,7 @@ class Posts(SyncAPIResource):
             raise ValueError(
                 "No post body provided. Pass one of: content, content_markdown, or content_path."
             )
-
-        resolved_content = self.Content()
-        resolved_content.from_markdown(markdown)
-        return resolved_content
+        return markdown
 
     def list(
         self,
@@ -149,8 +147,8 @@ class Posts(SyncAPIResource):
         Provide one of content, content_markdown, or content_path.
         When using content_markdown or content_path, omit content (or pass None).
 
-        ``Content(text=...)`` built without a client is parsed as markdown here,
-        the same as ``content_markdown``. Already-structured content is uploaded as given.
+        Markdown, including ``Content(text=...)`` built without a client, is
+        parsed by the server. Already-structured content is uploaded as given.
         """
         content = self._resolve_content(
             content=content,
@@ -181,7 +179,7 @@ class Posts(SyncAPIResource):
             "/posts/create",
             json={
                 "post": post,
-                "content": content.to_dict(),
+                "content": rich_text_payload(content),
             },
         )
         return self._parse(Post, self._handle_response(request))
@@ -194,7 +192,7 @@ class Posts(SyncAPIResource):
     def update(
         self,
         id: str,
-        content: Optional["Content"] = None,
+        content: Optional[Union["Content", str]] = None,
         name: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
@@ -207,10 +205,10 @@ class Posts(SyncAPIResource):
         attribution: Optional[dict] = None,
         **kwargs,
     ) -> Post:
-        """Update a Post by its id."""
-        if content is not None:
-            content = parse_unconnected_text(content, self.ouro)
+        """Update a Post by its id.
 
+        ``content`` may be Content or a markdown string for the server to parse.
+        """
         post = _strip_none(
             {
                 "name": name,
@@ -232,7 +230,7 @@ class Posts(SyncAPIResource):
             f"/posts/{id}",
             json={
                 "post": post,
-                "content": content.to_dict() if content is not None else None,
+                "content": rich_text_payload(content) if content is not None else None,
             },
         )
         return self._parse(Post, self._handle_response(request))

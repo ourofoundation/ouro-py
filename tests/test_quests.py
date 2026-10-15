@@ -78,7 +78,7 @@ class TestQuestItems(unittest.TestCase):
         )
 
         sent = ouro.client.requests[0]["json"]["items"][0]
-        self.assertEqual(sent["description"]["text"], "Measure Curie temperature")
+        self.assertEqual(sent["description"], "Measure Curie temperature")
         self.assertEqual(sent["expected_asset_type"], "file")
         self.assertEqual(sent["sort_order"], 1)
 

@@ -19,19 +19,18 @@ DEFAULT_ATTRIBUTION = {"originality": "original"}
 
 def _coerce_description(
     description: Optional[Union[str, dict, "Content"]],
-) -> Optional[dict]:
-    """Normalize a description to the API's rich {json, text} shape.
+) -> Optional[Union[str, dict]]:
+    """Prepare a description for the API.
 
-    Accepts a Content instance, a plain string (converted to a simple
-    paragraph doc), or an already-shaped dict.
+    A string is sent as markdown for the server to parse, so ``{@username}``
+    mentions and formatting render. Content and already-shaped dicts are
+    sent as rich ``{json, text}``.
     """
-    from ouro.resources.content import Content
+    from ouro.resources.content import rich_text_payload
 
-    if description is None or isinstance(description, dict):
-        return description
-    if isinstance(description, str):
-        description = Content(text=description)
-    return description.to_dict()
+    if description is None:
+        return None
+    return rich_text_payload(description)
 
 
 def _strip_none(d: dict) -> dict:
