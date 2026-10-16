@@ -265,6 +265,17 @@ class Quests(SyncAPIResource):
         )
         return self._parse(QuestItem, self._handle_response(request))
 
+    def rescore_item(self, quest_id: str, item_id: str) -> dict:
+        """Re-run an item's eval route on its existing entries.
+
+        Use after changing the eval route. Runs as you (a quest editor) and
+        only updates scores; it never accepts, rejects or pays an entry.
+        Returns ``{"started": [{entry_id, action_id}], "skipped":
+        [{entry_id, reason}]}``; scores update as each run finishes.
+        """
+        request = self.client.post(f"/quests/{quest_id}/items/{item_id}/rescore", json={})
+        return self._handle_response(request)
+
     def complete_item(
         self,
         quest_id: str,
