@@ -92,11 +92,12 @@ class _SqlFakeClient:
 
     def __init__(self, rows: list[dict]) -> None:
         self.rows = rows
+        self.extra: dict = {}
         self.requests: list[dict] = []
 
     def post(self, path: str, json=None):
         self.requests.append({"method": "POST", "path": path, "json": json})
-        return _FakeResponse({"data": self.rows, "error": None})
+        return _FakeResponse({"data": self.rows, "error": None, **self.extra})
 
     def get(self, path: str, params=None):
         self.requests.append({"method": "GET", "path": path, "params": params})
@@ -698,6 +699,50 @@ class TestDatasetsQuerySql(unittest.TestCase):
         datasets = Datasets(_SqlFakeOuro([]))
         with self.assertRaisesRegex(ValueError, "sql query is required"):
             datasets.query("019df875-7957-7888-888f-f8140ff62564", "   ")
+
+    def test_query_with_prompt_returns_dataframe_and_the_sql_that_ran(self) -> None:
+        ouro = _SqlFakeOuro([{"formula": "Fe2B"}])
+        ouro.client.extra = {"query": "SELECT * FROM {{table}} WHERE formula ~ 'Fe'"}
+        datasets = Datasets(ouro)
+
+        df = datasets.query("019df875-7957-7888-888f-f8140ff62564", prompt=" iron compounds ")
+
+        self.assertEqual(ouro.client.requests[0]["json"], {"prompt": "iron compounds"})
+        self.assertEqual(df.attrs["sql"], "SELECT * FROM {{table}} WHERE formula ~ 'Fe'")
+        self.assertEqual(len(df), 1)
+
+    def test_query_rejects_sql_and_prompt_together(self) -> None:
+        datasets = Datasets(_SqlFakeOuro([]))
+        with self.assertRaisesRegex(ValueError, "not both"):
+            datasets.query(
+                "019df875-7957-7888-888f-f8140ff62564",
+                "SELECT 1",
+                prompt="iron",
+            )
+
+    def test_list_rows_with_prompt_pages_through_query_custom(self) -> None:
+        ouro = _SqlFakeOuro([{"formula": "Fe2B"}, {"formula": "FeCo"}])
+        ouro.client.extra = {
+            "query": "SELECT * FROM {{table}} WHERE formula ~ 'Fe'",
+            "pagination": {"offset": 2, "limit": 2, "total": 7, "hasMore": True},
+        }
+        datasets = Datasets(ouro)
+
+        page = datasets.list_rows(
+            "019df875-7957-7888-888f-f8140ff62564",
+            limit=2,
+            offset=2,
+            prompt="iron compounds",
+        )
+
+        self.assertEqual(
+            ouro.client.requests[0]["json"],
+            {"prompt": "iron compounds", "limit": 2, "offset": 2, "resolve_refs": False},
+        )
+        self.assertEqual(page.sql, "SELECT * FROM {{table}} WHERE formula ~ 'Fe'")
+        self.assertEqual(page.total, 7)
+        self.assertTrue(page.has_more)
+        self.assertEqual(len(page), 2)
 
 
 class _ColumnFakeClient:

@@ -120,3 +120,6 @@ class DatasetRows(Page[Dict[str, Any]]):
     """
 
     resolved_refs: Dict[str, Dict[str, ResolvedRef]] = Field(default_factory=dict)
+    #: The SQL that produced this page, when it was read with ``sql`` or
+    #: ``prompt`` (a prompt's translation)
+    sql: Optional[str] = None

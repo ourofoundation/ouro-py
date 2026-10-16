@@ -655,17 +655,26 @@ class Datasets(SyncAPIResource):
         request = self.client.get(f"/datasets/{id}/schema")
         return self._parse_list(DatasetColumn, self._handle_response(request))
 
-    def query(self, id: str, sql: Optional[str] = None) -> pd.DataFrame:
+    def query(
+        self,
+        id: str,
+        sql: Optional[str] = None,
+        *,
+        prompt: Optional[str] = None,
+    ) -> pd.DataFrame:
         """Query a dataset's rows into a DataFrame.
 
-        Without ``sql``, fetches every row via the backend's paginated data
-        endpoint — fine for notebooks and small tables, slow on large ones.
-        Use :meth:`list_rows` to read one page at a time.
+        Without ``sql`` or ``prompt``, fetches every row via the backend's
+        paginated data endpoint — fine for notebooks and small tables, slow on
+        large ones. Use :meth:`list_rows` to read one page at a time.
 
         With ``sql``, runs a read-only PostgreSQL query against the dataset's
         table. Use ``{{table}}`` as a placeholder for the fully-qualified table
         name. Column names are lowercase snake_case — use them unquoted.
         Queries time out after 10 seconds; put ``LIMIT``/``OFFSET`` in the SQL.
+
+        With ``prompt``, describes the rows in plain language instead; Ouro
+        writes the SQL and runs it. The SQL is in ``df.attrs["sql"]``.
 
         Examples:
             >>> ouro.datasets.query(id)                           # all rows
@@ -675,17 +684,20 @@ class Datasets(SyncAPIResource):
             ...     "SELECT formula, mae_ev FROM {{table}} "
             ...     "ORDER BY mae_ev DESC NULLS LAST LIMIT 10",
             ... )
+            >>> ouro.datasets.query(id, prompt="iron compounds above 600 K")
         """
         if not id:
             raise ValueError("Dataset id is required")
+        body = self._query_body(sql, prompt)
 
-        if sql is None:
+        if body is None:
             return self._coerce_schema_dtypes(pd.DataFrame(self._fetch_all_rows(id)), id)
 
-        if not sql.strip():
-            raise ValueError("sql query is required when sql is provided.")
-        request = self.client.post(f"/datasets/{id}/query-custom", json={"query": sql})
-        return pd.DataFrame(self._handle_response(request) or [])
+        request = self.client.post(f"/datasets/{id}/query-custom", json=body)
+        response = self._handle_response(request, raw=True) or {}
+        df = pd.DataFrame(response.get("data") or [])
+        df.attrs["sql"] = response.get("query") or sql
+        return df
 
     def list_rows(
         self,
@@ -694,8 +706,15 @@ class Datasets(SyncAPIResource):
         limit: int = 100,
         offset: int = 0,
         resolve_refs: bool = False,
+        sql: Optional[str] = None,
+        prompt: Optional[str] = None,
     ) -> DatasetRows:
         """Fetch one page of a dataset's rows as plain dicts.
+
+        Pass ``sql`` (read-only, over ``{{table}}``) or ``prompt`` (the rows
+        described in plain language) to page through a query's result instead
+        of the whole table; the page then carries ``total`` and the ``sql``
+        that ran. Paging applies on top of any LIMIT the query has.
 
         Pass ``resolve_refs=True`` to also get ``resolved_refs``, a map of
         reference column -> id -> ``{kind, id, name, web_url, ...}`` for the
@@ -706,12 +725,47 @@ class Datasets(SyncAPIResource):
             raise ValueError("limit must be a positive integer.")
         if offset < 0:
             raise ValueError("offset must be non-negative.")
+
+        query_body = self._query_body(sql, prompt)
+        if query_body is not None:
+            request = self.client.post(
+                f"/datasets/{id}/query-custom",
+                json={
+                    **query_body,
+                    "limit": limit,
+                    "offset": offset,
+                    "resolve_refs": resolve_refs,
+                },
+            )
+            body = self._handle_response(request, raw=True) or {}
+            return self._page(
+                DatasetRows,
+                body,
+                resolved_refs=body.get("resolved_refs") or {},
+                sql=body.get("query") or sql,
+            )
+
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         if resolve_refs:
             params["resolve_refs"] = "true"
         request = self.client.get(f"/datasets/{id}/data", params=params)
         body = self._handle_response(request, raw=True) or {}
         return self._page(DatasetRows, body, resolved_refs=body.get("resolved_refs") or {})
+
+    @staticmethod
+    def _query_body(sql: Optional[str], prompt: Optional[str]) -> Optional[Dict[str, Any]]:
+        """The query-custom body for ``sql`` or ``prompt``; None for neither."""
+        if sql is not None and prompt is not None:
+            raise ValueError("Pass sql or prompt, not both.")
+        if sql is not None:
+            if not sql.strip():
+                raise ValueError("sql query is required when sql is provided.")
+            return {"query": sql}
+        if prompt is not None:
+            if not prompt.strip():
+                raise ValueError("prompt is required when prompt is provided.")
+            return {"prompt": prompt.strip()}
+        return None
 
     def _coerce_schema_dtypes(self, df: pd.DataFrame, id: str) -> pd.DataFrame:
         """Apply timestamp/date dtype coercion to a query result."""
