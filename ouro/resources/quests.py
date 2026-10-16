@@ -418,3 +418,15 @@ class Quests(SyncAPIResource):
             ),
         )
         return self._parse(Entry, self._handle_response(request))
+
+    def evaluate_entry(self, quest_id: str, entry_id: str) -> Entry:
+        """Run the item's evaluation route on an entry, as the quest's owner.
+
+        For items that wait for the owner (``eval_trigger="owner"``), and to
+        evaluate an entry again (an accepted entry is only re-scored, never
+        paid twice). Requires quest admin.
+        An inline eval route's score is on the returned entry; an async one
+        leaves it ``eval_status="running"`` until the route reports.
+        """
+        request = self.client.post(f"/quests/{quest_id}/entries/{entry_id}/evaluate")
+        return self._parse(Entry, self._handle_response(request))

@@ -8,6 +8,8 @@ from .asset import Asset
 
 
 RouteAssetType = Literal["file", "dataset", "post", "comment"]
+# Inputs may also be a route (a quest eval route receives the submitted one).
+RouteInputAssetType = Literal["file", "dataset", "post", "comment", "route"]
 RouteCacheScope = Literal["none", "user", "shared"]
 RouteInputFilter = Literal[
     "audio",
@@ -27,8 +29,8 @@ class RouteInputAssetDeclaration(OuroModel):
     projections for older clients and indexing.
     """
 
-    asset_type: RouteAssetType
-    asset_types: Optional[List[RouteAssetType]] = Field(default=None, min_length=1)
+    asset_type: RouteInputAssetType
+    asset_types: Optional[List[RouteInputAssetType]] = Field(default=None, min_length=1)
     primary: Optional[bool] = None
     input_filter: Optional[RouteInputFilter] = None
     file_extensions: Optional[List[str]] = None
@@ -121,7 +123,7 @@ class RouteData(OuroModel):
     # Canonical plural input declarations keyed by request body field name.
     input_assets: Optional[Dict[str, RouteInputAssetDeclaration]] = None
     # Legacy primary projection — kept synchronized with ``input_assets``.
-    input_type: Optional[RouteAssetType] = None
+    input_type: Optional[RouteInputAssetType] = None
     input_filter: Optional[RouteInputFilter] = None
     input_file_extension: Optional[str] = None
     input_file_extensions: Optional[List[str]] = None

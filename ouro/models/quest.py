@@ -54,6 +54,8 @@ class QuestItem(OuroModel):
     leaderboard_order: Optional[Literal["desc", "asc"]] = "desc"
     submission_assets: Optional[Dict[str, Any]] = None
     eval_static_inputs: Optional[Dict[str, Any]] = None
+    # When the eval route runs: "submit" or "owner" (the quest's owner starts it)
+    eval_trigger: Optional[str] = None
     notes: Optional[str] = None
     waiting_on: Optional[str] = None
     waiting_until: Optional[str] = None
