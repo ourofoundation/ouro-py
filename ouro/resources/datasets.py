@@ -22,6 +22,7 @@ from ouro._resource import (
 from ouro.models import (
     Dataset,
     DatasetColumn,
+    DatasetIndex,
     DatasetRows,
     DatasetStats,
     DatasetView,
@@ -44,6 +45,8 @@ GZIP_MIN_BYTES = 2_048
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
 DatasetUploadMode = Literal["append", "overwrite", "upsert"]
 DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
+# A column, a list of columns, or {"columns": [...], "unique": bool}.
+DatasetIndexInput = Union[str, Sequence[str], Mapping[str, Any]]
 
 # Placeholder identifier for the CREATE TABLE we generate client-side. The
 # backend rewrites the table name to one derived from the dataset's UUID, and
@@ -467,6 +470,7 @@ class Datasets(SyncAPIResource):
         description: Optional[Union[str, "Content"]] = None,
         refs: Optional[Mapping[str, Any]] = None,
         enum_columns: Optional[DatasetEnumInput] = None,
+        indexes: Optional[Sequence[DatasetIndexInput]] = None,
         license_id: Optional[str] = None,
         attribution: Optional[dict] = None,
         **kwargs,
@@ -486,6 +490,10 @@ class Datasets(SyncAPIResource):
                 may be ``{"values": ["todo", "done"]}`` or the shorthand
                 ``["todo", "done"]``. The backend stores a CHECK constraint
                 and surfaces the values in dataset schema reads.
+            indexes: Columns to index, for datasets large enough that queries
+                filtering or joining on them would otherwise read every row.
+                Each entry is a column, a list of columns (up to 4), or
+                ``{"columns": [...], "unique": True}``. See ``create_index``.
         """
         df = self._coerce_dataframe(data, parameter_name="data")
         if df is None:
@@ -563,6 +571,7 @@ class Datasets(SyncAPIResource):
             "preview": preview,
             "refs": normalized_refs or None,
             "enum_columns": normalized_enum_columns or None,
+            "indexes": [self._index_body(index) for index in indexes] if indexes else None,
             "license_id": license_id,
             "metadata": metadata,
         })
@@ -961,6 +970,56 @@ class Datasets(SyncAPIResource):
         """Drop a column from an existing dataset's table."""
         request = self.client.delete(
             f"/datasets/{id}/columns/{quote(str(column), safe='')}"
+        )
+        self._handle_response(request)
+
+    @staticmethod
+    def _index_body(index: DatasetIndexInput, unique: bool = False) -> Dict[str, Any]:
+        """``{"columns": [...], "unique": bool}`` from a column, a list, or a mapping."""
+        if isinstance(index, Mapping):
+            columns = index.get("columns", index.get("column"))
+            unique = bool(index.get("unique", unique))
+        else:
+            columns = index
+        if isinstance(columns, str):
+            columns = [columns]
+        names = [str(column).strip() for column in (columns or [])]
+        if not names or not all(names):
+            raise ValueError("Name at least one column to index.")
+        return {"columns": names, "unique": unique}
+
+    def list_indexes(self, id: str) -> List[DatasetIndex]:
+        """The indexes on a dataset's table, primary key first."""
+        request = self.client.get(f"/datasets/{id}/indexes")
+        return self._parse_list(DatasetIndex, self._handle_response(request))
+
+    def create_index(
+        self,
+        id: str,
+        columns: Union[str, Sequence[str]],
+        *,
+        unique: bool = False,
+    ) -> DatasetIndex:
+        """Index columns of a dataset so queries on them stay fast as it grows.
+
+        Index what queries filter, join or sort on: without an index, a query
+        on a dataset of millions of rows reads every row and can time out.
+        Up to 4 columns per index (in the order queries narrow them), 16
+        indexes per dataset. Asking again for an index on the same columns
+        returns the existing one. ``unique=True`` also refuses duplicate
+        values (and fails if the column already has some). Building an index
+        on a large dataset takes a while (about 12 s per 6 million rows) and
+        holds writes to the dataset until it is done.
+        """
+        request = self.client.post(
+            f"/datasets/{id}/indexes", json=self._index_body(columns, unique)
+        )
+        return self._parse(DatasetIndex, self._handle_response(request))
+
+    def drop_index(self, id: str, name: str) -> None:
+        """Drop an index made with ``create_index`` (see ``list_indexes`` for names)."""
+        request = self.client.delete(
+            f"/datasets/{id}/indexes/{quote(str(name), safe='')}"
         )
         self._handle_response(request)
 

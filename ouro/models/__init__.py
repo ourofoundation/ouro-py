@@ -31,6 +31,7 @@ from .conversation import Conversation, ConversationMetadata, Message
 from .dataset import (
     Dataset,
     DatasetColumn,
+    DatasetIndex,
     DatasetMetadata,
     DatasetRef,
     DatasetRows,
@@ -123,6 +124,7 @@ __all__ = [
     "ConversationMetadata",
     "Dataset",
     "DatasetColumn",
+    "DatasetIndex",
     "DatasetMetadata",
     "DatasetRef",
     "DatasetRows",

@@ -879,3 +879,71 @@ class TestSerializeDataframe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _IndexFakeClient:
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def get(self, path: str, params=None):
+        self.requests.append({"method": "GET", "path": path})
+        return _FakeResponse({"data": [
+            {"name": "t_pkey", "columns": ["id"], "is_unique": True, "is_primary": True,
+             "is_constraint": True, "size_bytes": 8192},
+            {"name": "t_1a2b_idx", "columns": ["chemsys"], "is_unique": False, "is_primary": False,
+             "is_constraint": False, "size_bytes": 16384},
+        ], "error": None})
+
+    def post(self, path: str, json=None):
+        self.requests.append({"method": "POST", "path": path, "json": json})
+        return _FakeResponse({"data": {"name": "t_9f_idx", "is_primary": False, "is_constraint": False,
+                                       "size_bytes": 0, **json, "is_unique": json["unique"]}, "error": None})
+
+    def delete(self, path: str):
+        self.requests.append({"method": "DELETE", "path": path})
+        return _FakeResponse({"data": {"dropped": path.rsplit("/", 1)[-1]}, "error": None})
+
+
+class _IndexFakeOuro(_ColumnFakeOuro):
+    def __init__(self) -> None:
+        self.client = _IndexFakeClient()
+        self.websocket = None
+
+
+class TestDatasetIndexes(unittest.TestCase):
+    def test_create_index_takes_a_column_or_a_list(self) -> None:
+        ouro = _IndexFakeOuro()
+        datasets = Datasets(ouro)
+        index = datasets.create_index(DATASET_ID, "chemsys")
+        self.assertEqual(index.columns, ["chemsys"])
+        datasets.create_index(DATASET_ID, ["source", " source_id "], unique=True)
+        self.assertEqual(
+            [r["json"] for r in ouro.client.requests],
+            [{"columns": ["chemsys"], "unique": False}, {"columns": ["source", "source_id"], "unique": True}],
+        )
+        self.assertEqual(ouro.client.requests[0]["path"], f"/datasets/{DATASET_ID}/indexes")
+        with self.assertRaisesRegex(ValueError, "at least one column"):
+            datasets.create_index(DATASET_ID, [])
+
+    def test_list_and_drop(self) -> None:
+        ouro = _IndexFakeOuro()
+        datasets = Datasets(ouro)
+        indexes = datasets.list_indexes(DATASET_ID)
+        self.assertTrue(indexes[0].is_primary)
+        self.assertEqual(indexes[1].columns, ["chemsys"])
+        datasets.drop_index(DATASET_ID, "t_1a2b_idx")
+        self.assertEqual(ouro.client.requests[-1], {"method": "DELETE", "path": f"/datasets/{DATASET_ID}/indexes/t_1a2b_idx"})
+
+    def test_create_sends_indexes(self) -> None:
+        ouro = _FakeOuro(stats_count=0, create_extra={"row_ingest": {"inserted": 1, "skipped": 0}})
+        Datasets(ouro).create(
+            name="structures",
+            visibility="private",
+            data=[{"chemsys": "Cl-Na", "formula": "NaCl"}],
+            indexes=["chemsys", {"columns": ["formula"], "unique": True}],
+        )
+        body = ouro.client.requests[0]["json"]["dataset"]
+        self.assertEqual(
+            body["indexes"],
+            [{"columns": ["chemsys"], "unique": False}, {"columns": ["formula"], "unique": True}],
+        )

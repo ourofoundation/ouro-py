@@ -67,6 +67,19 @@ class DatasetColumn(OuroModel):
     enum_values: Optional[List[str]] = None
 
 
+class DatasetIndex(OuroModel):
+    """An index on a dataset's table: the columns its queries filter or sort on."""
+
+    name: str
+    columns: List[str]
+    is_unique: bool = False
+    # The primary key's index, and indexes behind a unique constraint from the
+    # table's schema, can't be dropped on their own.
+    is_primary: bool = False
+    is_constraint: bool = False
+    size_bytes: Optional[int] = None
+
+
 class DatasetStats(OuroModel):
     count: int
     is_estimate: bool = False
