@@ -714,11 +714,18 @@ class Datasets(SyncAPIResource):
         *,
         limit: int = 100,
         offset: int = 0,
+        cursor: Optional[Union[str, Mapping[str, Any]]] = None,
         resolve_refs: bool = False,
         sql: Optional[str] = None,
         prompt: Optional[str] = None,
     ) -> DatasetRows:
         """Fetch one page of a dataset's rows as plain dicts.
+
+        To page through the table, pass the previous page's ``next_cursor`` as
+        ``cursor``: each page then starts right after the last row, which
+        stays fast however deep a large dataset goes (an ``offset`` makes the
+        database step over every earlier row, and deep offsets into millions
+        of rows can time out). ``next_cursor`` is None on the last page.
 
         Pass ``sql`` (read-only, over ``{{table}}``) or ``prompt`` (the rows
         described in plain language) to page through a query's result instead
@@ -734,8 +741,12 @@ class Datasets(SyncAPIResource):
             raise ValueError("limit must be a positive integer.")
         if offset < 0:
             raise ValueError("offset must be non-negative.")
+        if isinstance(cursor, Mapping):
+            cursor = cursor.get("cursor")
 
         query_body = self._query_body(sql, prompt)
+        if query_body is not None and cursor:
+            raise ValueError("cursor pages the table; page a query's result with offset.")
         if query_body is not None:
             request = self.client.post(
                 f"/datasets/{id}/query-custom",
@@ -754,7 +765,11 @@ class Datasets(SyncAPIResource):
                 sql=body.get("query") or sql,
             )
 
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        params: Dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        else:
+            params["offset"] = offset
         if resolve_refs:
             params["resolve_refs"] = "true"
         request = self.client.get(f"/datasets/{id}/data", params=params)
@@ -1083,13 +1098,18 @@ class Datasets(SyncAPIResource):
         self._handle_response(request)
 
     def _fetch_all_rows(self, dataset_id: str, page_size: int = 1000) -> list[dict]:
+        # Follows the backend's cursor while it gives one (constant time per
+        # page); offsets otherwise (tables without a primary key).
         rows: list[dict] = []
         offset = 0
+        cursor: Optional[str] = None
         while True:
-            request = self.client.get(
-                f"/datasets/{dataset_id}/data",
-                params={"limit": page_size, "offset": offset},
-            )
+            params: Dict[str, Any] = {"limit": page_size}
+            if cursor:
+                params["cursor"] = cursor
+            else:
+                params["offset"] = offset
+            request = self.client.get(f"/datasets/{dataset_id}/data", params=params)
             payload = self._handle_response(request, raw=True) or {}
             page_rows = payload.get("data") or []
             pagination = payload.get("pagination") or {}
@@ -1098,6 +1118,7 @@ class Datasets(SyncAPIResource):
             if not has_more or len(page_rows) == 0:
                 break
             offset += len(page_rows)
+            cursor = (pagination.get("nextCursor") or {}).get("cursor")
         return rows
 
     def delete(

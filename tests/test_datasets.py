@@ -947,3 +947,60 @@ class TestDatasetIndexes(unittest.TestCase):
             body["indexes"],
             [{"columns": ["chemsys"], "unique": False}, {"columns": ["formula"], "unique": True}],
         )
+
+
+class _CursorFakeClient:
+    """Serves 25 rows in pages that hand out cursors (none on the last page)."""
+
+    def __init__(self, with_cursor: bool = True) -> None:
+        self.rows = [{"id": f"r{i:02d}"} for i in range(25)]
+        self.with_cursor = with_cursor
+        self.requests: list[dict] = []
+
+    def get(self, path: str, params=None):
+        self.requests.append({"method": "GET", "path": path, "params": dict(params or {})})
+        limit = params["limit"]
+        start = int(params["cursor"]) if "cursor" in params else params.get("offset", 0)
+        page = self.rows[start : start + limit]
+        more = start + limit < len(self.rows)
+        pagination = {"limit": limit, "hasMore": more}
+        if self.with_cursor:
+            pagination["nextCursor"] = {"cursor": str(start + limit)} if more else None
+        return _FakeResponse({"data": page, "error": None, "pagination": pagination})
+
+
+class _CursorFakeOuro(_ColumnFakeOuro):
+    def __init__(self, with_cursor: bool = True) -> None:
+        self.client = _CursorFakeClient(with_cursor)
+        self.websocket = None
+
+
+class TestDatasetRowCursors(unittest.TestCase):
+    def test_list_rows_pages_by_cursor(self) -> None:
+        ouro = _CursorFakeOuro()
+        datasets = Datasets(ouro)
+        first = datasets.list_rows(DATASET_ID, limit=10)
+        self.assertEqual(first.next_cursor, {"cursor": "10"})
+        self.assertNotIn("cursor", ouro.client.requests[0]["params"])
+        # The page's next_cursor, or just its token.
+        second = datasets.list_rows(DATASET_ID, limit=10, cursor=first.next_cursor)
+        third = datasets.list_rows(DATASET_ID, limit=10, cursor=second.next_cursor["cursor"])
+        self.assertEqual([r["id"] for r in third.data], [f"r{i}" for i in range(20, 25)])
+        self.assertIsNone(third.next_cursor)
+        self.assertEqual(ouro.client.requests[1]["params"], {"limit": 10, "cursor": "10"})
+
+    def test_cursor_is_for_the_table_not_a_query(self) -> None:
+        with self.assertRaisesRegex(ValueError, "offset"):
+            Datasets(_CursorFakeOuro()).list_rows(DATASET_ID, cursor="10", sql="SELECT 1")
+
+    def test_reading_everything_follows_cursors(self) -> None:
+        ouro = _CursorFakeOuro()
+        rows = Datasets(ouro)._fetch_all_rows(DATASET_ID, page_size=10)
+        self.assertEqual(len(rows), 25)
+        self.assertEqual([r["params"].get("cursor") for r in ouro.client.requests], [None, "10", "20"])
+
+    def test_reading_everything_falls_back_to_offsets(self) -> None:
+        ouro = _CursorFakeOuro(with_cursor=False)
+        rows = Datasets(ouro)._fetch_all_rows(DATASET_ID, page_size=10)
+        self.assertEqual(len(rows), 25)
+        self.assertEqual([r["params"].get("offset") for r in ouro.client.requests], [0, 10, 20])
