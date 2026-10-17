@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, model_validator
 
@@ -11,6 +11,7 @@ RouteAssetType = Literal["file", "dataset", "post", "comment"]
 # Inputs may also be a route (a quest eval route receives the submitted one).
 RouteInputAssetType = Literal["file", "dataset", "post", "comment", "route"]
 RouteCacheScope = Literal["none", "user", "shared"]
+WhenValue = Union[bool, int, float, str]
 RouteInputFilter = Literal[
     "audio",
     "video",
@@ -63,6 +64,14 @@ class RouteOutputAssetDeclaration(OuroModel):
     primary: Optional[bool] = None
     file_extensions: Optional[List[str]] = None
     contains_file_extensions: Optional[List[str]] = None
+    # Request-body values that switch this output on: {field: value | [values]}.
+    # Every field must match; a list matches any of its values. See
+    # ``ouro.utils.route_outputs``.
+    when: Optional[Dict[str, Union[WhenValue, List[WhenValue]]]] = None
+    # May be absent depending on the run's results
+    optional: Optional[bool] = None
+    # Key of the output this one goes into while that output is created
+    embedded_in: Optional[str] = None
 
 
 class RouteCapabilityBase(OuroModel):
