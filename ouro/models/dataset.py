@@ -40,9 +40,11 @@ class DatasetMetadata(OuroModel):
 
 
 class RowIngest(OuroModel):
-    """How many rows a write inserted, and how many it skipped (bad refs)."""
+    """How many rows a write inserted or updated, and how many it skipped
+    (bad refs)."""
 
     inserted: int = 0
+    updated: int = 0
     skipped: int = 0
     mode: Optional[str] = None
 

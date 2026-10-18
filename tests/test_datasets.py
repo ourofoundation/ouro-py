@@ -69,9 +69,12 @@ class _FakeClient:
             return _FakeResponse(
                 {"data": self.create_data, "error": None, **self.create_extra}
             )
-        return _FakeResponse(
-            {"data": {"inserted": len((json or {}).get("rows", []))}, "error": None}
-        )
+        count = len((json or {}).get("rows", []))
+        if (json or {}).get("mode") == "update":
+            return _FakeResponse(
+                {"data": {"inserted": 0, "updated": count}, "error": None}
+            )
+        return _FakeResponse({"data": {"inserted": count}, "error": None})
 
     def put(self, path: str, json=None):
         self.requests.append({"method": "PUT", "path": path, "json": json})
@@ -330,7 +333,7 @@ class TestDatasetsCreate(unittest.TestCase):
         )
 
         self.assertEqual(
-            created.row_ingest.model_dump(exclude_none=True), {"inserted": 1, "skipped": 1}
+            created.row_ingest.model_dump(exclude_none=True), {"inserted": 1, "updated": 0, "skipped": 1}
         )
         self.assertEqual(getattr(created, "ingest_warning"), warning)
 
@@ -388,8 +391,29 @@ class TestDatasetsCreate(unittest.TestCase):
         # The fake /data endpoint echoes inserted=len(rows) under `data`.
         self.assertEqual(
             updated.row_ingest.model_dump(exclude_none=True),
-            {"inserted": 2, "skipped": 0, "mode": "append"},
+            {"inserted": 2, "updated": 0, "skipped": 0, "mode": "append"},
         )
+
+
+    def test_update_mode_sends_partial_rows_and_counts_updates(self) -> None:
+        ouro = _FakeOuro(stats_count=0)
+        datasets = Datasets(ouro)
+
+        updated = datasets.update(
+            "019df875-7957-7888-888f-f8140ff62564",
+            data=[{"id": 1, "value": 10}, {"id": 2, "value": 20}],
+            data_mode="update",
+        )
+
+        uploads = [r for r in ouro.client.requests if r["path"].endswith("/data")]
+        self.assertEqual([r["json"]["mode"] for r in uploads], ["update"])
+        self.assertEqual(uploads[0]["json"]["rows"], [{"id": 1, "value": 10}, {"id": 2, "value": 20}])
+        self.assertEqual(updated.row_ingest.updated, 2)
+        self.assertEqual(updated.row_ingest.inserted, 0)
+
+    def test_unknown_data_mode_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            Datasets(_FakeOuro(stats_count=0)).update("x", data=[{"id": 1}], data_mode="merge")
 
 
 class TestDatasetChunking(unittest.TestCase):

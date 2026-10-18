@@ -43,7 +43,7 @@ BATCH_INSERT_WARNING_THRESHOLD = 10_000
 DATASET_UPLOAD_TARGET_BYTES = 6_000_000
 GZIP_MIN_BYTES = 2_048
 DatasetRowsInput = Union[pd.DataFrame, list[dict], dict]
-DatasetUploadMode = Literal["append", "overwrite", "upsert"]
+DatasetUploadMode = Literal["append", "overwrite", "upsert", "update"]
 DatasetEnumInput = Mapping[str, Union[Sequence[str], Mapping[str, Any]]]
 # A column, a list of columns, or {"columns": [...], "unique": bool}.
 DatasetIndexInput = Union[str, Sequence[str], Mapping[str, Any]]
@@ -313,7 +313,7 @@ class Datasets(SyncAPIResource):
         """Upload rows in byte-bounded requests, shrinking batches after a 413."""
         batches = list(self._iter_row_batches(rows, mode, max_bytes=max_bytes))
         aggregate: dict[str, Any] = {
-            "row_ingest": {"inserted": 0, "skipped": 0, "mode": mode},
+            "row_ingest": {"inserted": 0, "updated": 0, "skipped": 0, "mode": mode},
             "warning": None,
         }
 
@@ -350,6 +350,7 @@ class Datasets(SyncAPIResource):
                 ingest = response_data
             if isinstance(ingest, Mapping):
                 aggregate["row_ingest"]["inserted"] += int(ingest.get("inserted") or 0)
+                aggregate["row_ingest"]["updated"] += int(ingest.get("updated") or 0)
                 aggregate["row_ingest"]["skipped"] += int(ingest.get("skipped") or 0)
             warning = body.get("warning") if isinstance(body, Mapping) else None
             aggregate["warning"] = self._merge_warnings(aggregate["warning"], warning)
@@ -831,7 +832,12 @@ class Datasets(SyncAPIResource):
         When `data` is provided, `data_mode` controls ingest semantics:
         - "append": add new rows
         - "overwrite": replace existing rows
-        - "upsert": merge by id conflict target
+        - "upsert": insert rows, replacing any with the same primary key
+        - "update": change existing rows only. Each row carries the primary
+          key and the columns to set; other columns keep their values, and
+          rows whose key matches nothing are skipped (``row_ingest.updated``
+          counts the rows changed). Every column in ``data`` is set, so a
+          null clears that column.
 
         Args:
             refs: Promote existing columns to references by adding a real FK (ON
@@ -844,8 +850,8 @@ class Datasets(SyncAPIResource):
             enum_columns: Promote existing columns to enum columns by adding
                 a CHECK constraint and schema metadata.
         """
-        if data_mode not in {"append", "overwrite", "upsert"}:
-            raise ValueError("data_mode must be one of: append, overwrite, upsert.")
+        if data_mode not in {"append", "overwrite", "upsert", "update"}:
+            raise ValueError("data_mode must be one of: append, overwrite, upsert, update.")
 
         normalized_refs = self._normalize_refs(refs)
         normalized_enum_columns = self._normalize_enum_columns(enum_columns)

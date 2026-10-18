@@ -114,23 +114,32 @@ def test_floats_keep_double_precision(ouro, track):
     assert ouro.datasets.query(str(ds.id))["f"].iloc[0] == value
 
 
-def test_update_append_overwrite_upsert(ouro, track):
+def test_update_append_overwrite_upsert_update(ouro, track):
     ds = track.add(
         ouro.datasets.create(
             name=track.name("modes"),
             visibility="private",
-            data=[{"id": 1, "v": "one"}, {"id": 2, "v": "two"}],
+            data=[{"id": 1, "v": "one", "w": 0.5}, {"id": 2, "v": "two", "w": 0.5}],
         )
     )
     ds_id = str(ds.id)
 
-    appended = ouro.datasets.update(ds_id, data=[{"id": 3, "v": "three"}])
+    appended = ouro.datasets.update(ds_id, data=[{"id": 3, "v": "three", "w": 0.5}])
     assert appended.row_ingest.inserted == 1
     assert len(ouro.datasets.query(ds_id)) == 3
 
     ouro.datasets.update(ds_id, data=[{"id": 2, "v": "TWO"}], data_mode="upsert")
     rows = ouro.datasets.query(ds_id).set_index("id")["v"].to_dict()
     assert rows == {1: "one", 2: "TWO", 3: "three"}
+
+    # update changes matched rows only, and only the columns given
+    patched = ouro.datasets.update(
+        ds_id, data=[{"id": 1, "w": 1.5}, {"id": 42, "w": 9.0}], data_mode="update"
+    )
+    assert patched.row_ingest.updated == 1
+    back = ouro.datasets.query(ds_id).set_index("id")
+    assert back["v"].to_dict() == {1: "one", 2: "TWO", 3: "three"}
+    assert back.loc[1, "w"] == 1.5 and len(back) == 3
 
     ouro.datasets.update(ds_id, data=[{"id": 9, "v": "only"}], data_mode="overwrite")
     assert ouro.datasets.query(ds_id)["v"].tolist() == ["only"]
