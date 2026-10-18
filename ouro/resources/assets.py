@@ -14,6 +14,7 @@ from ouro.models import (
     AssetActions,
     AssetCounts,
     AssetImpact,
+    AssetProperty,
     AssetTag,
     Comment,
     Connection,
@@ -475,6 +476,18 @@ class Assets(SyncAPIResource):
             AssetActions,
             {"created_by": created_by, "as_input": as_input, "has_more": has_more},
         )
+
+    def properties(self, id: str, *, history: bool = False) -> List[AssetProperty]:
+        """Fetch an asset's properties: values Ouro computes (a post's word
+        count, a dataset's column statistics) and values routes calculated
+        for it (a crystal's Curie temperature), each with every value you may
+        see. ``history=True`` adds values later runs replaced.
+        """
+        request = self.client.get(
+            f"/assets/{id}/properties",
+            params={"history": "true"} if history else None,
+        )
+        return self._parse_list(AssetProperty, self._handle_response(request))
 
     def tags(self, id: str) -> List[AssetTag]:
         """Fetch tags attached to an asset."""

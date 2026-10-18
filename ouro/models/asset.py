@@ -303,6 +303,55 @@ class AssetCounts(OuroModel):
     earnings_usd: int = 0
 
 
+class AssetPropertyRoute(OuroModel):
+    """The route that produced a property value."""
+
+    id: UUID
+    name: Optional[str] = None
+    name_url_slug: Optional[str] = None
+    slug: Optional[str] = None
+    url: Optional[str] = None
+
+
+class AssetPropertyValue(OuroModel):
+    """One value of a property: from Ouro itself or from a route run."""
+
+    id: UUID
+    value: Any = None
+    uncertainty: Optional[float] = None
+    source: Literal["platform", "route"]
+    producer: Optional[str] = None
+    method: Optional[str] = None
+    conditions: Optional[Dict[str, Any]] = None
+    status: Literal["active", "superseded"] = "active"
+    created_at: Optional[datetime] = None
+    action_id: Optional[UUID] = None
+    route: Optional[AssetPropertyRoute] = None
+
+
+class AssetProperty(OuroModel):
+    """A property Ouro defines, with the values an asset has for it.
+
+    Numbers are in ``unit``. Several routes can report the same property, so
+    ``values`` may hold more than one; ``value`` is the first (a platform
+    value, else the newest run's).
+    """
+
+    key: str
+    label: str
+    description: Optional[str] = None
+    value_type: Literal["number", "integer", "boolean", "text", "json"]
+    unit: Optional[str] = None
+    asset_types: List[str] = Field(default_factory=list)
+    category: Optional[str] = None
+    decimals: Optional[int] = None
+    values: List[AssetPropertyValue] = Field(default_factory=list)
+
+    @property
+    def value(self) -> Any:
+        return self.values[0].value if self.values else None
+
+
 class Engagement(AssetCounts):
     """Engagement split into external (non-owner) and bot-filtered signals."""
 

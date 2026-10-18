@@ -74,6 +74,23 @@ class RouteOutputAssetDeclaration(OuroModel):
     embedded_in: Optional[str] = None
 
 
+class RoutePropertyDeclaration(OuroModel):
+    """An asset property a route fills from its response (``x-ouro-properties``).
+
+    ``value`` and ``uncertainty`` are dot paths into the response. ``subject``
+    is ``{"input": name}`` or ``{"output": name}``; omitted means the primary
+    input. Each run records the value against that asset.
+    """
+
+    property: str
+    value: str
+    unit: Optional[str] = None
+    uncertainty: Optional[str] = None
+    subject: Optional[Dict[str, str]] = None
+    method: Optional[str] = None
+    conditions: Optional[Dict[str, str]] = None
+
+
 class RouteCapabilityBase(OuroModel):
     """Shared behavior declared by a semantic route capability."""
 
@@ -141,6 +158,8 @@ class RouteData(OuroModel):
     # Canonical plural output declarations keyed by response body field name.
     output_assets: Optional[Dict[str, RouteOutputAssetDeclaration]] = None
     output_file_extension: Optional[str] = None
+    # Asset properties each run records from its response.
+    properties: Optional[List[RoutePropertyDeclaration]] = None
     capabilities: Optional[RouteCapabilities] = None
     rate_limit: Optional[int] = None
     # Author-declared execution model: 'sync' = upstream returns the result
