@@ -75,6 +75,22 @@ class TestRoutePropertyDeclaration(unittest.TestCase):
         )
         self.assertEqual(route.properties[0].when, {"energy_surface": "pbe"})
 
+    def test_requires_parses(self) -> None:
+        route = RouteData(
+            path="/dft/magnetic/curie-temperature",
+            method="POST",
+            properties=[
+                {
+                    "property": "curie_temperature",
+                    "value": "Tc_K",
+                    "requires": {"reference_ordering_overlap": {"min": 0.5}},
+                }
+            ],
+        )
+        self.assertEqual(
+            route.properties[0].requires, {"reference_ordering_overlap": {"min": 0.5}}
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

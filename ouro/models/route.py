@@ -80,7 +80,7 @@ class RoutePropertyDeclaration(OuroModel):
     ``value`` and ``uncertainty`` are dot paths into the response. ``subject``
     is ``{"input": name}`` or ``{"output": name}``; omitted means the primary
     input. Each run records the value against that asset, when its request
-    matches ``when``.
+    matches ``when`` and its response meets ``requires``.
     """
 
     property: str
@@ -93,6 +93,9 @@ class RoutePropertyDeclaration(OuroModel):
     # Request-body values a run must send for this value to be recorded,
     # as on output declarations: {field: value | [values]}.
     when: Optional[Dict[str, Union[WhenValue, List[WhenValue]]]] = None
+    # Response fields that must hold for the value to be recorded: a dot path
+    # to a value, a list of values, or a {"min", "max"} range.
+    requires: Optional[Dict[str, Any]] = None
 
 
 class RouteCapabilityBase(OuroModel):
