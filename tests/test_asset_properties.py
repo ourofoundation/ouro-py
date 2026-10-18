@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ouro.models import AssetProperty
+from ouro.models import AssetProperty, RouteData
 from ouro.resources.assets import Assets
 
 from tests.test_asset_actions import ASSET_ID, ROUTE_ID, _FakeOuro, _FakeResponse
@@ -57,6 +57,23 @@ class TestAssetProperties(unittest.TestCase):
 
     def test_value_is_none_without_values(self) -> None:
         self.assertIsNone(AssetProperty.model_validate(_property(values=[])).value)
+
+
+class TestRoutePropertyDeclaration(unittest.TestCase):
+    def test_when_parses(self) -> None:
+        route = RouteData(
+            path="/crystal-db/ehull",
+            method="POST",
+            properties=[
+                {
+                    "property": "energy_above_hull",
+                    "value": "e_above_hull",
+                    "method": "PBE hull",
+                    "when": {"energy_surface": "pbe"},
+                }
+            ],
+        )
+        self.assertEqual(route.properties[0].when, {"energy_surface": "pbe"})
 
 
 if __name__ == "__main__":
