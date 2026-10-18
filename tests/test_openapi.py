@@ -28,6 +28,25 @@ def test_ouro_fields_reach_routes_in_included_routers() -> None:
     assert paths["/health"]["get"]["x-ouro-execution-mode"] == "sync"
 
 
+def test_get_and_post_on_one_path_keep_their_own_fields() -> None:
+    app = fastapi.FastAPI()
+
+    @app.get("/structures")
+    @ouro_execution_mode("sync")
+    def list_structures() -> None:
+        pass
+
+    @app.post("/structures")
+    @ouro_execution_mode("async")
+    def add_structure() -> None:
+        pass
+
+    app.openapi = get_custom_openapi(app, get_openapi)
+    path = app.openapi()["paths"]["/structures"]
+    assert path["get"]["x-ouro-execution-mode"] == "sync"
+    assert path["post"]["x-ouro-execution-mode"] == "async"
+
+
 def _pricing(**kwargs):
     return ouro_pricing(**kwargs)(lambda: None).ouro_fields["x-ouro-pricing"]
 
