@@ -1,6 +1,7 @@
 from ouro.models.route import RouteOutputAssetDeclaration
 from ouro.utils.route_outputs import (
     describe_route_output_when,
+    request_body_json_schema,
     resolve_route_outputs,
     route_output_when_matches,
 )
@@ -73,3 +74,11 @@ def test_describe():
         describe_route_output_when({"mode": ["batch", "both"], "include_report": True})
         == "mode is batch or both and include_report is true"
     )
+
+
+def test_request_body_json_schema_picks_the_object_variant_in_place():
+    variant = {"type": "object", "properties": {"file": {"type": "object"}}}
+    body = {"content": {"application/json": {"schema": {"anyOf": [variant, {"type": "null"}]}}}}
+    schema = request_body_json_schema(body)
+    assert schema is variant  # the object itself, so callers can edit a copy through it
+    assert request_body_json_schema({"content": {}}) is None

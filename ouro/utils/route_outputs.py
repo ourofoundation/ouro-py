@@ -17,12 +17,17 @@ from typing import Any, Dict, List, Mapping, Optional
 
 __all__ = [
     "describe_route_output_when",
+    "request_body_json_schema",
     "resolve_route_outputs",
     "route_output_when_matches",
 ]
 
 
-def _request_body_schema(request_body: Any) -> Optional[Dict[str, Any]]:
+def request_body_json_schema(request_body: Any) -> Optional[Dict[str, Any]]:
+    """The application/json schema of an OpenAPI ``requestBody``, preferring
+    the object variant when the body is wrapped in anyOf/oneOf/allOf; None
+    when there is nothing to inspect. Returns the schema object itself, not a
+    copy, so a caller can edit a deep copy of the request body through it."""
     if not isinstance(request_body, Mapping):
         return None
     content = request_body.get("content")
@@ -44,11 +49,11 @@ def _request_body_schema(request_body: Any) -> Optional[Dict[str, Any]]:
             ),
             composed[0] if composed else None,
         )
-    return dict(schema) if isinstance(schema, Mapping) else None
+    return schema if isinstance(schema, Mapping) else None
 
 
 def _schema_default(request_body: Any, field: str) -> Any:
-    schema = _request_body_schema(request_body) or {}
+    schema = request_body_json_schema(request_body) or {}
     properties = schema.get("properties")
     if not isinstance(properties, Mapping):
         return None
