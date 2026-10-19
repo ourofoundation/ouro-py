@@ -4,7 +4,7 @@ from pydantic import Field, model_validator
 
 from ._base import OuroModel, Page
 from .action import Action
-from .asset import Asset
+from .asset import Asset, AssetLineageRole
 
 
 RouteAssetType = Literal["file", "dataset", "post", "comment"]
@@ -74,6 +74,9 @@ class RouteOutputAssetDeclaration(OuroModel):
     optional: Optional[bool] = None
     # Key of the output this one goes into while that output is created
     embedded_in: Optional[str] = None
+    # What the output is to its source: new, version, result or supporting.
+    # See ``ouro.utils.route_outputs.resolve_route_output_role``.
+    role: Optional[AssetLineageRole] = None
 
 
 class RoutePropertyDeclaration(OuroModel):

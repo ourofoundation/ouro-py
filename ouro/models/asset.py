@@ -158,6 +158,13 @@ class Attribution(OuroModel):
     doi: Optional[str] = None
 
 
+#: What an asset is to the asset it came from (its ``source_id``): a standalone
+#: ``new`` asset, a ``version`` of it (a relaxed CIF), a ``result`` computed
+#: about it (phonons), or ``supporting`` material (a trajectory). Asset lists
+#: show family roots and fold the rest under them.
+AssetLineageRole = Literal["new", "version", "result", "supporting"]
+
+
 class Asset(OuroModel):
     id: UUID
     user_id: UUID
@@ -165,6 +172,11 @@ class Asset(OuroModel):
     org_id: UUID
     team_id: UUID
     parent_id: Optional[UUID] = None
+    lineage_role: Optional[AssetLineageRole] = None
+    #: The asset this one came from (a route output's input)
+    source_id: Optional[UUID] = None
+    #: Root of this asset's lineage family; None when it is a root
+    family_id: Optional[UUID] = None
     organization: Optional[OrganizationProfile] = None
     team: Optional[TeamProfile] = None
     visibility: str

@@ -6,9 +6,11 @@ Every field must match; a list matches any of its values. A field the caller
 leaves out is read from the request schema's ``default``, and with no default
 the output is off. ``optional`` only means "may be absent depending on the
 run's results". ``embedded_in`` names the output this one goes into while that
-output is on; otherwise it comes back on its own.
+output is on; otherwise it comes back on its own. ``role`` says what the output
+is to its source (see ``resolve_route_output_role``).
 
-Python port of ouro-js ``utils/route-outputs.ts``; keep the rules in step.
+Python port of ouro-js ``utils/route-outputs.ts`` and ``utils/lineage.ts``; keep
+the rules in step.
 """
 
 from __future__ import annotations
@@ -16,11 +18,48 @@ from __future__ import annotations
 from typing import Any, Dict, List, Mapping, Optional
 
 __all__ = [
+    "ASSET_LINEAGE_ROLES",
     "describe_route_output_when",
     "request_body_json_schema",
+    "resolve_route_output_role",
     "resolve_route_outputs",
     "route_output_when_matches",
 ]
+
+
+#: What an asset is to the asset it came from; see ``Asset.lineage_role``.
+ASSET_LINEAGE_ROLES = ("new", "version", "result", "supporting")
+
+
+def resolve_route_output_role(
+    declared: Any = None,
+    *,
+    has_input: bool,
+    primary: bool = False,
+    embedded: bool = False,
+) -> Dict[str, Optional[str]]:
+    """The lineage role a saved output takes, and where its source comes from.
+
+    The source is the run's primary input (``"input"``); for a run without one,
+    the run's primary output (``"primary_output"``), so one run's outputs stay
+    together; for an embedded output, the post it goes into
+    (``"embedding_post"``). An output with no source is always ``new``. An
+    undeclared role is ``supporting`` when embedded, otherwise ``result``.
+    Returns ``{"role": ..., "source": ...}``.
+    """
+    if embedded:
+        source: Optional[str] = "embedding_post"
+    elif has_input:
+        source = "input"
+    elif primary:
+        source = None
+    else:
+        source = "primary_output"
+    if source is None:
+        return {"role": "new", "source": None}
+    if declared in ASSET_LINEAGE_ROLES:
+        return {"role": declared, "source": source}
+    return {"role": "supporting" if embedded else "result", "source": source}
 
 
 def request_body_json_schema(request_body: Any) -> Optional[Dict[str, Any]]:
@@ -124,7 +163,8 @@ def resolve_route_outputs(
     """Every declared output with whether ``body`` switches it on.
 
     Each entry has ``name``, ``asset_type``, ``primary``, ``optional``,
-    ``when``, ``embedded_in``, ``active`` and ``embedded`` (active and going
+    ``when``, ``embedded_in``, ``role`` (declared, or None), ``active`` and
+    ``embedded`` (active and going
     into its active ``embedded_in`` parent). Pass ``body=None`` to describe a
     run that sends only the schema defaults.
     """
@@ -155,6 +195,9 @@ def resolve_route_outputs(
                 "optional": declaration.get("optional") is True,
                 "when": dict(when) if isinstance(when, Mapping) else None,
                 "embedded_in": parent,
+                "role": declaration.get("role")
+                if declaration.get("role") in ASSET_LINEAGE_ROLES
+                else None,
                 "active": is_active,
                 "embedded": bool(is_active and parent and active.get(parent)),
             }
