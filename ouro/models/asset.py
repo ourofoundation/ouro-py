@@ -373,6 +373,44 @@ class Engagement(AssetCounts):
     uses: int = 0
 
 
+class AssetLineageRun(OuroModel):
+    """The route run that created an asset."""
+
+    action_id: UUID
+    created_at: Optional[datetime] = None
+    #: ``{id, name, slug, url}`` of the route, when it still exists
+    route: Optional[Dict[str, Any]] = None
+
+
+class AssetLineageNode(OuroModel):
+    """Where the asset itself sits in its family."""
+
+    id: UUID
+    asset_type: str
+    lineage_role: Optional[AssetLineageRole] = None
+    source_id: Optional[UUID] = None
+    family_id: Optional[UUID] = None
+    run: Optional[AssetLineageRun] = None
+
+
+class DerivedAsset(Asset):
+    """An asset folded under another, with the run that made it."""
+
+    run: Optional[AssetLineageRun] = None
+
+
+class AssetLineage(OuroModel):
+    """An asset's place in its family: what it came from and what came from it."""
+
+    asset: AssetLineageNode
+    #: Sources up to the family root, nearest first
+    sources: List[Asset] = Field(default_factory=list)
+    #: The whole family for a root; otherwise what came directly from this asset
+    derived: List[DerivedAsset] = Field(default_factory=list)
+    #: True when ``derived`` stopped at the server's limit (200)
+    truncated: bool = False
+
+
 class AssetImpact(Engagement):
     asset_id: UUID
     asset_type: Optional[str] = None

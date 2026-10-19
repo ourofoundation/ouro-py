@@ -14,6 +14,7 @@ from ouro.models import (
     AssetActions,
     AssetCounts,
     AssetImpact,
+    AssetLineage,
     AssetProperty,
     AssetTag,
     Comment,
@@ -126,7 +127,8 @@ class Assets(SyncAPIResource):
             user_id:     filter by asset owner (UUID)
             visibility:  "public" | "private" | "organization" | "monetized"
             source:      "web" | "api"
-            top_level_only: True to exclude child assets
+            top_level_only: True to list family roots only, leaving out
+                         versions, results and supporting assets
             metadata_filters: dict of metadata key/values, e.g.
                 {"file_type": "image", "extension": "csv"}
             sort:        "relevant" | "recent" | "popular" | "updated"
@@ -393,6 +395,23 @@ class Assets(SyncAPIResource):
         params = _strip_none({"limit": limit, "offset": offset or None})
         request = self.client.get(f"/assets/{id}/connections", params=params)
         return self._page(Page[Connection], self._handle_response(request, raw=True))
+
+    def lineage(self, id: str) -> AssetLineage:
+        """What an asset came from and what came from it.
+
+        Every asset has a ``lineage_role``: ``new`` (standalone), ``version``
+        (the same thing, improved, like a relaxed CIF), ``result`` (computed
+        about its source, like phonons) or ``supporting`` (intermediate or raw,
+        like a trajectory). Lists show one entry per family root and fold the
+        rest under it.
+
+        Returns ``sources`` (nearest first, up to the family root) and
+        ``derived``: the whole family when ``id`` is a root, otherwise what came
+        directly from it. Each derived asset carries the ``run`` that made it.
+        Only assets you can read come back.
+        """
+        request = self.client.get(f"/assets/{id}/lineage")
+        return self._parse(AssetLineage, self._handle_response(request))
 
     def actions(
         self,
