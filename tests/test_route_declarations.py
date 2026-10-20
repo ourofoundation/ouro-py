@@ -135,7 +135,17 @@ def test_payloads():
     assert file["extension"] == "cif"
     assert file["type"] == "chemical/x-cif"
     assert base64.b64decode(file["base64"]) == b"data_NaCl"
-    assert "visibility" not in file
+    assert "visibility" not in file and "license_id" not in file and "attribution" not in file
+    credited = file_payload(
+        "data_Fe",
+        name="Fe",
+        description="bcc iron",
+        extension="cif",
+        license_id="CC-BY-4.0",
+        attribution={"originality": "third-party", "external_url": "https://example.test/mp-13"},
+    )
+    assert credited["license_id"] == "CC-BY-4.0"
+    assert credited["attribution"]["originality"] == "third-party"
     assert file_payload(b"{}", name="a", description="b", extension="json")["type"] == (
         "application/json"
     )

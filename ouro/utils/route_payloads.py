@@ -4,6 +4,9 @@ A service returns each output under its declared response key; Ouro creates
 the asset from it in the organization and team the run belongs to, so the
 payload carries only what the asset is made from. ``visibility`` overrides
 the audience Ouro would give it (left out, it follows the route and input).
+``license_id`` (an SPDX id such as ``"CC-BY-4.0"``) and ``attribution`` (the
+asset's attribution fields) credit someone else's work: left out, an output
+is your original work under All Rights Reserved.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ def file_payload(
     extension: str,
     content_type: Optional[str] = None,
     visibility: Optional[str] = None,
+    license_id: Optional[str] = None,
+    attribution: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """A ``file`` output from bytes (or text, encoded as UTF-8).
 
@@ -41,9 +46,7 @@ def file_payload(
         or "application/octet-stream",
         "base64": base64.b64encode(content).decode("ascii"),
     }
-    if visibility is not None:
-        payload["visibility"] = visibility
-    return payload
+    return _with_options(payload, visibility, license_id, attribution)
 
 
 def dataset_payload(
@@ -52,6 +55,8 @@ def dataset_payload(
     name: str,
     description: str,
     visibility: Optional[str] = None,
+    license_id: Optional[str] = None,
+    attribution: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """A ``dataset`` output from flat records, or None when there are none
     (a dataset needs a row; a None output is skipped).
@@ -62,6 +67,20 @@ def dataset_payload(
     if not rows:
         return None
     payload: Dict[str, Any] = {"name": name, "description": description, "data": rows}
-    if visibility is not None:
-        payload["visibility"] = visibility
+    return _with_options(payload, visibility, license_id, attribution)
+
+
+def _with_options(
+    payload: Dict[str, Any],
+    visibility: Optional[str],
+    license_id: Optional[str],
+    attribution: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    for key, value in (
+        ("visibility", visibility),
+        ("license_id", license_id),
+        ("attribution", attribution),
+    ):
+        if value is not None:
+            payload[key] = value
     return payload
