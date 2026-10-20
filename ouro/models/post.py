@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field
 
@@ -9,12 +9,18 @@ __all__ = ["Comment", "Post"]
 
 class Post(Asset):
     content: Optional[RichText] = None
+    # Assets the content embeds or links, resolved by the server as the reader
+    # (ones they can't open are left out). None when the server didn't resolve
+    # them. Pass to description_to_markdown(embedded_assets=...) to annotate.
+    assets: Optional[List[Dict[str, Any]]] = None
     comments: Optional[int] = Field(default=0)
     views: Optional[int] = Field(default=0)
 
 
 class Comment(Asset):
     content: Optional[RichText] = None
+    # Same as Post.assets.
+    assets: Optional[List[Dict[str, Any]]] = None
 
     @property
     def text(self) -> str:
