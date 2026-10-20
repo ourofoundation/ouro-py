@@ -239,6 +239,10 @@ class Routes(SyncAPIResource):
         request = self.client.get(f"/routes/{route_id}")
         return self._parse(Route, self._handle_response(request))
 
+    def _route(self, route: Union[str, Route]) -> Route:
+        """``route`` itself when the caller already fetched it, else retrieved by name or id."""
+        return route if isinstance(route, Route) else self.retrieve(route)
+
     def create(
         self,
         service_id: str,
@@ -436,7 +440,7 @@ class Routes(SyncAPIResource):
 
     def list_actions(
         self,
-        route_id: str,
+        route_id: Union[str, Route],
         *,
         include_other_users: bool = False,
         exclude_self: bool = False,
@@ -450,10 +454,11 @@ class Routes(SyncAPIResource):
         user. Set ``include_other_users=True`` to include visible actions from
         other users as well. ``status`` keeps one status or a list of them
         ("queued" | "in-progress" | "success" | "error" | "timed-out").
+        Pass a :class:`Route` you already have to skip fetching it again.
         """
         if isinstance(status, (list, tuple)):
             status = ",".join(status)
-        route = self.retrieve(route_id)
+        route = self._route(route_id)
         if not route.parent_id:
             raise ValueError("Route has no parent service; cannot list actions.")
 
@@ -612,7 +617,7 @@ class Routes(SyncAPIResource):
 
     def execute(
         self,
-        name_or_id: str,
+        name_or_id: Union[str, Route],
         body: Optional[Dict[str, Any]] = None,
         query: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
@@ -653,7 +658,8 @@ class Routes(SyncAPIResource):
         when ``poll_interval`` / ``poll_timeout`` are not explicitly set.
 
         Args:
-            name_or_id: Route name ("entity_name/route_name") or UUID
+            name_or_id: Route name ("entity_name/route_name"), UUID, or a
+                :class:`Route` you already fetched (skips fetching it again)
             body: Request body data
             query: Query parameters
             params: URL parameters
@@ -708,8 +714,8 @@ class Routes(SyncAPIResource):
             self.ouro._check_organization(org_id)
         if team_id:
             output = {**(output or {}), "team_id": str(team_id)}
-        route_id = self._resolve_name_to_id(name_or_id, "route")
-        route = self.retrieve(route_id)
+        route = self._route(name_or_id)
+        route_id = str(route.id)
         normalized_input_assets = _normalize_input_assets(input_assets, assets)
 
         payload = {

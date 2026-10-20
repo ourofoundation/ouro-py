@@ -148,6 +148,18 @@ class TestRouteActions(unittest.TestCase):
             },
         )
 
+    def test_list_actions_takes_a_route_it_already_has(self) -> None:
+        from ouro.models import Route
+
+        route = Route.model_validate(_route_payload())
+        ouro = _FakeOuro([_FakeResponse({"data": [], "pagination": {"hasMore": False}})])
+
+        Routes(ouro).list_actions(route)
+
+        # One request: the actions, no route lookup first
+        self.assertEqual(len(ouro.client.requests), 1)
+        self.assertTrue(ouro.client.requests[0]["path"].endswith(f"/routes/{ROUTE_ID}/actions"))
+
     def test_get_action_logs_sends_server_side_sort_order(self) -> None:
         ouro = _FakeOuro(
             [

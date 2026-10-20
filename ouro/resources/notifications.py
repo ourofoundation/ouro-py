@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from ouro._resource import SyncAPIResource
 from ouro.models import Notification, Page
@@ -55,3 +55,12 @@ class Notifications(SyncAPIResource):
         """Mark a single notification as read and return it."""
         request = self.client.get(f"/user/notifications/{id}")
         return self._parse(Notification, self._handle_response(request))
+
+    def read_many(self, ids: List[str]) -> List[str]:
+        """Mark up to 200 notifications read in one request.
+
+        Returns the ids that were marked: ids that aren't yours, or don't
+        exist, are left out.
+        """
+        request = self.client.post("/user/notifications/read", json={"ids": list(ids)})
+        return list((self._handle_response(request) or {}).get("read") or [])
