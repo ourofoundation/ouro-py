@@ -389,10 +389,27 @@ class Assets(SyncAPIResource):
         return self._parse_list(AssetImpact, data.get("assets"))
 
     def connections(
-        self, id: str, *, limit: Optional[int] = None, offset: int = 0
+        self,
+        id: str,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        type: Optional[Union[str, List[str]]] = None,
+        direction: Optional[Literal["source", "target"]] = None,
     ) -> Page[Connection]:
-        """Fetch a page of the asset's connection graph (references, components, derivatives, etc.)."""
-        params = _strip_none({"limit": limit, "offset": offset or None})
+        """Fetch a page of the asset's connection graph (references, components, derivatives, etc.).
+
+        Args:
+            type: One connection type or a list ("reference", "link",
+                "component", "action", "mention", "comment", ...).
+            direction: "source" for connections this asset makes (it points
+                at the other asset), "target" for ones made to it.
+        """
+        if isinstance(type, (list, tuple)):
+            type = ",".join(type)
+        params = _strip_none(
+            {"limit": limit, "offset": offset or None, "type": type or None, "direction": direction}
+        )
         request = self.client.get(f"/assets/{id}/connections", params=params)
         return self._page(Page[Connection], self._handle_response(request, raw=True))
 
