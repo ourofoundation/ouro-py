@@ -106,6 +106,20 @@ summary = ouro.datasets.query(
 ```
 
 SQL queries are read-only. Use `{{table}}` as the dataset table placeholder.
+Join other datasets you can read as `{{dataset:<uuid>}}` or `{{@owner/slug}}`
+(the owner and slug from the dataset's URL):
+
+```python
+on_hull = ouro.datasets.query(
+    structures_id,
+    """
+    select s.formula, c.surface, c.e_above_hull
+    from {{table}} s
+    join {{@acme-materials/calculations}} c on c.structure_id = s.id
+    where c.is_on_hull
+    """,
+)
+```
 
 ### Save a dataset view
 

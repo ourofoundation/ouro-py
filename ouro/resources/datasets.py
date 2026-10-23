@@ -683,6 +683,10 @@ class Datasets(SyncAPIResource):
         name. Column names are lowercase snake_case — use them unquoted.
         Queries time out after 10 seconds; put ``LIMIT``/``OFFSET`` in the SQL.
 
+        Join other datasets you can read as ``{{dataset:<uuid>}}`` or
+        ``{{@owner/slug}}`` (the owner and slug from the dataset's URL), in
+        ``sql`` or in ``prompt``.
+
         With ``prompt``, describes the rows in plain language instead; Ouro
         writes the SQL and runs it. The SQL is in ``df.attrs["sql"]``.
 
@@ -695,6 +699,12 @@ class Datasets(SyncAPIResource):
             ...     "ORDER BY mae_ev DESC NULLS LAST LIMIT 10",
             ... )
             >>> ouro.datasets.query(id, prompt="iron compounds above 600 K")
+            >>> ouro.datasets.query(
+            ...     structures_id,
+            ...     "SELECT s.formula, c.e_above_hull FROM {{table}} s "
+            ...     "JOIN {{@acme-materials/calculations}} c "
+            ...     "ON c.structure_id = s.id WHERE c.is_on_hull",
+            ... )
         """
         if not id:
             raise ValueError("Dataset id is required")
@@ -728,7 +738,8 @@ class Datasets(SyncAPIResource):
         database step over every earlier row, and deep offsets into millions
         of rows can time out). ``next_cursor`` is None on the last page.
 
-        Pass ``sql`` (read-only, over ``{{table}}``) or ``prompt`` (the rows
+        Pass ``sql`` (read-only, over ``{{table}}``, joining other datasets
+        as ``{{dataset:<uuid>}}`` or ``{{@owner/slug}}``) or ``prompt`` (the rows
         described in plain language) to page through a query's result instead
         of the whole table; the page then carries ``total`` and the ``sql``
         that ran. Paging applies on top of any LIMIT the query has.
