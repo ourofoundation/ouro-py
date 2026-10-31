@@ -12,7 +12,9 @@ from .asset import AssetRef, UserProfile
 
 log = logging.getLogger(__name__)
 
-ActionStatus = Literal["queued", "in-progress", "timed-out", "success", "error"]
+ActionStatus = Literal[
+    "queued", "in-progress", "timed-out", "success", "error", "cancelled"
+]
 
 
 class ActionLog(OuroModel):
@@ -34,6 +36,23 @@ class ActionLog(OuroModel):
     created_at: Optional[datetime] = None
     user: Optional[UserProfile] = None
     asset: Optional[AssetRef] = None
+
+
+class ActionCancel(OuroModel):
+    """What ``POST /actions/{id}/cancel`` reports.
+
+    ``status`` is ``"cancelling"`` while the service stops the run (the action
+    stays ``in-progress`` with ``cancel_requested_at`` set) or ``"cancelled"``
+    when Ouro finished it on the spot. ``signal_delivered`` is false when the
+    service didn't accept the signal; Ouro then finishes the run itself after
+    a grace period. Runtime-priced runs are billed for the seconds up to
+    ``cancel_requested_at``; anything else is free.
+    """
+
+    action_id: UUID
+    status: Literal["cancelling", "cancelled"]
+    signal_delivered: bool = False
+    cancel_requested_at: Optional[datetime] = None
 
 
 class Action(OuroModel):
@@ -59,6 +78,9 @@ class Action(OuroModel):
     upstream_status_code: Optional[int] = None
     finished_at: Optional[datetime] = None
     last_updated: Optional[datetime] = None
+    # Set when the user asked to cancel the run. While the status is still
+    # ``in-progress`` the service is stopping it; it ends as ``cancelled``.
+    cancel_requested_at: Optional[datetime] = None
 
     input_asset: Optional[AssetRef] = None
     input_assets: Optional[List[Dict[str, Any]]] = None
@@ -81,7 +103,7 @@ class Action(OuroModel):
     @property
     def is_complete(self) -> bool:
         """Check if the action has finished polling."""
-        return self.status in ("success", "error", "timed-out")
+        return self.status in ("success", "error", "timed-out", "cancelled")
 
     @property
     def is_pending(self) -> bool:
@@ -108,6 +130,16 @@ class Action(OuroModel):
         ``poll_action``), after which the action is still running.
         """
         return self.status == "timed-out"
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Check if the run was cancelled. Final, and not a failure."""
+        return self.status == "cancelled"
+
+    @property
+    def is_cancelling(self) -> bool:
+        """Check if a cancel was requested and the service is still stopping."""
+        return self.is_pending and self.cancel_requested_at is not None
 
     @property
     def final_data(self) -> Any:
@@ -190,6 +222,26 @@ class Action(OuroModel):
             sort_order=sort_order,
             chronological=chronological,
         )
+
+    def cancel(self) -> ActionCancel:
+        """Ask Ouro to cancel this run. Only the user who ran it can.
+
+        Updates ``cancel_requested_at`` (and ``status`` when the run finished
+        on the spot) in place. Call :meth:`wait` to follow it to
+        ``cancelled``.
+
+        Raises:
+            ConflictError: ``code`` says why: ``action_not_started`` (queued;
+                try again shortly), ``action_finished``, or
+                ``cancel_unsupported`` (the route declares no cancel path).
+            NotFoundError: No such action, or someone else's.
+        """
+        result = self._require_client().routes.cancel_action(str(self.id))
+        if result.cancel_requested_at is not None:
+            self.cancel_requested_at = result.cancel_requested_at
+        if result.status == "cancelled":
+            self.status = "cancelled"
+        return result
 
     def refresh(self) -> "Action":
         """Re-fetch this action from the server and update it in place."""

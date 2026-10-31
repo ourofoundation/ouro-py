@@ -211,6 +211,40 @@ def ouro_execution_mode(mode: str):
     return ouro_field("x-ouro-execution-mode", mode)
 
 
+CANCEL_EXTENSION = "x-ouro-cancel"
+
+
+def ouro_cancel(path: str):
+    """
+    Declare that a run of this async route can be cancelled, and where.
+
+    To cancel, Ouro POSTs ``path`` on the service with the run's
+    ``ouro-action-id`` and ``ouro-webhook-token`` headers (the token is the
+    credential, as on the result webhook). The service stops the run and
+    reports through the webhook with status ``"cancelled"``. Reply 2xx to
+    accept, 404 for a run it doesn't know, 409 when the run is already
+    finishing.
+
+    ``path`` is a plain path on the service, like ``"/cancel"``. Ouro only
+    accepts it on routes declared ``ouro_execution_mode("async")``.
+
+    Equivalent to ``ouro_field("x-ouro-cancel", {"path": path})``.
+    """
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or path.startswith("//")
+        or ".." in path
+        or any(ch.isspace() or ch in "?#" for ch in path)
+        or len(path) > 512
+    ):
+        raise ValueError(
+            f"ouro_cancel: path must be a plain path on the service, like "
+            f"'/cancel', got {path!r}"
+        )
+    return ouro_field(CANCEL_EXTENSION, {"path": path})
+
+
 def ouro_capabilities(capabilities):
     """Declare validated semantic capabilities on an OpenAPI operation."""
     from ouro.models.route import RouteCapabilities

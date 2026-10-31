@@ -3,7 +3,12 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.openapi.utils import get_openapi
 
-from ouro.utils import get_custom_openapi, ouro_execution_mode, ouro_pricing
+from ouro.utils import (
+    get_custom_openapi,
+    ouro_cancel,
+    ouro_execution_mode,
+    ouro_pricing,
+)
 
 
 def test_ouro_fields_reach_routes_in_included_routers() -> None:
@@ -45,6 +50,28 @@ def test_get_and_post_on_one_path_keep_their_own_fields() -> None:
     path = app.openapi()["paths"]["/structures"]
     assert path["get"]["x-ouro-execution-mode"] == "sync"
     assert path["post"]["x-ouro-execution-mode"] == "async"
+
+
+def test_cancel_reaches_the_operation() -> None:
+    app = fastapi.FastAPI()
+
+    @app.post("/relax")
+    @ouro_execution_mode("async")
+    @ouro_cancel("/relax/cancel")
+    def relax() -> None:
+        pass
+
+    app.openapi = get_custom_openapi(app, get_openapi)
+    operation = app.openapi()["paths"]["/relax"]["post"]
+    assert operation["x-ouro-cancel"] == {"path": "/relax/cancel"}
+
+
+@pytest.mark.parametrize(
+    "path", ["cancel", "//evil.example/cancel", "/a/../b", "/cancel?x=1", "/c d", ""]
+)
+def test_cancel_rejects_paths_ouro_would_refuse(path) -> None:
+    with pytest.raises(ValueError):
+        ouro_cancel(path)
 
 
 def _pricing(**kwargs):

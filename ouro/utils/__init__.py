@@ -4,6 +4,7 @@ from .content import description_to_markdown, tiptap_to_markdown
 from .openapi import (
     get_custom_openapi,
     include_dataset_output,
+    ouro_cancel,
     ouro_capabilities,
     ouro_execution_mode,
     ouro_field,
@@ -18,6 +19,7 @@ __all__ = [
     "ouro_field",
     "ouro_capabilities",
     "ouro_execution_mode",
+    "ouro_cancel",
     "ouro_pricing",
     "ouro_outputs",
     "ouro_properties",

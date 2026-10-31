@@ -232,6 +232,9 @@ class RouteData(OuroModel):
     # until enough samples have been observed. When this differs from
     # ``execution_mode`` the route's declaration is misconfigured.
     observed_execution_mode: Optional[str] = None
+    # Path on the service that stops a run (``x-ouro-cancel``); None when the
+    # route's runs can't be cancelled. Async routes only.
+    cancel_path: Optional[str] = None
 
 
 class RouteMetrics(OuroModel):

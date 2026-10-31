@@ -451,7 +451,7 @@ class Assets(SyncAPIResource):
                 - ``"both"`` (default): both directions in one call
             status: Optional filter for input-side actions
                 (``queued`` / ``in-progress`` / ``success`` / ``error`` /
-                ``timed-out``).
+                ``timed-out`` / ``cancelled``).
             side_effects: Optional filter for input-side actions.
             include_response: When ``True``, include each action's
                 ``response`` / ``metadata`` payloads (needed for calculated

@@ -167,6 +167,7 @@ class RouteExecutionError(OuroError):
     failure that completed the HTTP lifecycle successfully — the HTTP call
     returned 200/202 and produced an :class:`~ouro.models.action.Action`,
     but the action itself ended in ``error`` / ``timed-out`` / similar.
+    A ``cancelled`` action is not a failure and never raises this.
     """
 
     def __init__(

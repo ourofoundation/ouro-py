@@ -221,7 +221,9 @@ action = ouro.routes.execute(
 Synchronous and asynchronous routes use the same interface. Pass `wait=False` to return
 immediately, then use `ouro.routes.poll_action(action.id)` when you are ready for the result.
 `ouro.routes.list_my_actions(status=["queued", "in-progress"])` finds everything you still
-have running, across every route.
+have running, across every route. `ouro.routes.cancel_action(action.id)` (or
+`action.cancel()`) stops a run on a route that supports it (`route.cancel_path` is set); the
+action ends as `cancelled`, and a runtime-priced run is billed only up to the cancel.
 
 ### Follow a run from the shell
 
@@ -230,8 +232,9 @@ an action finishes, so a script or a coding agent can run it in the background a
 when the result is ready instead of polling:
 
 ```bash
-ouro action wait <action-id>      # exit 0 success, 1 failed, 124 still running after --timeout
+ouro action wait <action-id>      # exit 0 success, 1 failed, 3 cancelled, 124 still running after --timeout
 ouro action get <action-id>       # current status and outputs
+ouro action cancel <action-id>    # stop a run, on routes that support it
 ouro action list --running        # your queued and in-progress runs
 ```
 

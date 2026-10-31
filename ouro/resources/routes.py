@@ -19,7 +19,7 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import Action, ActionLog, DeleteResult, Page, Route, RouteCost, RouteStats
+from ouro.models import Action, ActionCancel, ActionLog, DeleteResult, Page, Route, RouteCost, RouteStats
 from ouro.utils import is_valid_uuid
 
 from .content import Content
@@ -438,6 +438,24 @@ class Routes(SyncAPIResource):
         request = self.client.get(f"/actions/{action_id}")
         return self._parse(Action, self._handle_response(request))
 
+    def cancel_action(self, action_id: str) -> ActionCancel:
+        """Cancel a running action. Only the user who ran it can.
+
+        Works on routes that declare a cancel path (``route.cancel_path``).
+        The result's ``status`` is ``"cancelling"`` while the service stops
+        the run, or ``"cancelled"`` when it finished on the spot; follow it
+        with :meth:`poll_action`. A runtime-priced run is billed for the
+        seconds up to the cancel; anything else is free.
+
+        Raises:
+            ConflictError: ``code`` says why: ``action_not_started`` (still
+                queued; try again shortly), ``action_finished``, or
+                ``cancel_unsupported`` (the route can't cancel runs).
+            NotFoundError: No such action, or someone else's.
+        """
+        request = self.client.post(f"/actions/{action_id}/cancel")
+        return self._parse(ActionCancel, self._handle_response(request))
+
     def list_actions(
         self,
         route_id: Union[str, Route],
@@ -453,7 +471,8 @@ class Routes(SyncAPIResource):
         By default, the backend returns only actions owned by the authenticated
         user. Set ``include_other_users=True`` to include visible actions from
         other users as well. ``status`` keeps one status or a list of them
-        ("queued" | "in-progress" | "success" | "error" | "timed-out").
+        ("queued" | "in-progress" | "success" | "error" | "timed-out" |
+        "cancelled").
         Pass a :class:`Route` you already have to skip fetching it again.
         """
         if isinstance(status, (list, tuple)):
@@ -490,7 +509,8 @@ class Routes(SyncAPIResource):
 
         Args:
             status: One status or a list of them: "queued" | "in-progress" |
-                "success" | "error" | "timed-out". All statuses by default.
+                "success" | "error" | "timed-out" | "cancelled". All statuses
+                by default.
             since: Only actions created at or after this time (datetime or
                 ISO 8601 string).
         """
@@ -567,7 +587,9 @@ class Routes(SyncAPIResource):
         raise_on_error: bool = True,
     ) -> Action:
         """
-        Poll an action until it completes (status is 'success', 'error', or 'timed-out').
+        Poll an action until it completes (status is 'success', 'error',
+        'timed-out', or 'cancelled'). A cancelled action is returned, not
+        raised: it isn't a failure.
 
         Running out of ``timeout`` here is not an outcome: the action is still
         running and can be polled again. That is unrelated to the final

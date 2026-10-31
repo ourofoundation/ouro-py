@@ -588,6 +588,90 @@ class TestRouteActions(unittest.TestCase):
             },
         )
 
+    def test_cancel_action_posts_and_parses_the_result(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "action_id": ACTION_ID,
+                            "status": "cancelling",
+                            "signal_delivered": True,
+                            "cancel_requested_at": "2026-10-31T12:00:00+00:00",
+                        },
+                        "error": None,
+                    },
+                    status_code=202,
+                )
+            ]
+        )
+
+        result = Routes(ouro).cancel_action(ACTION_ID)
+
+        self.assertEqual(ouro.client.requests[0]["path"], f"/actions/{ACTION_ID}/cancel")
+        self.assertEqual(result.status, "cancelling")
+        self.assertTrue(result.signal_delivered)
+        self.assertIsNotNone(result.cancel_requested_at)
+
+    def test_action_cancel_updates_the_action_in_place(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "action_id": ACTION_ID,
+                            "status": "cancelled",
+                            "signal_delivered": False,
+                            "cancel_requested_at": "2026-10-31T12:00:00+00:00",
+                        }
+                    }
+                )
+            ]
+        )
+        ouro.routes = Routes(ouro)
+        action = Action.model_validate(_action("in-progress"), context={"ouro": ouro})
+
+        action.cancel()
+
+        self.assertTrue(action.is_cancelled)
+        self.assertTrue(action.is_complete)
+        self.assertFalse(action.is_pending)
+        self.assertIsNotNone(action.cancel_requested_at)
+
+    def test_cancelling_action_is_still_pending(self) -> None:
+        action = Action.model_validate(
+            _action("in-progress", cancel_requested_at="2026-10-31T12:00:00+00:00")
+        )
+        self.assertTrue(action.is_cancelling)
+        self.assertFalse(action.is_complete)
+
+    def test_poll_action_returns_cancelled_without_raising(self) -> None:
+        ouro = _FakeOuro(
+            [
+                _FakeResponse(
+                    {
+                        "data": _action(
+                            "in-progress",
+                            cancel_requested_at="2026-10-31T12:00:00+00:00",
+                        )
+                    }
+                ),
+                _FakeResponse({"data": _action("cancelled")}),
+            ]
+        )
+
+        with patch("ouro.resources.routes.time.sleep"):
+            action = Routes(ouro).poll_action(ACTION_ID, raise_on_error=True)
+
+        self.assertEqual(action.status, "cancelled")
+
+    def test_route_carries_its_cancel_path(self) -> None:
+        from ouro.models import Route
+
+        route = Route.model_validate(_route_payload(cancel_path="/cancel"))
+        self.assertEqual(route.route.cancel_path, "/cancel")
+        self.assertIsNone(Route.model_validate(_route_payload()).route.cancel_path)
+
 
 class TestActionCli(unittest.TestCase):
     def _run(self, responses: list[_FakeResponse], argv: list[str]):
@@ -654,6 +738,39 @@ class TestActionCli(unittest.TestCase):
 
         self.assertEqual(code, 124)
         self.assertIn("in-progress", out)
+
+    def test_wait_exits_three_on_cancelled(self) -> None:
+        code, out = self._run(
+            [_FakeResponse({"data": _action("cancelled")})],
+            ["action", "wait", ACTION_ID, "--json"],
+        )
+
+        self.assertEqual(code, 3)
+        summary = json.loads(out)
+        self.assertEqual(summary["status"], "cancelled")
+        self.assertNotIn("error", summary)
+        self.assertIn("Cancelled", summary["note"])
+
+    def test_cancel_command_prints_the_result(self) -> None:
+        code, out = self._run(
+            [
+                _FakeResponse(
+                    {
+                        "data": {
+                            "action_id": ACTION_ID,
+                            "status": "cancelling",
+                            "signal_delivered": True,
+                            "cancel_requested_at": "2026-10-31T12:00:00+00:00",
+                        }
+                    },
+                    status_code=202,
+                )
+            ],
+            ["action", "cancel", ACTION_ID, "--json"],
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["status"], "cancelling")
 
 
 if __name__ == "__main__":
