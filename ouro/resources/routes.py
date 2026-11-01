@@ -20,7 +20,6 @@ from ouro._resource import (
     _strip_none,
 )
 from ouro.models import Action, ActionCancel, ActionLog, DeleteResult, Page, Route, RouteCost, RouteStats
-from ouro.utils import is_valid_uuid
 
 from .content import Content
 
@@ -217,25 +216,9 @@ class Routes(SyncAPIResource):
             **kwargs,
         )
 
-    def _resolve_name_to_id(self, name_or_id: str, asset_type: str) -> str:
-        """Resolve a name to an ID using the backend endpoint."""
-        if is_valid_uuid(name_or_id):
-            return name_or_id
-        else:
-            entity_name, name = name_or_id.split("/", 1)
-            request = self.client.post(
-                "/elements/common/name-to-id",
-                json={
-                    "name": name,
-                    "assetType": asset_type,
-                    "entityName": entity_name,
-                },
-            )
-            return self._handle_response(request)["id"]
-
     def retrieve(self, name_or_id: str) -> Route:
-        """Retrieve a Route by its name or ID."""
-        route_id = self._resolve_name_to_id(name_or_id, "route")
+        """Retrieve a Route by its ID, "entity/name" or URL (see ``assets.resolve_id``)."""
+        route_id = self.ouro.assets.resolve_id(name_or_id, "route")
         request = self.client.get(f"/routes/{route_id}")
         return self._parse(Route, self._handle_response(request))
 

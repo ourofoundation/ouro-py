@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Type, Union
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, urlparse
 from uuid import UUID
 
 from ouro._exceptions import NotFoundError
@@ -94,6 +94,44 @@ def _resolve_download_path(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
+
+
+# Asset types with a name URL, keyed by their URL path segment ("/routes/...")
+_URL_ASSET_TYPES = {
+    "posts": "post",
+    "files": "file",
+    "datasets": "dataset",
+    "services": "service",
+    "routes": "route",
+    "quests": "quest",
+}
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _parse_asset_ref(ref: str) -> tuple[str, str, Optional[str]]:
+    """``(entity, slug, asset_type)`` from "entity/slug", "routes/entity/slug" or an asset URL."""
+    text = ref.strip()
+    if text.startswith(("http://", "https://")):
+        text = urlparse(text).path
+    parts = [unquote(part) for part in text.strip("/").split("/")]
+    asset_type = None
+    if len(parts) == 3 and parts[0] in _URL_ASSET_TYPES:
+        asset_type = _URL_ASSET_TYPES[parts.pop(0)]
+    if len(parts) != 2 or not all(parts):
+        raise ValueError(
+            f"{ref!r} is not an asset id or name. Pass a UUID, \"entity/name\" "
+            "(a username or organization name, then the slug from the asset's URL), "
+            "or the asset's URL."
+        )
+    entity, slug = parts
+    return entity.lstrip("@"), slug, asset_type
 
 
 # Server-enforced maximum page size for /search/assets.
@@ -218,10 +256,14 @@ class Assets(SyncAPIResource):
         id: str,
     ) -> Union[Post, Comment, File, Dataset, Service, Route, Quest, Asset]:
         """
-        Retrieve any asset by its ID, regardless of asset type.
+        Retrieve any asset by its ID or name, regardless of asset type.
         Automatically determines the asset type and routes to the
         appropriate resource's retrieve method.
+
+        ``id`` takes anything :meth:`resolve_id` does: a UUID, "entity/name",
+        or the asset's URL.
         """
+        id = self.resolve_id(id)
         request = self.client.get(f"/assets/{id}/type")
         data = self._handle_response(request)
 
@@ -258,6 +300,39 @@ class Assets(SyncAPIResource):
                 f"Asset type '{asset_type}' is not supported by the unified retrieve method. "
                 f"Please use the specific resource's retrieve method if available."
             )
+
+    def resolve_id(self, ref: str, asset_type: Optional[str] = None) -> str:
+        """The UUID of the asset ``ref`` names.
+
+        ``ref`` is a UUID (returned as is), "entity/name", "<type>s/entity/name"
+        or the asset's URL. ``entity`` is the username or organization name in
+        the asset's URL and ``name`` its URL slug, e.g.
+        "mmoderwell/check-whether-a-crystal-structure-is-already-known".
+
+        Raises ``NotFoundError`` when no asset you can read has that name, and
+        ``ValueError`` when it names assets of more than one type; pass
+        ``asset_type`` (or the "routes/entity/name" form) to pick one.
+        """
+        if _is_uuid(ref):
+            return ref
+        entity, slug, ref_type = _parse_asset_ref(ref)
+        if asset_type and ref_type and asset_type != ref_type:
+            raise ValueError(f"{ref!r} names a {ref_type}, not a {asset_type}.")
+        asset_type = asset_type or ref_type
+        request = self.client.get(
+            f"/assets/by-name/{quote(entity, safe='')}/{quote(slug, safe='')}",
+            params={"asset_type": asset_type} if asset_type else None,
+        )
+        # A name nobody can read is a 404, raised here
+        matches = self._handle_response(request)
+        if len(matches) == 1:
+            return matches[0]["id"]
+        candidates = ", ".join(f"{m['asset_type']} {m['id']}" for m in matches)
+        raise ValueError(
+            f"{entity}/{slug} names more than one asset ({candidates}). "
+            f"Pass one of these ids, or a typed name such as "
+            f"\"{matches[0]['asset_type']}s/{entity}/{slug}\"."
+        )
 
     def download(
         self,

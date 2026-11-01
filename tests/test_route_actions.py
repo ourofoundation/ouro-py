@@ -11,6 +11,7 @@ import httpx
 from ouro import cli
 from ouro._exceptions import ExternalServiceError, InternalServerError
 from ouro.models.action import Action
+from ouro.resources.assets import Assets
 from ouro.resources.routes import Routes
 
 
@@ -79,6 +80,7 @@ class _FakeOuro:
         self.user = SimpleNamespace(
             user_id="00000000-0000-0000-0000-000000000003"
         )
+        self.assets = Assets(self)
 
     def _make_status_error(self, err_msg: str, *, body, response, status_override=None):
         return InternalServerError(err_msg, response=response, body=body)
