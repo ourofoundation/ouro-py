@@ -254,6 +254,47 @@ class TestRouteActions(unittest.TestCase):
             {"sample_id": "abc"},
         )
 
+    def test_execute_uploads_local_paths_as_scratch_inputs(self) -> None:
+        from pathlib import Path
+
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": _route_payload()}),
+                _FakeResponse(
+                    {
+                        "data": {"responseData": {"ok": True}},
+                        "action": _action("success"),
+                        "metadata": {},
+                    }
+                ),
+            ]
+        )
+        uploaded = []
+        ouro.files = SimpleNamespace(
+            upload_input=lambda path: uploaded.append(path)
+            or {"upload_id": "files/u/scratch/a.cif", "file_name": "Fe2P.cif"}
+        )
+
+        Routes(ouro).execute(
+            ROUTE_ID,
+            input_assets={
+                "structure": Path("Fe2P.cif"),
+                "reference": {"upload_id": "files/u/scratch/b.cif"},
+            },
+        )
+
+        self.assertEqual(uploaded, [Path("Fe2P.cif")])
+        self.assertEqual(
+            ouro.client.requests[1]["json"]["config"]["input_assets"],
+            {
+                "structure": {
+                    "upload_id": "files/u/scratch/a.cif",
+                    "file_name": "Fe2P.cif",
+                },
+                "reference": {"upload_id": "files/u/scratch/b.cif"},
+            },
+        )
+
     def test_execute_warns_for_caller_side_input_asset_metadata(self) -> None:
         ouro = _FakeOuro(
             [

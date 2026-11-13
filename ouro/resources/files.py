@@ -275,6 +275,7 @@ class Files(SyncAPIResource):
         file_name: str,
         visibility: str = "private",
         content_type: Optional[str] = None,
+        purpose: Optional[Literal["asset", "input"]] = None,
     ) -> dict:
         """Reserve a storage path and get a signed URL to upload a file to.
 
@@ -282,6 +283,11 @@ class Files(SyncAPIResource):
         such as an agent talking to a hosted MCP server: PUT the file to
         ``upload_url`` with the returned ``headers``, then pass ``upload_id``
         to :meth:`create` or :meth:`update`.
+
+        With ``purpose="input"`` the upload is scratch space for a route
+        run: pass ``{"upload_id": ...}`` as one of ``routes.execute``'s
+        ``input_assets`` and it never becomes an asset. Scratch uploads are
+        private and deleted after 7 days unless claimed as a file asset.
 
         Returns ``upload_id``, ``upload_url``, ``method``, ``headers`` and
         ``expires_in`` (seconds), plus the ``bucket``, ``path`` and
@@ -293,9 +299,51 @@ class Files(SyncAPIResource):
                 "file_name": file_name,
                 "visibility": visibility,
                 "content_type": content_type,
+                "purpose": purpose,
             }),
         )
         return self._handle_response(request)
+
+    def upload_input(
+        self,
+        file: Union[str, "os.PathLike[str]", bytes],
+        file_name: Optional[str] = None,
+    ) -> dict:
+        """Upload a file to pass to a route run without making it an asset.
+
+        For screening campaigns and other runs whose inputs would only be
+        noise on Ouro. Returns ``{"upload_id": ..., "file_name": ...}``; pass
+        it as a value of ``routes.execute(input_assets=...)``, as many times
+        as you like within 7 days, after which unclaimed uploads are deleted.
+        ``routes.execute`` also takes a :class:`pathlib.Path` and calls this
+        for you.
+
+        Args:
+            file: A local path, or the bytes themselves.
+            file_name: Name the route sees. Required with bytes; defaults to
+                the path's base name. Its extension is how most services tell
+                the format.
+        """
+        if isinstance(file, (bytes, bytearray)):
+            if not file_name:
+                raise ValueError("file_name is required when uploading bytes")
+            content = bytes(file)
+        else:
+            path = os.fspath(file)
+            file_name = file_name or os.path.basename(path)
+            with open(path, "rb") as f:
+                content = f.read()
+
+        reserved = self.create_upload_url(file_name, purpose="input")
+        response = httpx.request(
+            reserved.get("method") or "PUT",
+            reserved["upload_url"],
+            content=content,
+            headers=reserved.get("headers") or {},
+            timeout=300,
+        )
+        response.raise_for_status()
+        return {"upload_id": reserved["upload_id"], "file_name": file_name}
 
     def _complete_upload(self, upload_id: str, file_name: Optional[str] = None) -> dict:
         """Describe an object uploaded through :meth:`create_upload_url`."""

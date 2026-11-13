@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
+from pathlib import PurePath
 import warnings
 from typing import Any, Dict, List, Optional, Union
 
@@ -57,6 +58,9 @@ def _normalize_input_assets(
             normalized[name] = {"assetId": value}
         elif isinstance(value, dict):
             asset_id = value.get("assetId") or value.get("asset_id") or value.get("id")
+            if value.get("upload_id") or value.get("uploadId"):
+                normalized[name] = value
+                continue
             metadata_keys = _COMPAT_INPUT_ASSET_METADATA_KEYS.intersection(value)
             if metadata_keys:
                 warnings.warn(
@@ -70,7 +74,7 @@ def _normalize_input_assets(
             normalized[name] = {"assetId": asset_id, **value} if asset_id else value
         else:
             raise ValueError(
-                "input_assets values must be asset IDs or dictionaries "
+                "input_assets values must be asset IDs, local paths or dictionaries "
                 f"(got {type(value).__name__} for {name!r})."
             )
     return normalized
@@ -620,6 +624,19 @@ class Routes(SyncAPIResource):
             time.sleep(sleep_for)
             delay = min(poll_interval, delay * 2)
 
+    def _upload_path_inputs(
+        self, inputs: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Upload any local paths among ``inputs`` as scratch route inputs."""
+        if not inputs:
+            return inputs
+        return {
+            name: self.ouro.files.upload_input(value)
+            if isinstance(value, PurePath)
+            else value
+            for name, value in inputs.items()
+        }
+
     def execute(
         self,
         name_or_id: Union[str, Route],
@@ -672,6 +689,10 @@ class Routes(SyncAPIResource):
             input_assets: Mapping of route input names to Ouro asset IDs. Route
                 authors should declare asset type and body path metadata on the
                 route; caller-side object metadata is compatibility-only.
+                A file input can instead be a local :class:`pathlib.Path`,
+                uploaded for this run without becoming an asset, or the
+                ``{"upload_id": ...}`` from :meth:`Files.upload_input` to
+                reuse one upload across runs.
             wait: If True (default), block until the action reaches a terminal
                 state. If False, send ``Prefer: respond-async`` and return
                 immediately with the in-progress action handle.
@@ -721,7 +742,9 @@ class Routes(SyncAPIResource):
             output = {**(output or {}), "team_id": str(team_id)}
         route = self._route(name_or_id)
         route_id = str(route.id)
-        normalized_input_assets = _normalize_input_assets(input_assets, assets)
+        normalized_input_assets = _normalize_input_assets(
+            self._upload_path_inputs(input_assets), self._upload_path_inputs(assets)
+        )
 
         payload = {
             "config": {

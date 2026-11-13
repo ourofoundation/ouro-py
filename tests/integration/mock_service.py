@@ -89,6 +89,15 @@ def _openapi(title: str) -> dict:
                     "responses": ok,
                 }
             },
+            "/inspect-file-id": {
+                "post": {
+                    "summary": "Inspect file by id",
+                    "operationId": "inspect_file_id",
+                    "x-ouro-input-assets": {"structure": {"asset_type": "file"}},
+                    "requestBody": _json_body({"structure": {"type": "string"}}),
+                    "responses": ok,
+                }
+            },
             "/make-report": {
                 "post": {
                     "summary": "Make report",
@@ -177,7 +186,22 @@ class MockService:
             return 200, {"item_id": path.rsplit("/", 1)[1], "q": request["query"].get("q")}
         if path == "/inspect-file":
             structure = body.get("structure") or {}
-            return 200, {"keys": sorted(body), "structure_keys": sorted(structure)}
+            fetched = None
+            # Fetch the bytes the way a real service would, to prove the URL works
+            if structure.get("url"):
+                response = httpx.get(structure["url"], timeout=30)
+                response.raise_for_status()
+                fetched = response.text
+            return 200, {
+                "keys": sorted(body),
+                "structure_keys": sorted(structure),
+                "structure_id": structure.get("id"),
+                "upload_id": structure.get("upload_id"),
+                "filename": structure.get("filename"),
+                "content": fetched,
+            }
+        if path == "/inspect-file-id":
+            return 200, {"structure": body.get("structure")}
         if path == "/make-report":
             title = body.get("title") or "Report"
             return 200, {

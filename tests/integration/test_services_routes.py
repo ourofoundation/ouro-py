@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from ouro import ExternalServiceError, OuroError, RouteExecutionError
@@ -38,6 +39,7 @@ def test_routes_parsed_from_spec(routes):
         "/fail",
         "/items/{item_id}",
         "/inspect-file",
+        "/inspect-file-id",
         "/make-report",
     }
     assert routes["/slow-echo"].route.execution_mode == "async"
@@ -121,6 +123,92 @@ def test_input_asset_is_resolved_for_the_service(ouro, track, routes, mock_servi
 
     linked = ouro.assets.actions(str(file.id), role="input")
     assert any(a.id == action.id for a in linked.as_input)
+
+
+CIF = "data_Fe2P\n_cell_length_a 5.865\n"
+
+
+def test_upload_input_reaches_the_service_without_an_asset(ouro, me, routes, tmp_path):
+    """A local path is uploaded as scratch and passed by upload_id."""
+    path = tmp_path / "Fe2P.cif"
+    path.write_text(CIF)
+
+    action = ouro.routes.execute(
+        str(routes["/inspect-file"].id), input_assets={"structure": path}
+    )
+
+    assert action.is_success, action.error
+    response = action.response
+    assert response["content"] == CIF
+    assert response["filename"] == "Fe2P.cif"
+    assert response["structure_id"] is None
+    assert response["upload_id"].startswith(f"files/{me.user_id}/scratch/")
+    assert action.input_asset_id is None
+
+    # The run records the upload, not an asset
+    action = ouro.routes.retrieve_action(str(action.id))
+    recorded = action.metadata["input_assets"]["structure"]
+    assert recorded["uploadId"] == response["upload_id"]
+    assert recorded["fileName"] == "Fe2P.cif"
+    assert recorded["size"] == len(CIF)
+
+
+def test_one_upload_serves_many_runs(ouro, routes):
+    ref = ouro.files.upload_input(CIF.encode(), file_name="reused.cif")
+    for note in ("first", "second"):
+        action = ouro.routes.execute(
+            str(routes["/inspect-file"].id), input_assets={"structure": ref}
+        )
+        assert action.is_success, action.error
+        assert action.response["content"] == CIF
+        assert action.response["filename"] == "reused.cif"
+
+
+def test_bare_upload_id_keeps_its_file_name(ouro, routes):
+    """An agent passing only the upload_id still hands the service its name."""
+    reserved = ouro.files.create_upload_url("Fe2P conventional.cif", purpose="input")
+    httpx.request(
+        reserved["method"], reserved["upload_url"], content=CIF.encode(),
+        headers=reserved["headers"],
+    ).raise_for_status()
+
+    action = ouro.routes.execute(
+        str(routes["/inspect-file"].id),
+        input_assets={"structure": {"upload_id": reserved["upload_id"]}},
+    )
+
+    assert action.is_success, action.error
+    assert action.response["filename"] == "Fe2P_conventional.cif"
+    assert action.response["content"] == CIF
+
+
+def test_upload_input_can_still_become_an_asset(ouro, track):
+    ref = ouro.files.upload_input(CIF.encode(), file_name="keeper.cif")
+    file = track.add(
+        ouro.files.create(
+            name=track.name("claimed-input"),
+            upload_id=ref["upload_id"],
+            visibility="private",
+        )
+    )
+    # Claiming keeps the scratch path, so the sweep can tell it was kept
+    assert "/scratch/" in file.metadata.path
+
+
+def test_upload_refused_where_the_route_takes_an_asset_id(ouro, routes):
+    ref = ouro.files.upload_input(CIF.encode(), file_name="x.cif")
+    with pytest.raises(OuroError, match="takes an Ouro asset id"):
+        ouro.routes.execute(
+            str(routes["/inspect-file-id"].id), input_assets={"structure": ref}
+        )
+
+
+def test_someone_elses_upload_is_refused(ouro, routes):
+    with pytest.raises(OuroError, match="not an upload of yours"):
+        ouro.routes.execute(
+            str(routes["/inspect-file"].id),
+            input_assets={"structure": {"upload_id": "files/someone-else/scratch/x.cif"}},
+        )
 
 
 def test_output_asset_is_created(ouro, track, routes):
