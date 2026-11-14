@@ -193,7 +193,8 @@ post = ouro.posts.create(
 )
 ```
 
-You can also use `content_markdown="..."` or `content_path="./report.md"`.
+You can also use `content_markdown="..."` or `content_path="./report.md"`, on
+`ouro.posts.update` as well as `create`.
 
 ### Run an API
 

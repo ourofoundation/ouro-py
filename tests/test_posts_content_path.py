@@ -128,6 +128,40 @@ class TestRequestBodies(unittest.TestCase):
         self.assertEqual(body["content"], "Hi {@deleckir}")
         self.assertEqual(body["post"]["description"], "**d**")
 
+    def _update(self, **kwargs) -> dict:
+        ouro = _fake_ouro()
+        posts = Posts(ouro)
+        posts._scope_update = lambda post: None
+        with self.assertRaises(_Sent):
+            posts.update("00000000-0000-0000-0000-000000000001", **kwargs)
+        return ouro.client.requests[0]["json"]
+
+    def test_post_update_sends_markdown_content(self) -> None:
+        body = self._update(content_markdown="# v2")
+        self.assertEqual(body["content"], "# v2")
+        self.assertNotIn("content_markdown", body["post"])
+
+    def test_post_update_reads_content_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "post.md"
+            path.write_text("# From file\n", encoding="utf-8")
+            body = self._update(content_path=str(path))
+        self.assertEqual(body["content"], "# From file\n")
+        self.assertNotIn("content_path", body["post"])
+
+    def test_post_update_without_body_leaves_content_unchanged(self) -> None:
+        body = self._update(name="Renamed")
+        self.assertIsNone(body["content"])
+        self.assertEqual(body["post"]["name"], "Renamed")
+
+    def test_post_update_rejects_multiple_content_inputs(self) -> None:
+        with self.assertRaises(ValueError):
+            Posts(_fake_ouro()).update(
+                "00000000-0000-0000-0000-000000000001",
+                content="# a",
+                content_markdown="# b",
+            )
+
     def test_comment_create_sends_markdown_content(self) -> None:
         ouro = _fake_ouro()
 

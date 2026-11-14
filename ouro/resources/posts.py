@@ -48,11 +48,15 @@ class Posts(SyncAPIResource):
 
     def _resolve_content(
         self,
-        content: Optional["Content"],
+        content: Optional[Union["Content", str]],
         content_markdown: Optional[str],
         content_path: Optional[str],
-    ) -> Union["Content", str]:
-        """Return the post body as Content, or as markdown for the server to parse."""
+        required: bool = True,
+    ) -> Optional[Union["Content", str]]:
+        """Return the post body as Content, or as markdown for the server to parse.
+
+        With ``required=False`` (updates), returns None when no body is given.
+        """
         provided = [
             ("content", content is not None),
             ("content_markdown", content_markdown is not None),
@@ -79,6 +83,8 @@ class Posts(SyncAPIResource):
             markdown = path.read_text(encoding="utf-8")
 
         if markdown is None:
+            if not required:
+                return None
             raise ValueError(
                 "No post body provided. Pass one of: content, content_markdown, or content_path."
             )
@@ -193,6 +199,8 @@ class Posts(SyncAPIResource):
         self,
         id: str,
         content: Optional[Union["Content", str]] = None,
+        content_markdown: Optional[str] = None,
+        content_path: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[Union[str, "Content"]] = None,
         visibility: Optional[str] = None,
@@ -207,8 +215,16 @@ class Posts(SyncAPIResource):
     ) -> Post:
         """Update a Post by its id.
 
-        ``content`` may be Content or a markdown string for the server to parse.
+        To replace the body, provide at most one of content, content_markdown,
+        or content_path; omit all three to leave it unchanged. ``content`` may
+        be Content or a markdown string for the server to parse.
         """
+        content = self._resolve_content(
+            content=content,
+            content_markdown=content_markdown,
+            content_path=content_path,
+            required=False,
+        )
         post = _strip_none(
             {
                 "name": name,
