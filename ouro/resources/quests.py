@@ -335,7 +335,9 @@ class Quests(SyncAPIResource):
         )
         return self._parse(QuestItem, self._handle_response(request))
 
-    def rescore_item(self, quest_id: str, item_id: str) -> dict:
+    def rescore_item(
+        self, quest_id: str, item_id: str, *, reuse_steps: bool = False
+    ) -> dict:
         """Re-run an item's evaluator on its existing entries.
 
         Use after changing the evaluator. Runs as you (a quest editor) and
@@ -343,8 +345,17 @@ class Quests(SyncAPIResource):
         Returns ``{"started": [{entry_id, run_id}], "skipped":
         [{entry_id, reason}]}``; scores update as each run finishes. Read a
         run with ``get_evaluation``.
+
+        Args:
+            reuse_steps: Take over each entry's unchanged steps from its last
+                run (see ``evaluate_entry``). After a change to gates or the
+                score formula alone, this re-scores every entry without
+                running a route.
         """
-        request = self.client.post(f"/quests/{quest_id}/items/{item_id}/rescore", json={})
+        request = self.client.post(
+            f"/quests/{quest_id}/items/{item_id}/rescore",
+            json={"reuse_steps": True} if reuse_steps else {},
+        )
         return self._handle_response(request)
 
     def evaluate_item(
@@ -517,7 +528,9 @@ class Quests(SyncAPIResource):
         )
         return self._parse(Entry, self._handle_response(request))
 
-    def evaluate_entry(self, quest_id: str, entry_id: str) -> Entry:
+    def evaluate_entry(
+        self, quest_id: str, entry_id: str, *, reuse_steps: bool = False
+    ) -> Entry:
         """Run the item's evaluator on an entry, as the quest's owner.
 
         For items that wait for the owner (``eval_trigger="owner"``), and to
@@ -526,6 +539,16 @@ class Quests(SyncAPIResource):
         When every step answers inline the score is on the returned entry; a
         longer step leaves it ``eval_status="running"`` until its route
         reports. ``entry.eval_run`` has each step's status and route run.
+
+        Args:
+            reuse_steps: Take over the steps of the entry's last run that are
+                unchanged (same route, inputs and parameters, and succeeded),
+                so only what is new runs. Use it after changing a gate or the
+                score formula, or after a later step failed. Leave it off when
+                a step's route or a submitted route has itself changed.
         """
-        request = self.client.post(f"/quests/{quest_id}/entries/{entry_id}/evaluate")
+        request = self.client.post(
+            f"/quests/{quest_id}/entries/{entry_id}/evaluate",
+            json={"reuse_steps": True} if reuse_steps else {},
+        )
         return self._parse(Entry, self._handle_response(request))

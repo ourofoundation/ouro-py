@@ -268,6 +268,35 @@ class TestQuestEvaluators(unittest.TestCase):
             {"path": f"/quests/{QUEST_ID}/items/{ITEM_ID}/rescore", "json": {}},
         )
 
+    def test_reuse_steps_is_sent_only_when_asked(self) -> None:
+        entry = {"id": ENTRY_ID, "status": "submitted", "eval_status": "running"}
+        ouro = _FakeOuro(
+            [
+                _FakeResponse({"data": entry}),
+                _FakeResponse({"data": entry}),
+                _FakeResponse({"data": {"started": [], "skipped": []}}),
+            ]
+        )
+        quests = Quests(ouro)
+
+        quests.evaluate_entry(QUEST_ID, ENTRY_ID)
+        quests.evaluate_entry(QUEST_ID, ENTRY_ID, reuse_steps=True)
+        quests.rescore_item(QUEST_ID, ITEM_ID, reuse_steps=True)
+
+        self.assertEqual(
+            [request["json"] for request in ouro.client.requests],
+            [{}, {"reuse_steps": True}, {"reuse_steps": True}],
+        )
+
+    def test_a_reused_step_names_the_run_it_came_from(self) -> None:
+        run = _run(purpose="entry", entry_id=ENTRY_ID)
+        run["steps"]["hull"]["reused_from"] = RUN_ID
+        ouro = _FakeOuro([_FakeResponse({"data": run})])
+
+        parsed = Quests(ouro).get_evaluation(QUEST_ID, RUN_ID)
+
+        self.assertEqual(str(parsed.steps["hull"].reused_from), RUN_ID)
+
     def test_evaluate_entry_returns_the_entry_with_its_run(self) -> None:
         ouro = _FakeOuro(
             [

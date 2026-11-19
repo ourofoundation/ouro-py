@@ -85,6 +85,8 @@ class EvaluationRunStep(OuroModel):
     action_id: Optional[UUID] = None
     # Why the step was skipped or failed.
     reason: Optional[str] = None
+    # The earlier run this step's result was taken from, when it wasn't run again.
+    reused_from: Optional[UUID] = None
 
 
 class EvaluationRun(OuroModel):
