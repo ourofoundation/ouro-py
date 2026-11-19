@@ -66,6 +66,8 @@ from .organization import Organization, OrganizationMembership
 from .post import Comment, Post
 from .quest import (
     Entry,
+    EvaluationRun,
+    EvaluationRunStep,
     ItemCompletion,
     LeaderboardPage,
     Quest,
@@ -152,6 +154,8 @@ __all__ = [
     "Download",
     "Engagement",
     "Entry",
+    "EvaluationRun",
+    "EvaluationRunStep",
     "File",
     "FileData",
     "FileMetadata",

@@ -8,6 +8,8 @@ from .asset import Asset, AssetRef, RichText, UserProfile
 
 __all__ = [
     "Entry",
+    "EvaluationRun",
+    "EvaluationRunStep",
     "ItemCompletion",
     "LeaderboardPage",
     "Quest",
@@ -45,6 +47,12 @@ class QuestItem(OuroModel):
     reward_amount: int = 0
     child_quest_id: Optional[UUID] = None
     completed_entry_id: Optional[UUID] = None
+    # How entries are scored: routes run as steps, then formulas over their
+    # responses ({steps, gates, categories, score, pass}).
+    evaluator_id: Optional[UUID] = None
+    evaluator: Optional[Dict[str, Any]] = None
+    # The evaluator in its one-route form. Set only when it is a single plain
+    # route call; None for an evaluator with several steps.
     eval_route_id: Optional[UUID] = None
     eval_score_path: Optional[str] = None
     eval_categories_path: Optional[str] = None
@@ -54,7 +62,7 @@ class QuestItem(OuroModel):
     leaderboard_order: Optional[Literal["desc", "asc"]] = "desc"
     submission_assets: Optional[Dict[str, Any]] = None
     eval_static_inputs: Optional[Dict[str, Any]] = None
-    # When the eval route runs: "submit" or "owner" (the quest's owner starts it)
+    # When the evaluator runs: "submit" or "owner" (the quest's owner starts it)
     eval_trigger: Optional[str] = None
     notes: Optional[str] = None
     waiting_on: Optional[str] = None
@@ -67,6 +75,41 @@ class QuestItem(OuroModel):
     quest_asset: Optional[Asset] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class EvaluationRunStep(OuroModel):
+    # "pending", "running", "success", "error" or "skipped"
+    status: str
+    route_id: Optional[UUID] = None
+    # The route run behind this step, once it started.
+    action_id: Optional[UUID] = None
+    # Why the step was skipped or failed.
+    reason: Optional[str] = None
+
+
+class EvaluationRun(OuroModel):
+    """One run of a quest item's evaluator: its steps, gates and result."""
+
+    id: Optional[UUID] = None
+    evaluator_id: Optional[UUID] = None
+    quest_id: Optional[UUID] = None
+    item_id: Optional[UUID] = None
+    # None for a trial run (``quests.evaluate_item``).
+    entry_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    # "entry", "rescore" or "test"
+    purpose: Optional[str] = None
+    # "running", "completed" or "errored"
+    status: Optional[str] = None
+    steps: Dict[str, EvaluationRunStep] = Field(default_factory=dict)
+    score: Optional[float] = None
+    passed: Optional[bool] = None
+    # Per gate: True passed, False failed, None not decided.
+    gates: Optional[Dict[str, Optional[bool]]] = None
+    categories: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    finished_at: Optional[str] = None
 
 
 class Entry(OuroModel):
@@ -87,7 +130,10 @@ class Entry(OuroModel):
     status: Literal["submitted", "accepted", "rejected"] = "submitted"
     reviewer_id: Optional[UUID] = None
     reviewed_at: Optional[str] = None
-    eval_action_id: Optional[UUID] = None
+    # The entry's latest evaluation run; each step's route run is
+    # ``eval_run.steps[name].action_id``.
+    eval_run_id: Optional[UUID] = None
+    eval_run: Optional[EvaluationRun] = None
     eval_score: Optional[float] = None
     eval_category_scores: Optional[Dict[str, Any]] = None
     eval_status: Optional[str] = None
@@ -121,7 +167,7 @@ class QuestLeaderboardRow(OuroModel):
     score: Optional[float] = None
     status: Optional[str] = None
     eval_status: Optional[str] = None
-    eval_action_id: Optional[UUID] = None
+    eval_run_id: Optional[UUID] = None
     created_at: Optional[str] = None
     category_scores: Optional[Dict[str, Any]] = None
     user: Optional[UserProfile] = None

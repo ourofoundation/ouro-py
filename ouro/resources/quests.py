@@ -11,7 +11,16 @@ from ouro._resource import (
     _optional_attribution,
     _strip_none,
 )
-from ouro.models import DeleteResult, Entry, ItemCompletion, LeaderboardPage, Page, Quest, QuestItem
+from ouro.models import (
+    DeleteResult,
+    Entry,
+    EvaluationRun,
+    ItemCompletion,
+    LeaderboardPage,
+    Page,
+    Quest,
+    QuestItem,
+)
 
 from .content import Content
 
@@ -19,6 +28,9 @@ log: logging.Logger = logging.getLogger(__name__)
 
 
 __all__ = ["Quests"]
+
+# Tells "not passed" from an explicit None, which removes an item's evaluator.
+_UNSET: Any = object()
 
 
 def _parse_quest_item(value: Any) -> Optional[Dict[str, Any]]:
@@ -143,7 +155,9 @@ class Quests(SyncAPIResource):
                    reward_xp, reward_currency, reward_amount, etc.).
                    ``submission_assets`` declares what contributors attach,
                    keyed by input name, e.g.
-                   ``{"file": {"asset_type": "file"}}``.
+                   ``{"file": {"asset_type": "file"}}``. An item scored
+                   automatically carries an ``evaluator`` (see
+                   ``create_items``), which then decides what entries submit.
         """
         quest = _strip_none(
             {
@@ -246,6 +260,45 @@ class Quests(SyncAPIResource):
         Args:
             items: List of task descriptions (strings), TipTap Content dicts, or
                    full item objects.
+
+        An item object may carry an ``evaluator`` that scores its entries: one
+        or more existing routes run as steps, then formulas over their
+        responses::
+
+            {
+                "steps": {
+                    "hull": {
+                        "route_id": "<route uuid>",
+                        "inputs": {"structure": "inputs.structure"},
+                        "body": {"allow_unrelaxed": True},
+                    },
+                    "mae": {
+                        "route_id": "<route uuid>",
+                        "inputs": {"structure": "hull.relaxed"},
+                        "after": ["stable"],
+                    },
+                },
+                "gates": {"stable": "hull.e_above_hull <= 0.075"},
+                "categories": {"anisotropy": "min(mae.k1, 1)"},
+                "score": "100 * anisotropy",
+                "pass": {"min": 50},
+            }
+
+        Each step input is ``"inputs.<key>"`` (an asset the entry submits),
+        ``"<step>.<field>"`` (an asset an earlier step returned) or a fixed
+        ``{"asset_id", "asset_type"}``. ``body`` holds fixed request
+        parameters; ``after`` names gates that must pass before the step
+        starts, and a failed gate skips steps not yet started. Formulas read
+        step responses by path; ``score`` may also read gate and category
+        names. Entries submit the ``inputs.<key>`` assets the steps read.
+
+        For a single route call, the flat fields are the short form:
+        ``eval_route_id`` with optional ``eval_score_path``,
+        ``eval_categories_path``, ``eval_pass_min``, ``eval_pass_max`` and
+        ``eval_static_inputs``. They are ignored when ``evaluator`` is sent.
+
+        A definition the API rejects raises ``BadRequestError`` with code
+        ``invalid_evaluator``; the message lists every problem.
         """
         rows = [_normalize_quest_item_input(i) for i in items]
         request = self.client.post(
@@ -254,9 +307,26 @@ class Quests(SyncAPIResource):
         )
         return self._parse_list(QuestItem, self._handle_response(request))
 
-    def update_item(self, quest_id: str, item_id: str, **kwargs) -> QuestItem:
-        """Update an item's metadata, status, rewards, or notes."""
+    def update_item(
+        self,
+        quest_id: str,
+        item_id: str,
+        *,
+        evaluator: Optional[Dict[str, Any]] = _UNSET,
+        **kwargs,
+    ) -> QuestItem:
+        """Update an item's metadata, status, rewards, notes, or evaluator.
+
+        Args:
+            evaluator: Replace how entries are scored with this definition
+                (see ``create_items``), or pass ``None`` to remove the item's
+                evaluator. The flat ``eval_route_id`` fields still work as the
+                short form for one route call and are ignored when
+                ``evaluator`` is passed.
+        """
         item = _strip_none(kwargs)
+        if evaluator is not _UNSET:
+            item["evaluator"] = evaluator
         if "description" in item and item["description"] is not None:
             item["description"] = _coerce_description(item["description"])
         request = self.client.put(
@@ -266,15 +336,43 @@ class Quests(SyncAPIResource):
         return self._parse(QuestItem, self._handle_response(request))
 
     def rescore_item(self, quest_id: str, item_id: str) -> dict:
-        """Re-run an item's eval route on its existing entries.
+        """Re-run an item's evaluator on its existing entries.
 
-        Use after changing the eval route. Runs as you (a quest editor) and
+        Use after changing the evaluator. Runs as you (a quest editor) and
         only updates scores; it never accepts, rejects or pays an entry.
-        Returns ``{"started": [{entry_id, action_id}], "skipped":
-        [{entry_id, reason}]}``; scores update as each run finishes.
+        Returns ``{"started": [{entry_id, run_id}], "skipped":
+        [{entry_id, reason}]}``; scores update as each run finishes. Read a
+        run with ``get_evaluation``.
         """
         request = self.client.post(f"/quests/{quest_id}/items/{item_id}/rescore", json={})
         return self._handle_response(request)
+
+    def evaluate_item(
+        self, quest_id: str, item_id: str, assets: Dict[str, str]
+    ) -> EvaluationRun:
+        """Run an item's evaluator on some assets without creating an entry.
+
+        A trial run: for a quest's author to try an evaluator, and for a
+        contributor to see how a candidate scores first. Runs as you, and you
+        pay for the step runs.
+
+        Args:
+            assets: The assets to evaluate, keyed like an entry's (e.g.
+                ``{"structure": "<uuid>"}``).
+
+        Steps that answer inline are done when this returns; longer ones are
+        still ``running``. Read the run again with ``get_evaluation``.
+        """
+        request = self.client.post(
+            f"/quests/{quest_id}/items/{item_id}/evaluate",
+            json={"assets": assets},
+        )
+        return self._parse(EvaluationRun, self._handle_response(request))
+
+    def get_evaluation(self, quest_id: str, run_id: str) -> EvaluationRun:
+        """Retrieve one evaluation run: its steps, gates, score and error."""
+        request = self.client.get(f"/quests/{quest_id}/evaluations/{run_id}")
+        return self._parse(EvaluationRun, self._handle_response(request))
 
     def complete_item(
         self,
@@ -420,13 +518,14 @@ class Quests(SyncAPIResource):
         return self._parse(Entry, self._handle_response(request))
 
     def evaluate_entry(self, quest_id: str, entry_id: str) -> Entry:
-        """Run the item's evaluation route on an entry, as the quest's owner.
+        """Run the item's evaluator on an entry, as the quest's owner.
 
         For items that wait for the owner (``eval_trigger="owner"``), and to
         evaluate an entry again (an accepted entry is only re-scored, never
         paid twice). Requires quest admin.
-        An inline eval route's score is on the returned entry; an async one
-        leaves it ``eval_status="running"`` until the route reports.
+        When every step answers inline the score is on the returned entry; a
+        longer step leaves it ``eval_status="running"`` until its route
+        reports. ``entry.eval_run`` has each step's status and route run.
         """
         request = self.client.post(f"/quests/{quest_id}/entries/{entry_id}/evaluate")
         return self._parse(Entry, self._handle_response(request))
